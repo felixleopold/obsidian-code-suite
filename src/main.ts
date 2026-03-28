@@ -247,6 +247,15 @@ export default class CodePlugin extends Plugin {
       if (!pre) continue;
       if (pre.parentElement?.hasClass("ocode-wrapper")) continue;
 
+      // Skip YAML frontmatter — Obsidian wraps it in a .frontmatter div
+      // and the el passed to the post-processor IS that div at the top of the note
+      if (
+        pre.closest(".frontmatter") ||
+        pre.closest("[data-type='frontmatter']") ||
+        el.classList.contains("frontmatter") ||
+        el.hasAttribute("data-role") && el.getAttribute("data-role") === "frontmatter"
+      ) continue;
+
       const langClass = Array.from(codeEl.classList).find((c) =>
         c.startsWith("language-")
       );
