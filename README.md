@@ -41,7 +41,7 @@ Works in **both reading view and editor** (live preview / source mode).
 
 ### Manual
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/felixleopold/obsidian-code-suite/releases)
-2. Create a folder `obsidian-code-suite` in your vault's `.obsidian/plugins/` directory
+2. Create a folder `code-suite` in your vault's `.obsidian/plugins/` directory
 3. Place the three files inside it
 4. Restart Obsidian and enable "CodeSuite" in Community Plugins
 
