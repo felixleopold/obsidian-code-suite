@@ -9,7 +9,8 @@ const VAULT_PLUGIN_DIR = process.env.VAULT_PLUGIN_DIR;
 const buildOptions = {
   entryPoints: ["src/main.ts"],
   bundle: true,
-  external: ["obsidian", "electron", "@codemirror/*", "@lezer/*"],
+  external: ["obsidian", "electron", "@codemirror/*", "@lezer/*",
+             "child_process", "fs", "os", "path"],
   format: "cjs",
   target: "es2020",
   logLevel: "info",

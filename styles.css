@@ -1,172 +1,328 @@
 /* ============================================
-   Obsidian Syntax Highlighting — VS Code Style
-   Gruvbox Dark Hard Theme
+   Obsidian Code Plugin — Complete Styles
    ============================================ */
 
-/* Wrapper */
-.shiki-wrapper {
+/* ─── Wrapper ─────────────────────────────────── */
+.ocode-wrapper {
   position: relative;
   margin: 1em 0;
   border-radius: 6px;
   overflow: hidden;
-  background-color: #1d2021;
-  border: 1px solid #3c3836;
-}
-
-/* Language label (top-right corner like VS Code) */
-.shiki-language-label {
-  position: absolute;
-  top: 0;
-  right: 0;
-  padding: 2px 10px;
-  font-size: 11px;
+  background-color: var(--ocode-bg, #1d2021);
+  border: 1px solid var(--ocode-border, #3c3836);
   font-family: var(--font-monospace), "Fira Code", "JetBrains Mono", "Cascadia Code", monospace;
-  color: #928374;
-  background-color: #282828;
-  border-bottom-left-radius: 4px;
-  border-left: 1px solid #3c3836;
-  border-bottom: 1px solid #3c3836;
-  text-transform: lowercase;
-  user-select: none;
-  z-index: 1;
-  letter-spacing: 0.5px;
 }
 
-/* Pre/Code reset */
-.shiki-wrapper pre.shiki {
+/* ─── Header bar ──────────────────────────────── */
+.ocode-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  background-color: var(--ocode-header-bg, #282828);
+  border-bottom: 1px solid var(--ocode-border, #3c3836);
+  min-height: 28px;
+  gap: 6px;
+}
+
+.ocode-label {
+  font-size: 11px;
+  color: var(--ocode-muted, #928374);
+  text-transform: lowercase;
+  letter-spacing: 0.5px;
+  user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ocode-spacer {
+  flex: 1;
+}
+
+/* ─── Buttons ─────────────────────────────────── */
+.ocode-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ocode-muted, #928374);
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.ocode-btn:hover {
+  background-color: var(--ocode-border, #3c3836);
+  color: var(--ocode-fg, #ebdbb2);
+}
+
+.ocode-run-btn {
+  color: #b8bb26; /* Gruvbox green */
+}
+
+.ocode-run-btn:hover {
+  background-color: rgba(184, 187, 38, 0.15);
+  color: #b8bb26;
+}
+
+.ocode-run-btn.ocode-running {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Spinner animation */
+@keyframes ocode-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.ocode-spin {
+  animation: ocode-spin 1s linear infinite;
+}
+
+/* ─── Code area ───────────────────────────────── */
+.ocode-wrapper pre.shiki {
   margin: 0 !important;
   padding: 12px 16px !important;
-  padding-top: 28px !important; /* space for language label */
-  background-color: #1d2021 !important;
+  background-color: transparent !important;
   border: none !important;
   border-radius: 0 !important;
   overflow-x: auto;
-  font-family: var(--font-monospace), "Fira Code", "JetBrains Mono", "Cascadia Code", monospace;
-  font-size: 14px;
+  font-family: inherit;
+  font-size: 13.5px;
   line-height: 1.6;
   tab-size: 4;
 }
 
-.shiki-wrapper pre.shiki code {
+.ocode-wrapper pre.shiki code {
   background: none !important;
   padding: 0 !important;
   border: none !important;
   font-size: inherit;
   font-family: inherit;
   line-height: inherit;
-  color: #ebdbb2;
   display: block;
   white-space: pre;
 }
 
-/* Lines */
-.shiki-wrapper .line {
+/* ─── Lines ───────────────────────────────────── */
+.ocode-wrapper .line {
   display: inline-block;
   width: 100%;
-  padding: 0 0 0 0;
   min-height: 1.6em;
+  padding: 0 4px 0 0;
 }
 
-/* Hover highlight (like VS Code current line) */
-.shiki-wrapper .line:hover {
-  background-color: rgba(255, 255, 255, 0.04);
+.ocode-wrapper .line:hover {
+  background-color: rgba(255, 255, 255, 0.03);
 }
 
-/* Line numbers */
-.shiki-line-number {
+/* ─── Line numbers ────────────────────────────── */
+.ocode-line-num {
   display: inline-block;
   width: 3em;
   margin-right: 16px;
   text-align: right;
-  color: #504945;
+  color: var(--ocode-line-num, #504945);
   user-select: none;
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
 
-/* Line number hover */
-.shiki-wrapper .line:hover .shiki-line-number {
-  color: #7c6f64;
+.ocode-wrapper .line:hover .ocode-line-num {
+  color: var(--ocode-muted, #928374);
 }
 
-/* Hide Obsidian's default code block styling when our plugin is active */
-.markdown-preview-view pre:has(+ .shiki-wrapper),
-.markdown-reading-view pre:has(+ .shiki-wrapper) {
-  display: none;
+/* ─── Output panel ────────────────────────────── */
+.ocode-output {
+  border-top: 1px solid var(--ocode-border, #3c3836);
+  background-color: var(--ocode-output-bg, #1a1a1a);
 }
 
-/* Scrollbar inside code blocks (thin, gruvbox-colored) */
-.shiki-wrapper pre.shiki::-webkit-scrollbar {
+.ocode-output-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 12px;
+  background-color: var(--ocode-header-bg, #282828);
+  border-bottom: 1px solid var(--ocode-border, #3c3836);
+  gap: 6px;
+}
+
+.ocode-output-label {
+  font-size: 11px;
+  color: var(--ocode-muted, #928374);
+  letter-spacing: 0.5px;
+  user-select: none;
+  flex: 1;
+}
+
+.ocode-output-content {
+  margin: 0 !important;
+  padding: 10px 16px !important;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--ocode-fg, #ebdbb2);
+  background: none !important;
+  border: none !important;
+}
+
+.ocode-stdout {
+  color: var(--ocode-fg, #ebdbb2);
+}
+
+.ocode-stderr {
+  color: #fb4934; /* Gruvbox red */
+}
+
+.ocode-no-output {
+  color: var(--ocode-line-num, #504945);
+  font-style: italic;
+}
+
+/* ─── Hide Obsidian's default copy button on our blocks ─── */
+.ocode-wrapper .copy-code-button {
+  display: none !important;
+}
+
+/* ─── Wide code blocks ────────────────────────── */
+body.ocode-wide-blocks .ocode-wrapper {
+  margin-left: -5%;
+  margin-right: -5%;
+  width: calc(100% + 10%);
+}
+
+/* ─── Embedded file styling ───────────────────── */
+.ocode-embed-container {
+  display: block !important;
+  padding: 0 !important;
+  border: none !important;
+  background: none !important;
+}
+
+.ocode-embedded .ocode-label {
+  font-weight: 500;
+  color: #d3869b; /* Gruvbox purple for filenames */
+}
+
+/* ─── Scrollbar inside code blocks ────────────── */
+.ocode-wrapper pre.shiki::-webkit-scrollbar {
   height: 6px;
 }
 
-.shiki-wrapper pre.shiki::-webkit-scrollbar-track {
-  background: #1d2021;
+.ocode-wrapper pre.shiki::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.shiki-wrapper pre.shiki::-webkit-scrollbar-thumb {
-  background: #3c3836;
+.ocode-wrapper pre.shiki::-webkit-scrollbar-thumb {
+  background: var(--ocode-border, #3c3836);
   border-radius: 3px;
 }
 
-.shiki-wrapper pre.shiki::-webkit-scrollbar-thumb:hover {
-  background: #504945;
+.ocode-wrapper pre.shiki::-webkit-scrollbar-thumb:hover {
+  background: var(--ocode-line-num, #504945);
 }
 
-/* When there's no language label, reduce top padding */
-.shiki-wrapper:not(:has(.shiki-language-label)) pre.shiki {
-  padding-top: 12px !important;
+/* Output scrollbar */
+.ocode-output-content::-webkit-scrollbar {
+  width: 6px;
 }
 
-/* Selection color */
-.shiki-wrapper pre.shiki code::selection,
-.shiki-wrapper pre.shiki code *::selection {
+.ocode-output-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ocode-output-content::-webkit-scrollbar-thumb {
+  background: var(--ocode-border, #3c3836);
+  border-radius: 3px;
+}
+
+/* ─── Selection ───────────────────────────────── */
+.ocode-wrapper pre.shiki code::selection,
+.ocode-wrapper pre.shiki code *::selection {
   background-color: rgba(168, 153, 132, 0.3);
 }
 
-/* Copy button styling (Obsidian injects one) */
-.shiki-wrapper .copy-code-button {
-  top: 28px;
-  right: 8px;
-  background-color: #282828;
-  color: #928374;
-  border: 1px solid #3c3836;
+/* ─── Editor source mode — match Gruvbox feel ─── */
+/* Make the editor code blocks look closer to preview */
+.cm-s-obsidian .HyperMD-codeblock {
+  line-height: 1.6;
+  font-size: 13.5px;
 }
 
-.shiki-wrapper .copy-code-button:hover {
-  background-color: #3c3836;
-  color: #ebdbb2;
-}
-
-/* --- Mobile adjustments --- */
+/* ─── Mobile ──────────────────────────────────── */
 @media (max-width: 768px) {
-  .shiki-wrapper pre.shiki {
-    font-size: 13px;
+  .ocode-wrapper pre.shiki {
+    font-size: 12.5px;
     padding: 10px 12px !important;
-    padding-top: 24px !important;
   }
 
-  .shiki-line-number {
+  .ocode-line-num {
     width: 2.5em;
-    margin-right: 12px;
+    margin-right: 10px;
   }
 
-  .shiki-language-label {
+  .ocode-header {
+    padding: 3px 8px;
+  }
+
+  .ocode-label {
     font-size: 10px;
-    padding: 1px 8px;
+  }
+
+  body.ocode-wide-blocks .ocode-wrapper {
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
   }
 }
 
-/* --- Print/export — keep syntax colors --- */
+/* ─── Print ───────────────────────────────────── */
 @media print {
-  .shiki-wrapper {
+  .ocode-wrapper {
     border: 1px solid #ccc;
     break-inside: avoid;
   }
 
-  .shiki-wrapper pre.shiki {
-    background-color: #1d2021 !important;
+  .ocode-wrapper pre.shiki {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
+
+  .ocode-btn,
+  .ocode-output {
+    display: none !important;
+  }
+}
+
+/* ─── Gruvbox CSS Variables (theme-adaptive) ──── */
+/* Dark variants */
+.theme-dark .ocode-wrapper {
+  --ocode-bg: #1d2021;
+  --ocode-header-bg: #282828;
+  --ocode-border: #3c3836;
+  --ocode-fg: #ebdbb2;
+  --ocode-muted: #928374;
+  --ocode-line-num: #504945;
+  --ocode-output-bg: #1a1a1a;
+}
+
+/* Light variants */
+.theme-light .ocode-wrapper {
+  --ocode-bg: #f9f5d7;
+  --ocode-header-bg: #f2e5bc;
+  --ocode-border: #d5c4a1;
+  --ocode-fg: #3c3836;
+  --ocode-muted: #928374;
+  --ocode-line-num: #a89984;
+  --ocode-output-bg: #fbf1c7;
 }
