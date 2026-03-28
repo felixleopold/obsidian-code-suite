@@ -28,6 +28,17 @@ const ICON = {
 
 const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
 
+/** Parse an SVG string into a DOM element without using innerHTML */
+function parseSvg(svgString: string): Node {
+  return new DOMParser().parseFromString(svgString, "image/svg+xml").documentElement;
+}
+
+/** Replace element content with parsed SVG */
+function setSvgContent(el: Element, svgString: string): void {
+  el.textContent = "";
+  el.appendChild(parseSvg(svgString));
+}
+
 export default class CodePlugin extends Plugin {
   settings: CodePluginSettings = DEFAULT_SETTINGS;
   highlighter: Highlighter = new Highlighter();
@@ -40,7 +51,7 @@ export default class CodePlugin extends Plugin {
 
     // Load any custom themes from settings
     for (const ct of this.settings.customThemes) {
-      await this.highlighter.loadCustomTheme(ct);
+      this.highlighter.loadCustomTheme(ct);
     }
 
     this.addSettingTab(new CodeSettingTab(this.app, this));
@@ -100,7 +111,7 @@ export default class CodePlugin extends Plugin {
     await this.highlighter.init();
     // Reload custom themes
     for (const ct of this.settings.customThemes) {
-      await this.highlighter.loadCustomTheme(ct);
+      this.highlighter.loadCustomTheme(ct);
     }
     this.app.workspace.updateOptions();
   }
@@ -149,7 +160,10 @@ export default class CodePlugin extends Plugin {
   // ─── Editor Shiki Extension ─────────────────────────────────
 
   private buildShikiEditorExtension() {
-    const pluginRef = this;
+    const resolveLanguage = (raw: string) => this.highlighter.resolveLanguage(raw);
+    const tokenize = (code: string, lang: string, theme: string) =>
+      this.highlighter.tokenize(code, lang, theme);
+    const getTheme = () => this.settings.theme;
 
     return ViewPlugin.fromClass(
       class {
@@ -196,10 +210,10 @@ export default class CodePlugin extends Plugin {
           }
 
           for (const block of blocks) {
-            const lang = pluginRef.highlighter.resolveLanguage(block.lang);
+            const lang = resolveLanguage(block.lang);
             const code = block.lines.map((l) => l.text).join("\n");
 
-            const tokens = pluginRef.highlighter.tokenize(code, lang, pluginRef.settings.theme);
+            const tokens = tokenize(code, lang, getTheme());
             if (!tokens) continue;
 
             for (let lineIdx = 0; lineIdx < tokens.length && lineIdx < block.lines.length; lineIdx++) {
@@ -279,7 +293,10 @@ export default class CodePlugin extends Plugin {
 
     const wrapper = document.createElement("div");
     wrapper.className = "ocode-wrapper";
-    wrapper.innerHTML = html;
+    const parsedHtml = new DOMParser().parseFromString(html, "text/html");
+    for (const node of Array.from(parsedHtml.body.childNodes)) {
+      wrapper.appendChild(document.adoptNode(node));
+    }
 
     // ─── Header bar (label left, buttons right) ───
     const header = document.createElement("div");
@@ -300,11 +317,11 @@ export default class CodePlugin extends Plugin {
     btnGroup.className = "ocode-btn-group";
 
     const copyBtn = this.createPillButton("Copy", ICON.copy, () => {
-      navigator.clipboard.writeText(code).then(() => {
-        copyBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.check;
+      void navigator.clipboard.writeText(code).then(() => {
+        setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
         copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
         setTimeout(() => {
-          copyBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.copy;
+          setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
           copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copy";
         }, 2000);
       });
@@ -313,7 +330,7 @@ export default class CodePlugin extends Plugin {
 
     if (this.settings.enableExecution && isExecutable(lang) && Platform.isDesktop) {
       const runBtn = this.createPillButton("Run", ICON.play, () => {
-        this.runCode(code, lang, wrapper, runBtn);
+        void this.runCode(code, lang, wrapper, runBtn);
       }, "ocode-run-pill");
       btnGroup.appendChild(runBtn);
     }
@@ -349,7 +366,14 @@ export default class CodePlugin extends Plugin {
   ): HTMLButtonElement {
     const btn = document.createElement("button");
     btn.className = `ocode-pill ${extraClass || ""}`.trim();
-    btn.innerHTML = `<span class="ocode-pill-icon">${icon}</span><span class="ocode-pill-text">${text}</span>`;
+    const iconSpan = document.createElement("span");
+    iconSpan.className = "ocode-pill-icon";
+    iconSpan.appendChild(parseSvg(icon));
+    btn.appendChild(iconSpan);
+    const textSpan = document.createElement("span");
+    textSpan.className = "ocode-pill-text";
+    textSpan.textContent = text;
+    btn.appendChild(textSpan);
     btn.addEventListener("click", onClick);
     return btn;
   }
@@ -370,7 +394,7 @@ export default class CodePlugin extends Plugin {
     }
 
     // Switch button to "Stop" cancel mode
-    runBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.stop;
+    setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.stop);
     runBtn.querySelector(".ocode-pill-text")!.textContent = "Stop";
     runBtn.classList.add("ocode-cancel-pill");
 
@@ -392,7 +416,10 @@ export default class CodePlugin extends Plugin {
 
     const clearBtn = document.createElement("button");
     clearBtn.className = "ocode-pill ocode-clear-pill";
-    clearBtn.innerHTML = `<span class="ocode-pill-icon">${ICON.close}</span>`;
+    const clearBtnIcon = document.createElement("span");
+    clearBtnIcon.className = "ocode-pill-icon";
+    clearBtnIcon.appendChild(parseSvg(ICON.close));
+    clearBtn.appendChild(clearBtnIcon);
     clearBtn.setAttribute("aria-label", "Clear output");
     clearBtn.addEventListener("click", () => outputPanel.remove());
     outHeader.appendChild(clearBtn);
@@ -411,12 +438,15 @@ export default class CodePlugin extends Plugin {
     const inputField = document.createElement("input");
     inputField.type = "text";
     inputField.className = "ocode-input-field";
-    inputField.placeholder = "Type input and press Enter\u2026";
+    inputField.placeholder = "Type input and press enter\u2026";
     inputBar.appendChild(inputField);
 
     const sendBtn = document.createElement("button");
     sendBtn.className = "ocode-pill ocode-send-pill";
-    sendBtn.innerHTML = `<span class="ocode-pill-icon">${ICON.send}</span>`;
+    const sendBtnIcon = document.createElement("span");
+    sendBtnIcon.className = "ocode-pill-icon";
+    sendBtnIcon.appendChild(parseSvg(ICON.send));
+    sendBtn.appendChild(sendBtnIcon);
     sendBtn.setAttribute("aria-label", "Send input");
     inputBar.appendChild(sendBtn);
     outputPanel.appendChild(inputBar);
@@ -477,13 +507,13 @@ export default class CodePlugin extends Plugin {
 
       // Add copy-error button if there was stderr
       if (stderrText) {
-        const copyErrBtn = this.createPillButton("Copy Error", ICON.copy, () => {
-          navigator.clipboard.writeText(stderrText).then(() => {
-            copyErrBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.check;
+        const copyErrBtn = this.createPillButton("Copy error", ICON.copy, () => {
+          void navigator.clipboard.writeText(stderrText).then(() => {
+            setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.check);
             copyErrBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
             setTimeout(() => {
-              copyErrBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.copy;
-              copyErrBtn.querySelector(".ocode-pill-text")!.textContent = "Copy Error";
+              setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
+              copyErrBtn.querySelector(".ocode-pill-text")!.textContent = "Copy error";
             }, 2000);
           });
         });
@@ -513,14 +543,14 @@ export default class CodePlugin extends Plugin {
 
       // Hide text area if only images, no text
       if (!outContent.childNodes.length && result.images.length > 0) {
-        outContent.style.display = "none";
+        outContent.classList.add("ocode-hidden");
       }
     } catch (err: unknown) {
       new Notice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       this.runningProcs.delete(wrapper);
       // Restore run button
-      runBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.play;
+      setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.play);
       runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
       runBtn.classList.remove("ocode-cancel-pill");
     }
@@ -576,7 +606,7 @@ export default class CodePlugin extends Plugin {
       const file = this.app.metadataCache.getFirstLinkpathDest(src, ctx.sourcePath);
       if (!file || !(file instanceof TFile)) continue;
 
-      this.renderEmbeddedFile(embed as HTMLElement, file, ext);
+      void this.renderEmbeddedFile(embed as HTMLElement, file, ext);
     }
   }
 
@@ -604,7 +634,7 @@ export default class CodePlugin extends Plugin {
       if (!codeArea) return;
 
       wrapper.classList.add("ocode-collapsed");
-      codeArea.style.display = "none";
+      codeArea.classList.add("ocode-hidden");
 
       // Add toggle arrow to the header
       const header = wrapper.querySelector(".ocode-header");
@@ -631,7 +661,11 @@ export default class CodePlugin extends Plugin {
         e.preventDefault();
         e.stopPropagation();
         const collapsed = wrapper.classList.toggle("ocode-collapsed");
-        codeArea.style.display = collapsed ? "none" : "";
+        if (collapsed) {
+          codeArea.classList.add("ocode-hidden");
+        } else {
+          codeArea.classList.remove("ocode-hidden");
+        }
         arrow.textContent = collapsed ? "\u25B6" : "\u25BC"; // ▶ / ▼
       });
     }

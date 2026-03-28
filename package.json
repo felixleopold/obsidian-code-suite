@@ -27,11 +27,17 @@
   "homepage": "https://github.com/felixleopold/obsidian-syntax-highlighting#readme",
   "devDependencies": {
     "@codemirror/language": "^6.12.3",
+    "@eslint/json": "^1.2.0",
     "@lezer/highlight": "^1.2.3",
     "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
     "esbuild": "^0.27.4",
+    "eslint": "^10.1.0",
+    "eslint-plugin-obsidianmd": "^0.1.9",
     "obsidian": "^1.12.3",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.57.2"
   },
   "dependencies": {
     "shiki": "^4.0.2"

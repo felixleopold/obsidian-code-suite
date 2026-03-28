@@ -288,6 +288,10 @@
   padding: 4px 8px;
 }
 
+/* ─── Utility classes ─────────────────────────── */
+.ocode-hidden { display: none !important; }
+.ocode-exec-desc { margin-bottom: 12px; }
+
 /* ─── Hide Obsidian default copy button ───────── */
 .ocode-wrapper .copy-code-button {
   display: none !important;

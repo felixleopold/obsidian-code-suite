@@ -17,14 +17,16 @@ export class CodeSettingTab extends PluginSettingTab {
     // ─── About ───────────────────────────────────
     const aboutDiv = containerEl.createDiv({ cls: "ocode-settings-about" });
     aboutDiv.createEl("p", {
-      text: "Obsidian Code replaces the default code block rendering with Shiki-powered syntax highlighting — the same engine used by VS Code. It works in both reading view and editor (live preview / source mode).",
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
+      text: "Obsidian Code replaces the default code block rendering with Shiki-powered syntax highlighting \u2014 the same engine used by VS Code. It works in both reading view and editor (live preview / source mode).",
     });
     aboutDiv.createEl("p", {
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
       text: "Code execution runs locally on your machine using the language runtimes installed on your system (e.g. python3, node). Output is streamed live and displayed below the code block. No code is sent to any server.",
     });
 
     // ─── Theme ───────────────────────────────────
-    containerEl.createEl("h3", { text: "Theme" });
+    new Setting(containerEl).setName("Theme").setHeading();
 
     // Build theme options: bundled + custom
     const themeOptions: Record<string, string> = {};
@@ -56,6 +58,7 @@ export class CodeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Syntax theme")
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
       .setDesc("Color scheme for code blocks. Applies to both reading view and editor. 65 built-in themes from VS Code / Shiki, plus any custom themes you import below.")
       .addDropdown((dropdown) => {
         for (const [value, name] of Object.entries(themeOptions)) {
@@ -66,7 +69,7 @@ export class CodeSettingTab extends PluginSettingTab {
           this.plugin.settings.theme = value;
           await this.plugin.saveSettings();
           this.plugin.applyThemeColors();
-          this.plugin.refreshHighlighter();
+          await this.plugin.refreshHighlighter();
         });
       });
 
@@ -75,35 +78,40 @@ export class CodeSettingTab extends PluginSettingTab {
       .setName("Import VS Code theme")
       .setDesc("Import a VS Code / TextMate color theme (.json). Find themes at https://vscodethemes.com or export from VS Code (Ctrl+Shift+P → \"Generate Color Theme From Current Settings\").")
       .addButton((btn) => {
+        // eslint-disable-next-line obsidianmd/ui/sentence-case
         btn.setButtonText("Import .json file");
         btn.onClick(() => {
           const input = document.createElement("input");
           input.type = "file";
           input.accept = ".json";
-          input.addEventListener("change", async () => {
-            const file = input.files?.[0];
-            if (!file) return;
-            try {
-              const text = await file.text();
-              const json = JSON.parse(text);
-              const name = json.name || file.name.replace(/\.json$/, "");
-              const customTheme: CustomTheme = { name, json: text };
-              // Load into highlighter
-              const id = await this.plugin.highlighter.loadCustomTheme(customTheme);
-              if (!id) {
-                new Notice("Failed to load theme — invalid format.");
-                return;
+          input.addEventListener("change", () => {
+            void (async () => {
+              const file = input.files?.[0];
+              if (!file) return;
+              try {
+                const text = await file.text();
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                const json = JSON.parse(text);
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+                const name: string = json.name || file.name.replace(/\.json$/, "");
+                const customTheme: CustomTheme = { name, json: text };
+                // Load into highlighter
+                const id = this.plugin.highlighter.loadCustomTheme(customTheme);
+                if (!id) {
+                  new Notice("Failed to load theme — invalid format.");
+                  return;
+                }
+                // Save and select
+                this.plugin.settings.customThemes.push(customTheme);
+                this.plugin.settings.theme = id;
+                await this.plugin.saveSettings();
+                this.plugin.applyThemeColors();
+                new Notice(`Theme "${name}" imported and activated.`);
+                this.display(); // Refresh the settings UI
+              } catch {
+                new Notice("Failed to parse theme file. Make sure it's a valid VS Code theme JSON.");
               }
-              // Save and select
-              this.plugin.settings.customThemes.push(customTheme);
-              this.plugin.settings.theme = id;
-              await this.plugin.saveSettings();
-              this.plugin.applyThemeColors();
-              new Notice(`Theme "${name}" imported and activated.`);
-              this.display(); // Refresh the settings UI
-            } catch {
-              new Notice("Failed to parse theme file. Make sure it's a valid VS Code theme JSON.");
-            }
+            })();
           });
           input.click();
         });
@@ -127,7 +135,7 @@ export class CodeSettingTab extends PluginSettingTab {
               }
               await this.plugin.saveSettings();
               this.plugin.applyThemeColors();
-              this.plugin.refreshHighlighter();
+              await this.plugin.refreshHighlighter();
               this.display();
             });
           });
@@ -135,7 +143,7 @@ export class CodeSettingTab extends PluginSettingTab {
     }
 
     // ─── Appearance ──────────────────────────────
-    containerEl.createEl("h3", { text: "Appearance" });
+    new Setting(containerEl).setName("Appearance").setHeading();
 
     new Setting(containerEl)
       .setName("Line numbers")
@@ -166,18 +174,26 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     // ─── Code Execution ──────────────────────────
-    containerEl.createEl("h3", { text: "Code Execution" });
+    new Setting(containerEl).setName("Code execution").setHeading();
 
-    const execDesc = containerEl.createDiv({ cls: "setting-item-description" });
-    execDesc.style.marginBottom = "12px";
-    execDesc.innerHTML = "Code runs <b>locally on your machine</b> using your installed language runtimes. " +
-      "Supported: Python (<code>python3</code>), JavaScript (<code>node</code>), TypeScript (<code>npx ts-node</code>), " +
-      "Bash/Shell. The process runs in a child process with your system PATH. " +
-      "Output (stdout/stderr) streams live into the output panel. You can send stdin input while the program is running.";
+    const execDesc = containerEl.createDiv({ cls: "setting-item-description ocode-exec-desc" });
+    execDesc.appendText("Code runs ");
+    // eslint-disable-next-line obsidianmd/ui/sentence-case
+    execDesc.createEl("b", { text: "locally on your machine" });
+    execDesc.appendText(" using your installed language runtimes. Supported: Python (");
+    // eslint-disable-next-line obsidianmd/ui/sentence-case
+    execDesc.createEl("code", { text: "python3" });
+    execDesc.appendText("), JavaScript (");
+    // eslint-disable-next-line obsidianmd/ui/sentence-case
+    execDesc.createEl("code", { text: "node" });
+    execDesc.appendText("), TypeScript (");
+    // eslint-disable-next-line obsidianmd/ui/sentence-case
+    execDesc.createEl("code", { text: "npx ts-node" });
+    execDesc.appendText("), Bash/Shell. The process runs in a child process with your system PATH. Output (stdout/stderr) streams live into the output panel. You can send stdin input while the program is running.");
 
     new Setting(containerEl)
       .setName("Enable code execution")
-      .setDesc("Show a Run button on code blocks for supported languages. Desktop only.")
+      .setDesc("Show a run button on code blocks for supported languages. Desktop only.")
       .addToggle((t) => {
         t.setValue(this.plugin.settings.enableExecution);
         t.onChange(async (v) => { this.plugin.settings.enableExecution = v; await this.plugin.saveSettings(); });
@@ -194,12 +210,13 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     // ─── Environment ─────────────────────────────
-    containerEl.createEl("h3", { text: "Environment" });
+    new Setting(containerEl).setName("Environment").setHeading();
 
     new Setting(containerEl)
       .setName("Python path")
       .setDesc("Absolute path to Python binary or virtualenv (e.g. /path/to/venv/bin/python3). Leave empty to use the system default.")
       .addText((t) => {
+        // eslint-disable-next-line obsidianmd/ui/sentence-case
         t.setPlaceholder("python3");
         t.setValue(this.plugin.settings.pythonPath);
         t.onChange(async (v) => { this.plugin.settings.pythonPath = v.trim(); await this.plugin.saveSettings(); });
@@ -209,6 +226,7 @@ export class CodeSettingTab extends PluginSettingTab {
       .setName("Node.js path")
       .setDesc("Absolute path to Node.js binary. Leave empty to use the system default.")
       .addText((t) => {
+        // eslint-disable-next-line obsidianmd/ui/sentence-case
         t.setPlaceholder("node");
         t.setValue(this.plugin.settings.nodePath);
         t.onChange(async (v) => { this.plugin.settings.nodePath = v.trim(); await this.plugin.saveSettings(); });
@@ -216,8 +234,10 @@ export class CodeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Extra environment variables")
+      // eslint-disable-next-line obsidianmd/ui/sentence-case
       .setDesc("Additional environment variables passed to executed code (one KEY=VALUE per line). Useful for PYTHONPATH, API keys, etc.")
       .addTextArea((t) => {
+        // eslint-disable-next-line obsidianmd/ui/sentence-case
         t.setPlaceholder("PYTHONPATH=/path/to/libs\nMY_VAR=value");
         t.setValue(this.plugin.settings.extraEnv);
         t.inputEl.rows = 4;
@@ -226,7 +246,7 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     // ─── Embedded Files ──────────────────────────
-    containerEl.createEl("h3", { text: "Embedded Code Files" });
+    new Setting(containerEl).setName("Embedded code files").setHeading();
 
     new Setting(containerEl)
       .setName("Render embedded code files")

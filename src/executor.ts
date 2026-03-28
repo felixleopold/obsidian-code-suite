@@ -5,7 +5,6 @@
 
 import { Platform } from "obsidian";
 import { parseExtraEnv, type CodePluginSettings } from "./settings";
-import type { ChildProcess } from "child_process";
 
 /** Runtime definitions */
 const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
@@ -145,9 +144,14 @@ export function startExecution(
     };
   }
 
+  // Node.js builtins are required for code execution (desktop only, guarded by Platform.isDesktop above)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules
   const { spawn } = require("child_process") as typeof import("child_process");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules
   const fs = require("fs") as typeof import("fs");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules
   const os = require("os") as typeof import("os");
+  // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules
   const path = require("path") as typeof import("path");
 
   // Temp dir for this execution
@@ -188,7 +192,7 @@ export function startExecution(
   }
 
   const args = [...runtime.args, tmpFile];
-  let proc: ChildProcess;
+  let proc: ReturnType<typeof spawn>;
   let killed = false;
   let stdout = "";
   let stderr = "";
@@ -241,17 +245,17 @@ export function startExecution(
             }
           }
         }
-      } catch {}
+      } catch { /* image collection is best-effort */ }
 
       // Cleanup
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
 
       resolve({ stdout, stderr, exitCode, killed, images });
     });
 
     proc.on("error", (err: Error) => {
       clearTimeout(timer);
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
       resolve({
         stdout: "",
         stderr: `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`,
@@ -267,10 +271,10 @@ export function startExecution(
       proc.kill("SIGKILL");
     },
     writeStdin: (text: string) => {
-      try { proc.stdin?.write(text); } catch {}
+      try { proc.stdin?.write(text); } catch { /* stdin may already be closed */ }
     },
     closeStdin: () => {
-      try { proc.stdin?.end(); } catch {}
+      try { proc.stdin?.end(); } catch { /* stdin may already be closed */ }
     },
   };
 }

@@ -1,8 +1,10 @@
 /** Highlighter module — manages Shiki highlighter lifecycle */
 
-import { createHighlighterCore, type HighlighterCore } from "shiki/core";
+import { createHighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import type { CustomTheme } from "./settings";
+
+type HighlighterCoreInstance = Awaited<ReturnType<typeof createHighlighterCore>>;
 
 // ─── Theme imports (all 65 bundled Shiki themes) ────────────
 import gruvboxDarkHard from "shiki/themes/gruvbox-dark-hard.mjs";
@@ -174,7 +176,8 @@ export const EXT_TO_LANG: Record<string, string> = {
 };
 
 export class Highlighter {
-  private core: HighlighterCore | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+  private core: HighlighterCoreInstance | null = null;
   private loadedLanguages: Set<string> = new Set();
   private loadedThemes: Set<string> = new Set();
 
@@ -198,7 +201,7 @@ export class Highlighter {
   }
 
   /** Load a custom VS Code / TextMate theme JSON into the highlighter */
-  async loadCustomTheme(customTheme: CustomTheme): Promise<string | null> {
+  loadCustomTheme(customTheme: CustomTheme): string | null {
     if (!this.core) return null;
     try {
       const themeData = JSON.parse(customTheme.json);
