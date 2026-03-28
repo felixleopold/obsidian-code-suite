@@ -1,9 +1,9 @@
 {
   "id": "obsidian-code",
-  "name": "Code",
-  "version": "3.0.0",
+  "name": "CodeSuite",
+  "version": "4.0.0",
   "minAppVersion": "1.5.0",
-  "description": "VS Code-quality code blocks: Shiki syntax highlighting, Gruvbox themes, code execution, embedded file rendering.",
+  "description": "VS Code-quality code blocks: Shiki syntax highlighting with 65+ themes, code execution with live I/O, embedded file rendering, and custom VS Code theme import.",
   "author": "Felix Leopold",
   "authorUrl": "https://github.com/felixleopold",
   "isDesktopOnly": false

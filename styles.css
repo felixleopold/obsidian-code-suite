@@ -306,11 +306,54 @@ body.ocode-wide-blocks .ocode-wrapper {
   padding: 0 !important;
   border: none !important;
   background: none !important;
+  text-align: left !important;
+}
+
+.ocode-embed-container .ocode-wrapper {
+  text-align: left !important;
+}
+
+.ocode-embed-container .ocode-wrapper pre.shiki,
+.ocode-embed-container .ocode-wrapper pre.shiki code {
+  text-align: left !important;
 }
 
 .ocode-embedded .ocode-label {
   color: #d3869b;
   font-weight: 500;
+}
+
+/* ─── Collapsible embeds ──────────────────────── */
+.ocode-collapse-arrow {
+  font-size: 10px;
+  color: var(--ocode-muted, #928374);
+  transition: transform 0.15s;
+  user-select: none;
+  width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ocode-collapse-hint {
+  font-size: 11px;
+  color: var(--ocode-line-num, #504945);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ocode-collapse-toggle {
+  cursor: pointer;
+  user-select: none;
+}
+
+.ocode-collapse-toggle:hover {
+  background-color: var(--ocode-border, #3c3836);
+}
+
+.ocode-collapse-toggle:active {
+  background-color: var(--ocode-line-num, #504945);
 }
 
 /* ─── Scrollbar — code area ───────────────────── */
@@ -392,6 +435,9 @@ body.ocode-wide-blocks .ocode-wrapper {
 }
 
 /* ─── Gruvbox token colors (cm-* classes from Obsidian) ── */
+/* NOTE: These serve as fallbacks. The Shiki ViewPlugin applies
+   inline styles for precise highlighting; these rules ensure
+   code blocks still look decent if the ViewPlugin hasn't run. */
 
 /* Keywords: import, def, class, if, for, while, return, etc. */
 .cm-s-obsidian .HyperMD-codeblock .cm-keyword {

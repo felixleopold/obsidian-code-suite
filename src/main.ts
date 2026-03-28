@@ -5,6 +5,9 @@ import {
   Notice,
   Platform,
 } from "obsidian";
+import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
+import type { DecorationSet, ViewUpdate } from "@codemirror/view";
+import { RangeSetBuilder } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess } from "./executor";
@@ -35,11 +38,24 @@ export default class CodePlugin extends Plugin {
     await this.loadSettings();
     await this.highlighter.init();
 
+    // Load any custom themes from settings
+    for (const ct of this.settings.customThemes) {
+      await this.highlighter.loadCustomTheme(ct);
+    }
+
     this.addSettingTab(new CodeSettingTab(this.app, this));
 
     if (this.settings.wideCodeBlocks) {
       document.body.addClass("ocode-wide-blocks");
     }
+
+    // Apply theme CSS variables
+    this.applyThemeColors();
+
+    // Editor (CM6): Shiki-based syntax highlighting via ViewPlugin
+    this.registerEditorExtension([
+      this.buildShikiEditorExtension(),
+    ]);
 
     // Reading view: syntax highlighting + execution
     this.registerMarkdownPostProcessor(
@@ -82,7 +98,142 @@ export default class CodePlugin extends Plugin {
     this.highlighter.dispose();
     this.highlighter = new Highlighter();
     await this.highlighter.init();
+    // Reload custom themes
+    for (const ct of this.settings.customThemes) {
+      await this.highlighter.loadCustomTheme(ct);
+    }
     this.app.workspace.updateOptions();
+  }
+
+  /** Apply the current theme's bg/fg colors as CSS variables on the body */
+  applyThemeColors() {
+    const bg = this.highlighter.getThemeBg(this.settings.theme);
+    const fg = this.highlighter.getThemeFg(this.settings.theme);
+    const root = document.documentElement;
+    if (bg) {
+      root.style.setProperty("--ocode-bg", bg);
+      // Derive a slightly lighter/darker header bg
+      root.style.setProperty("--ocode-header-bg", this.adjustBrightness(bg, 10));
+      // Derive border from bg
+      root.style.setProperty("--ocode-border", this.adjustBrightness(bg, 25));
+      root.style.setProperty("--ocode-output-bg", this.adjustBrightness(bg, -5));
+    }
+    if (fg) {
+      root.style.setProperty("--ocode-fg", fg);
+      // Muted = fg at 60% opacity approximation
+      root.style.setProperty("--ocode-muted", this.blendColor(fg, bg || "#000000", 0.6));
+      root.style.setProperty("--ocode-line-num", this.blendColor(fg, bg || "#000000", 0.35));
+    }
+  }
+
+  /** Adjust hex color brightness by amount (-255 to 255) */
+  private adjustBrightness(hex: string, amount: number): string {
+    const c = hex.replace("#", "");
+    const r = Math.max(0, Math.min(255, parseInt(c.substring(0, 2), 16) + amount));
+    const g = Math.max(0, Math.min(255, parseInt(c.substring(2, 4), 16) + amount));
+    const b = Math.max(0, Math.min(255, parseInt(c.substring(4, 6), 16) + amount));
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+
+  /** Blend fg toward bg by ratio (0 = fully fg, 1 = fully bg) */
+  private blendColor(fg: string, bg: string, ratio: number): string {
+    const f = fg.replace("#", "");
+    const b = bg.replace("#", "");
+    const mix = (fi: number, bi: number) => Math.round(fi + (bi - fi) * (1 - ratio));
+    const r = mix(parseInt(b.substring(0, 2), 16), parseInt(f.substring(0, 2), 16));
+    const g = mix(parseInt(b.substring(2, 4), 16), parseInt(f.substring(2, 4), 16));
+    const bl = mix(parseInt(b.substring(4, 6), 16), parseInt(f.substring(4, 6), 16));
+    return `#${Math.max(0, Math.min(255, r)).toString(16).padStart(2, "0")}${Math.max(0, Math.min(255, g)).toString(16).padStart(2, "0")}${Math.max(0, Math.min(255, bl)).toString(16).padStart(2, "0")}`;
+  }
+
+  // ─── Editor Shiki Extension ─────────────────────────────────
+
+  private buildShikiEditorExtension() {
+    const pluginRef = this;
+
+    return ViewPlugin.fromClass(
+      class {
+        decorations: DecorationSet;
+
+        constructor(view: EditorView) {
+          this.decorations = this.buildDecorations(view);
+        }
+
+        update(update: ViewUpdate) {
+          if (update.docChanged || update.viewportChanged) {
+            this.decorations = this.buildDecorations(update.view);
+          }
+        }
+
+        buildDecorations(view: EditorView): DecorationSet {
+          const builder = new RangeSetBuilder<Decoration>();
+          const doc = view.state.doc;
+
+          // Collect all code blocks from the full document
+          const blocks: { lang: string; lines: { text: string; from: number }[] }[] = [];
+          let inBlock = false;
+          let blockLang = "";
+          let codeLines: { text: string; from: number }[] = [];
+
+          for (let i = 1; i <= doc.lines; i++) {
+            const line = doc.line(i);
+            const trimmed = line.text.trimStart();
+
+            if (!inBlock && trimmed.startsWith("```")) {
+              inBlock = true;
+              blockLang = trimmed.slice(3).trim().split(/\s/)[0];
+              codeLines = [];
+            } else if (inBlock && /^`{3,}\s*$/.test(trimmed)) {
+              if (codeLines.length > 0 && blockLang) {
+                blocks.push({ lang: blockLang, lines: [...codeLines] });
+              }
+              inBlock = false;
+              blockLang = "";
+              codeLines = [];
+            } else if (inBlock) {
+              codeLines.push({ text: line.text, from: line.from });
+            }
+          }
+
+          for (const block of blocks) {
+            const lang = pluginRef.highlighter.resolveLanguage(block.lang);
+            const code = block.lines.map((l) => l.text).join("\n");
+
+            const tokens = pluginRef.highlighter.tokenize(code, lang, pluginRef.settings.theme);
+            if (!tokens) continue;
+
+            for (let lineIdx = 0; lineIdx < tokens.length && lineIdx < block.lines.length; lineIdx++) {
+              const codeLine = block.lines[lineIdx];
+              let offset = codeLine.from;
+
+              for (const token of tokens[lineIdx]) {
+                const tokenFrom = offset;
+                const tokenTo = offset + token.content.length;
+
+                if (token.color && tokenFrom < tokenTo && tokenTo <= codeLine.from + codeLine.text.length) {
+                  let style = `color: ${token.color} !important`;
+                  if (token.fontStyle) {
+                    if (token.fontStyle & 1) style += "; font-style: italic";
+                    if (token.fontStyle & 2) style += "; font-weight: bold";
+                    if (token.fontStyle & 4) style += "; text-decoration: underline";
+                  }
+                  builder.add(
+                    tokenFrom,
+                    tokenTo,
+                    Decoration.mark({ attributes: { style } })
+                  );
+                }
+
+                offset = tokenTo;
+              }
+            }
+          }
+
+          return builder.finish();
+        }
+      },
+      { decorations: (v) => v.decorations }
+    );
   }
 
   // ─── Code Block Processing ────────────────────────────────────
@@ -243,9 +394,10 @@ export default class CodePlugin extends Plugin {
     outContent.className = "ocode-output-content";
     outputPanel.appendChild(outContent);
 
-    // Stdin input bar (shown while running, hidden when done)
+    // Stdin input bar — only shown if the code reads from stdin
+    const needsStdin = this.codeUsesStdin(code, lang);
     const inputBar = document.createElement("div");
-    inputBar.className = "ocode-input-bar ocode-input-bar-visible";
+    inputBar.className = needsStdin ? "ocode-input-bar ocode-input-bar-visible" : "ocode-input-bar";
 
     const inputField = document.createElement("input");
     inputField.type = "text";
@@ -365,6 +517,38 @@ export default class CodePlugin extends Plugin {
     }
   }
 
+  // ─── Stdin Detection ──────────────────────────────────────────
+
+  /** Check if code likely reads from stdin, based on common patterns per language */
+  private codeUsesStdin(code: string, lang: string): boolean {
+    switch (lang) {
+      case "python":
+        return /\binput\s*\(/.test(code) || /\bsys\.stdin\b/.test(code);
+      case "javascript":
+      case "typescript":
+        return /\bprocess\.stdin\b/.test(code) || /\breadline\b/.test(code) || /\bprompt\s*\(/.test(code);
+      case "bash":
+      case "shell":
+        return /\bread\b/.test(code);
+      case "ruby":
+        return /\bgets\b/.test(code) || /\bSTDIN\b/.test(code) || /\breadline\b/.test(code);
+      case "lua":
+        return /\bio\.read\b/.test(code) || /\bio\.stdin\b/.test(code);
+      case "perl":
+        return /\b<STDIN>\b/.test(code) || /\bchomp\b/.test(code);
+      case "go":
+        return /\bfmt\.Scan/.test(code) || /\bbufio\.NewReader\(os\.Stdin\)/.test(code) || /\bos\.Stdin\b/.test(code);
+      case "php":
+        return /\bfgets\s*\(\s*STDIN\b/.test(code) || /\breadline\s*\(/.test(code);
+      case "r":
+        return /\breadLines\s*\(\s*["']stdin/.test(code) || /\bscan\s*\(/.test(code);
+      case "swift":
+        return /\breadLine\s*\(/.test(code);
+      default:
+        return false;
+    }
+  }
+
   // ─── Embedded Code File Rendering ─────────────────────────────
 
   private processEmbeddedFiles(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
@@ -390,6 +574,7 @@ export default class CodePlugin extends Plugin {
   private async renderEmbeddedFile(embedEl: HTMLElement, file: TFile, ext: string) {
     const code = await this.app.vault.read(file);
     const lang = this.highlighter.resolveExtension(ext);
+    const lineCount = code.split("\n").length;
 
     // Re-use the same render path
     const tempPre = document.createElement("pre");
@@ -401,6 +586,45 @@ export default class CodePlugin extends Plugin {
 
     // Mark as embedded
     const wrapper = embedEl.querySelector(".ocode-wrapper");
-    if (wrapper) wrapper.classList.add("ocode-embedded");
+    if (!wrapper) return;
+    wrapper.classList.add("ocode-embedded");
+
+    // Collapsible behaviour
+    if (this.settings.collapseEmbeds) {
+      const codeArea = wrapper.querySelector("pre.shiki") as HTMLElement;
+      if (!codeArea) return;
+
+      wrapper.classList.add("ocode-collapsed");
+      codeArea.style.display = "none";
+
+      // Add toggle arrow to the header
+      const header = wrapper.querySelector(".ocode-header");
+      if (!header) return;
+
+      const arrow = document.createElement("span");
+      arrow.className = "ocode-collapse-arrow";
+      arrow.textContent = "\u25B6"; // ▶
+      header.prepend(arrow);
+
+      // Add line count hint
+      const hint = document.createElement("span");
+      hint.className = "ocode-collapse-hint";
+      hint.textContent = `${lineCount} lines`;
+      const spacer = header.querySelector(".ocode-spacer");
+      if (spacer) spacer.before(hint);
+
+      // Click header to toggle
+      header.classList.add("ocode-collapse-toggle");
+      header.addEventListener("click", (e) => {
+        // Don't toggle when clicking buttons
+        if ((e.target as HTMLElement).closest(".ocode-pill")) return;
+        // Prevent Obsidian from opening the embedded file
+        e.preventDefault();
+        e.stopPropagation();
+        const collapsed = wrapper.classList.toggle("ocode-collapsed");
+        codeArea.style.display = collapsed ? "none" : "";
+        arrow.textContent = collapsed ? "\u25B6" : "\u25BC"; // ▶ / ▼
+      });
+    }
   }
 }
