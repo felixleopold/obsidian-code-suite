@@ -351,9 +351,9 @@ body.ocode-wide-blocks .ocode-wrapper {
   padding-top: 4px !important;
 }
 
-/* Last line (closing ```) — same bg as code, not header */
+/* Last line (closing ```) — same bg as opening */
 .cm-s-obsidian .HyperMD-codeblock-end {
-  background-color: var(--ocode-bg, #1d2021) !important;
+  background-color: var(--ocode-header-bg, #282828) !important;
   border-bottom: 1px solid var(--ocode-border, #3c3836);
   border-bottom-left-radius: 6px;
   border-bottom-right-radius: 6px;
