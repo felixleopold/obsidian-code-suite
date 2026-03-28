@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-syntax-highlighting",
+  "name": "Syntax Highlighting",
+  "version": "1.0.0",
+  "minAppVersion": "1.5.0",
+  "description": "VS Code-quality syntax highlighting for code blocks using Shiki with Gruvbox theme.",
+  "author": "Felix Leopold",
+  "authorUrl": "https://github.com/felixleopold",
+  "isDesktopOnly": false
+}

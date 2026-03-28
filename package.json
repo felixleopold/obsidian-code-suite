@@ -1,0 +1,32 @@
+{
+  "name": "obsidian-syntax-highlighting",
+  "version": "1.0.0",
+  "description": "VS Code-quality syntax highlighting for Obsidian code blocks using Shiki + Gruvbox",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node esbuild.config.js production",
+    "dev": "node esbuild.config.js",
+    "install-plugin": "node esbuild.config.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/felixleopold/obsidian-syntax-highlighting.git"
+  },
+  "keywords": ["obsidian", "syntax-highlighting", "shiki", "gruvbox"],
+  "author": "Felix Leopold",
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/felixleopold/obsidian-syntax-highlighting/issues"
+  },
+  "homepage": "https://github.com/felixleopold/obsidian-syntax-highlighting#readme",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "esbuild": "^0.27.4",
+    "obsidian": "^1.12.3",
+    "typescript": "^6.0.2"
+  },
+  "dependencies": {
+    "shiki": "^4.0.2"
+  }
+}
