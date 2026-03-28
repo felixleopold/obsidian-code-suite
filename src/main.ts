@@ -5,8 +5,6 @@ import {
   Notice,
   Platform,
 } from "obsidian";
-import { syntaxHighlighting, HighlightStyle } from "@codemirror/language";
-import { tags } from "@lezer/highlight";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess } from "./executor";
@@ -23,64 +21,7 @@ const ICON = {
   stop: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
   close: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   send: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
-  keyboard: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="6" y2="8"/><line x1="10" y1="8" x2="10" y2="8"/><line x1="14" y1="8" x2="14" y2="8"/><line x1="18" y1="8" x2="18" y2="8"/><line x1="6" y1="12" x2="6" y2="12"/><line x1="10" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="14" y2="12"/><line x1="18" y1="12" x2="18" y2="12"/><line x1="8" y1="16" x2="16" y2="16"/></svg>`,
 };
-
-/** Gruvbox highlight style for CodeMirror 6 (edit mode) */
-const gruvboxHighlightStyle = HighlightStyle.define([
-  { tag: tags.keyword, color: "#fb4934" },
-  { tag: tags.controlKeyword, color: "#fb4934" },
-  { tag: tags.operatorKeyword, color: "#fb4934" },
-  { tag: tags.definitionKeyword, color: "#fb4934" },
-  { tag: tags.moduleKeyword, color: "#fb4934" },
-  { tag: tags.operator, color: "#8ec07c" },
-  { tag: tags.punctuation, color: "#ebdbb2" },
-  { tag: tags.paren, color: "#ebdbb2" },
-  { tag: tags.squareBracket, color: "#ebdbb2" },
-  { tag: tags.brace, color: "#ebdbb2" },
-  { tag: tags.string, color: "#b8bb26" },
-  { tag: tags.special(tags.string), color: "#b8bb26" },
-  { tag: tags.regexp, color: "#b8bb26" },
-  { tag: tags.number, color: "#d3869b" },
-  { tag: tags.integer, color: "#d3869b" },
-  { tag: tags.float, color: "#d3869b" },
-  { tag: tags.bool, color: "#d3869b" },
-  { tag: tags.comment, color: "#928374", fontStyle: "italic" },
-  { tag: tags.lineComment, color: "#928374", fontStyle: "italic" },
-  { tag: tags.blockComment, color: "#928374", fontStyle: "italic" },
-  { tag: tags.docComment, color: "#928374", fontStyle: "italic" },
-  { tag: tags.function(tags.variableName), color: "#fabd2f" },
-  { tag: tags.function(tags.definition(tags.variableName)), color: "#fabd2f" },
-  { tag: tags.definition(tags.variableName), color: "#83a598" },
-  { tag: tags.variableName, color: "#83a598" },
-  { tag: tags.definition(tags.function(tags.variableName)), color: "#fabd2f" },
-  { tag: tags.typeName, color: "#fabd2f" },
-  { tag: tags.className, color: "#fabd2f" },
-  { tag: tags.propertyName, color: "#83a598" },
-  { tag: tags.definition(tags.propertyName), color: "#83a598" },
-  { tag: tags.constant(tags.variableName), color: "#d3869b" },
-  { tag: tags.self, color: "#fe8019" },
-  { tag: tags.null, color: "#d3869b" },
-  { tag: tags.atom, color: "#d3869b" },
-  { tag: tags.labelName, color: "#83a598" },
-  { tag: tags.attributeName, color: "#fabd2f" },
-  { tag: tags.attributeValue, color: "#b8bb26" },
-  { tag: tags.meta, color: "#fe8019" },
-  { tag: tags.annotation, color: "#fe8019" },
-  { tag: tags.tagName, color: "#fb4934" },
-  { tag: tags.angleBracket, color: "#ebdbb2" },
-  { tag: tags.heading, color: "#b8bb26", fontWeight: "bold" },
-  { tag: tags.emphasis, fontStyle: "italic" },
-  { tag: tags.strong, fontWeight: "bold" },
-  { tag: tags.link, color: "#83a598", textDecoration: "underline" },
-  { tag: tags.url, color: "#83a598" },
-  { tag: tags.strikethrough, textDecoration: "line-through" },
-  { tag: tags.inserted, color: "#b8bb26" },
-  { tag: tags.deleted, color: "#fb4934" },
-  { tag: tags.changed, color: "#fe8019" },
-  { tag: tags.invalid, color: "#fb4934" },
-  { tag: tags.escape, color: "#fe8019" },
-]);
 
 const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
 
@@ -99,11 +40,6 @@ export default class CodePlugin extends Plugin {
     if (this.settings.wideCodeBlocks) {
       document.body.addClass("ocode-wide-blocks");
     }
-
-    // Editor (CM6): Gruvbox syntax highlighting
-    this.registerEditorExtension([
-      syntaxHighlighting(gruvboxHighlightStyle),
-    ]);
 
     // Reading view: syntax highlighting + execution
     this.registerMarkdownPostProcessor(
@@ -294,16 +230,6 @@ export default class CodePlugin extends Plugin {
     outLabel.textContent = "Running\u2026";
     outHeader.appendChild(outLabel);
 
-    // Stdin toggle button (hidden by default, shown while running)
-    const stdinToggle = this.createPillButton("Input", ICON.keyboard, () => {
-      inputBar.classList.toggle("ocode-input-bar-visible");
-      if (inputBar.classList.contains("ocode-input-bar-visible")) {
-        inputField.focus();
-      }
-    });
-    stdinToggle.className = "ocode-pill ocode-stdin-toggle";
-    outHeader.appendChild(stdinToggle);
-
     const clearBtn = document.createElement("button");
     clearBtn.className = "ocode-pill ocode-clear-pill";
     clearBtn.innerHTML = `<span class="ocode-pill-icon">${ICON.close}</span>`;
@@ -317,9 +243,9 @@ export default class CodePlugin extends Plugin {
     outContent.className = "ocode-output-content";
     outputPanel.appendChild(outContent);
 
-    // Stdin input bar (hidden by default, toggled via button)
+    // Stdin input bar (shown while running, hidden when done)
     const inputBar = document.createElement("div");
-    inputBar.className = "ocode-input-bar";
+    inputBar.className = "ocode-input-bar ocode-input-bar-visible";
 
     const inputField = document.createElement("input");
     inputField.type = "text";
@@ -378,8 +304,7 @@ export default class CodePlugin extends Plugin {
     try {
       const result = await proc.promise;
 
-      // Process finished — remove stdin toggle + input bar
-      stdinToggle.remove();
+      // Process finished — remove input bar
       inputBar.remove();
 
       // Update label

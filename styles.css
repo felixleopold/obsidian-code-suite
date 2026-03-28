@@ -1,7 +1,7 @@
 /* ============================================
-   Obsidian Code Plugin — v3.2 Styles
-   Header bar + always-visible buttons, CM6 highlighting,
-   stdin toggle, copy-error button
+   Obsidian Code Plugin — v3.3 Styles
+   Header bar, auto-stdin, Gruvbox CM6 tokens,
+   copy-error, clean labels
    ============================================ */
 
 /* ─── Wrapper ─────────────────────────────────── */
@@ -19,24 +19,18 @@
 .ocode-header {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
+  padding: 4px 12px;
   background-color: var(--ocode-header-bg, #282828);
   border-bottom: 1px solid var(--ocode-border, #3c3836);
-  min-height: 32px;
+  min-height: 28px;
   gap: 8px;
 }
 
-/* ─── Language label — pill style ─────────────── */
+/* ─── Language label ──────────────────────────── */
 .ocode-label {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 10px;
   font-size: 11px;
   font-family: inherit;
   color: var(--ocode-muted, #928374);
-  background-color: var(--ocode-bg, #1d2021);
-  border: 1px solid var(--ocode-border, #3c3836);
-  border-radius: 4px;
   text-transform: lowercase;
   letter-spacing: 0.5px;
   user-select: none;
@@ -185,6 +179,7 @@
   gap: 8px;
 }
 
+/* Output label — matches language label style */
 .ocode-output-label {
   flex: 1;
   font-size: 11px;
@@ -208,7 +203,7 @@
   border: none !important;
 }
 
-/* Hide empty output content area (no padding) */
+/* Hide empty output content area */
 .ocode-output-content:empty {
   padding: 0 !important;
 }
@@ -218,7 +213,7 @@
 .ocode-no-output { color: var(--ocode-line-num, #504945); font-style: italic; }
 
 .ocode-stdin-echo {
-  color: #83a598; /* Gruvbox blue */
+  color: #83a598;
   font-style: italic;
 }
 
@@ -255,23 +250,9 @@
   border: 1px solid var(--ocode-border, #3c3836);
 }
 
-/* ─── Stdin toggle button (output header) ─────── */
-.ocode-stdin-toggle {
-  font-size: 10px;
-  padding: 1px 8px;
-  color: #83a598;
-  border-color: rgba(131, 165, 152, 0.3);
-}
-
-.ocode-stdin-toggle:hover {
-  background-color: rgba(131, 165, 152, 0.12);
-  color: #83a598;
-  border-color: rgba(131, 165, 152, 0.5);
-}
-
 /* ─── Stdin input bar ─────────────────────────── */
 .ocode-input-bar {
-  display: none; /* hidden by default */
+  display: none;
   align-items: center;
   padding: 6px 12px;
   gap: 6px;
@@ -279,7 +260,6 @@
   background-color: var(--ocode-header-bg, #282828);
 }
 
-/* Shown when toggled */
 .ocode-input-bar.ocode-input-bar-visible {
   display: flex;
 }
@@ -329,7 +309,7 @@ body.ocode-wide-blocks .ocode-wrapper {
 }
 
 .ocode-embedded .ocode-label {
-  color: #d3869b; /* Gruvbox purple for filenames */
+  color: #d3869b;
   font-weight: 500;
 }
 
@@ -351,11 +331,10 @@ body.ocode-wide-blocks .ocode-wrapper {
 }
 
 /* ============================================
-   Editor (Source/Live Preview) mode styling
-   Make edit mode code blocks match reading view
+   Editor (Source/Live Preview) — Gruvbox styling
    ============================================ */
 
-/* Code block background */
+/* ─── Code block container ────────────────────── */
 .cm-s-obsidian .HyperMD-codeblock {
   background-color: var(--ocode-bg, #1d2021) !important;
   font-family: var(--font-monospace), "Fira Code", "JetBrains Mono", "Cascadia Code", monospace;
@@ -363,7 +342,7 @@ body.ocode-wide-blocks .ocode-wrapper {
   line-height: 1.6;
 }
 
-/* First line of code block (with ```) */
+/* First line (opening ```) */
 .cm-s-obsidian .HyperMD-codeblock-begin {
   background-color: var(--ocode-header-bg, #282828) !important;
   border-top: 1px solid var(--ocode-border, #3c3836);
@@ -372,16 +351,16 @@ body.ocode-wide-blocks .ocode-wrapper {
   padding-top: 4px !important;
 }
 
-/* Last line of code block (closing ```) */
+/* Last line (closing ```) — same bg as code, not header */
 .cm-s-obsidian .HyperMD-codeblock-end {
-  background-color: var(--ocode-header-bg, #282828) !important;
+  background-color: var(--ocode-bg, #1d2021) !important;
   border-bottom: 1px solid var(--ocode-border, #3c3836);
   border-bottom-left-radius: 6px;
   border-bottom-right-radius: 6px;
   padding-bottom: 4px !important;
 }
 
-/* Side border for all code lines */
+/* Side borders */
 .cm-s-obsidian .HyperMD-codeblock {
   border-left: 1px solid var(--ocode-border, #3c3836) !important;
   border-right: 1px solid var(--ocode-border, #3c3836) !important;
@@ -397,18 +376,167 @@ body.ocode-wide-blocks .ocode-wrapper {
   background-color: rgba(255, 255, 255, 0.03) !important;
 }
 
-/* Code block formatting marks (```) */
+/* Backtick formatting marks — visible in both begin/end bar */
 .cm-s-obsidian .cm-formatting-code-block {
-  color: var(--ocode-border, #3c3836) !important;
+  color: var(--ocode-line-num, #504945) !important;
 }
 
 /* Inline code in editor */
 .cm-s-obsidian .cm-inline-code {
   background-color: var(--ocode-bg, #1d2021) !important;
-  color: #d3869b !important; /* Gruvbox purple */
+  color: #d3869b !important;
   border-radius: 3px;
   padding: 1px 4px;
   font-size: 0.92em;
+}
+
+/* ─── Gruvbox token colors for CM6 edit mode ──── */
+
+/* Keywords: if, else, for, while, return, def, class, import, from, etc. */
+.cm-s-obsidian .HyperMD-codeblock .tok-keyword {
+  color: #fb4934 !important;
+}
+
+/* Control flow */
+.cm-s-obsidian .HyperMD-codeblock .tok-controlKeyword {
+  color: #fb4934 !important;
+}
+
+/* operator keywords: in, not, and, or, is */
+.cm-s-obsidian .HyperMD-codeblock .tok-operatorKeyword {
+  color: #fb4934 !important;
+}
+
+/* Strings */
+.cm-s-obsidian .HyperMD-codeblock .tok-string,
+.cm-s-obsidian .HyperMD-codeblock .tok-string2 {
+  color: #b8bb26 !important;
+}
+
+/* Numbers */
+.cm-s-obsidian .HyperMD-codeblock .tok-number {
+  color: #d3869b !important;
+}
+
+/* Booleans, null, None, True, False */
+.cm-s-obsidian .HyperMD-codeblock .tok-bool,
+.cm-s-obsidian .HyperMD-codeblock .tok-null {
+  color: #d3869b !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .tok-atom {
+  color: #d3869b !important;
+}
+
+/* Comments */
+.cm-s-obsidian .HyperMD-codeblock .tok-comment {
+  color: #928374 !important;
+  font-style: italic;
+}
+
+/* Function calls and definitions */
+.cm-s-obsidian .HyperMD-codeblock .tok-function {
+  color: #fabd2f !important;
+}
+
+/* Variable names, definitions */
+.cm-s-obsidian .HyperMD-codeblock .tok-variableName {
+  color: #83a598 !important;
+}
+
+/* Variable names that are definitions */
+.cm-s-obsidian .HyperMD-codeblock .tok-definition {
+  color: #83a598 !important;
+}
+
+/* Type names, class names */
+.cm-s-obsidian .HyperMD-codeblock .tok-typeName,
+.cm-s-obsidian .HyperMD-codeblock .tok-className,
+.cm-s-obsidian .HyperMD-codeblock .tok-standard {
+  color: #fabd2f !important;
+}
+
+/* Properties */
+.cm-s-obsidian .HyperMD-codeblock .tok-propertyName {
+  color: #83a598 !important;
+}
+
+/* Operators: =, +, -, *, etc. */
+.cm-s-obsidian .HyperMD-codeblock .tok-operator {
+  color: #8ec07c !important;
+}
+
+/* Punctuation: (), [], {}, commas, colons */
+.cm-s-obsidian .HyperMD-codeblock .tok-punctuation,
+.cm-s-obsidian .HyperMD-codeblock .tok-paren,
+.cm-s-obsidian .HyperMD-codeblock .tok-squareBracket,
+.cm-s-obsidian .HyperMD-codeblock .tok-brace,
+.cm-s-obsidian .HyperMD-codeblock .tok-separator {
+  color: #a89984 !important;
+}
+
+/* Decorators, annotations, meta */
+.cm-s-obsidian .HyperMD-codeblock .tok-meta,
+.cm-s-obsidian .HyperMD-codeblock .tok-annotation {
+  color: #fe8019 !important;
+}
+
+/* self, this */
+.cm-s-obsidian .HyperMD-codeblock .tok-self {
+  color: #fe8019 !important;
+}
+
+/* Escape sequences */
+.cm-s-obsidian .HyperMD-codeblock .tok-escape {
+  color: #fe8019 !important;
+}
+
+/* HTML/XML tags */
+.cm-s-obsidian .HyperMD-codeblock .tok-tagName {
+  color: #fb4934 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .tok-attributeName {
+  color: #fabd2f !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .tok-attributeValue {
+  color: #b8bb26 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .tok-angleBracket {
+  color: #a89984 !important;
+}
+
+/* Regex */
+.cm-s-obsidian .HyperMD-codeblock .tok-regexp {
+  color: #b8bb26 !important;
+}
+
+/* Headings (markdown in code?) */
+.cm-s-obsidian .HyperMD-codeblock .tok-heading {
+  color: #b8bb26 !important;
+  font-weight: bold;
+}
+
+/* Link, URL */
+.cm-s-obsidian .HyperMD-codeblock .tok-link {
+  color: #83a598 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .tok-url {
+  color: #83a598 !important;
+}
+
+/* Diff */
+.cm-s-obsidian .HyperMD-codeblock .tok-inserted {
+  color: #b8bb26 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .tok-deleted {
+  color: #fb4934 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .tok-changed {
+  color: #fe8019 !important;
+}
+
+/* Invalid */
+.cm-s-obsidian .HyperMD-codeblock .tok-invalid {
+  color: #fb4934 !important;
 }
 
 /* ─── Mobile ──────────────────────────────────── */
