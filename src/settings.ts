@@ -9,20 +9,19 @@ export type GruvboxVariant =
   | "gruvbox-light-soft";
 
 export interface CodePluginSettings {
-  /** Which Gruvbox theme variant to use */
   theme: GruvboxVariant;
-  /** Show line numbers in code blocks */
   showLineNumbers: boolean;
-  /** Show language label badge */
   showLanguageLabel: boolean;
-  /** Enable run button for executable languages */
   enableExecution: boolean;
-  /** Render embedded code files (![[file.py]]) as syntax-highlighted blocks */
   renderEmbeddedFiles: boolean;
-  /** Use wider width for code blocks (break out of content width) */
   wideCodeBlocks: boolean;
-  /** Timeout for code execution in ms */
   executionTimeout: number;
+  /** Custom Python path or virtualenv path (e.g. /path/to/venv/bin/python) */
+  pythonPath: string;
+  /** Custom Node.js path */
+  nodePath: string;
+  /** Extra environment variables for code execution (KEY=VALUE per line) */
+  extraEnv: string;
 }
 
 export const DEFAULT_SETTINGS: CodePluginSettings = {
@@ -31,11 +30,13 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   showLanguageLabel: true,
   enableExecution: true,
   renderEmbeddedFiles: true,
-  wideCodeBlocks: true,
+  wideCodeBlocks: false,
   executionTimeout: 30000,
+  pythonPath: "",
+  nodePath: "",
+  extraEnv: "",
 };
 
-/** Map Gruvbox variant to human-readable name */
 export const THEME_NAMES: Record<GruvboxVariant, string> = {
   "gruvbox-dark-hard": "Gruvbox Dark Hard",
   "gruvbox-dark-medium": "Gruvbox Dark Medium",
@@ -44,3 +45,17 @@ export const THEME_NAMES: Record<GruvboxVariant, string> = {
   "gruvbox-light-medium": "Gruvbox Light Medium",
   "gruvbox-light-soft": "Gruvbox Light Soft",
 };
+
+/** Parse extra env string (KEY=VALUE per line) into Record */
+export function parseExtraEnv(envStr: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const line of envStr.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx > 0) {
+      result[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
+    }
+  }
+  return result;
+}

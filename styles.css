@@ -1,11 +1,12 @@
 /* ============================================
-   Obsidian Code Plugin — Complete Styles
+   Obsidian Code Plugin — v3 Styles
+   Pill buttons, proper alignment, editor styling
    ============================================ */
 
 /* ─── Wrapper ─────────────────────────────────── */
 .ocode-wrapper {
   position: relative;
-  margin: 1em 0;
+  margin: 0.8em 0;
   border-radius: 6px;
   overflow: hidden;
   background-color: var(--ocode-bg, #1d2021);
@@ -17,72 +18,103 @@
 .ocode-header {
   display: flex;
   align-items: center;
-  padding: 4px 12px;
+  padding: 6px 12px;
   background-color: var(--ocode-header-bg, #282828);
   border-bottom: 1px solid var(--ocode-border, #3c3836);
-  min-height: 28px;
-  gap: 6px;
+  min-height: 32px;
+  gap: 8px;
 }
 
+/* ─── Language label — pill style ─────────────── */
 .ocode-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
   font-size: 11px;
+  font-family: inherit;
   color: var(--ocode-muted, #928374);
+  background-color: var(--ocode-bg, #1d2021);
+  border: 1px solid var(--ocode-border, #3c3836);
+  border-radius: 4px;
   text-transform: lowercase;
   letter-spacing: 0.5px;
   user-select: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.4;
 }
 
 .ocode-spacer {
   flex: 1;
 }
 
-/* ─── Buttons ─────────────────────────────────── */
-.ocode-btn {
+/* ─── Button group ────────────────────────────── */
+.ocode-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ─── Pill button (icon + text) ───────────────── */
+.ocode-pill {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: none;
+  gap: 4px;
+  padding: 2px 10px;
+  border: 1px solid var(--ocode-border, #3c3836);
   border-radius: 4px;
-  background: transparent;
+  background-color: var(--ocode-bg, #1d2021);
   color: var(--ocode-muted, #928374);
+  font-family: inherit;
+  font-size: 11px;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
-  flex-shrink: 0;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+  user-select: none;
+  white-space: nowrap;
+  line-height: 1.4;
 }
 
-.ocode-btn:hover {
+.ocode-pill:hover {
   background-color: var(--ocode-border, #3c3836);
   color: var(--ocode-fg, #ebdbb2);
+  border-color: var(--ocode-line-num, #504945);
 }
 
-.ocode-run-btn {
-  color: #b8bb26; /* Gruvbox green */
+.ocode-pill-icon {
+  display: inline-flex;
+  align-items: center;
 }
 
-.ocode-run-btn:hover {
-  background-color: rgba(184, 187, 38, 0.15);
+.ocode-pill-text {
+  font-size: 11px;
+}
+
+/* Run pill — green accent */
+.ocode-run-pill {
   color: #b8bb26;
+  border-color: rgba(184, 187, 38, 0.3);
 }
 
-.ocode-run-btn.ocode-running {
-  opacity: 0.5;
-  pointer-events: none;
+.ocode-run-pill:hover {
+  background-color: rgba(184, 187, 38, 0.12);
+  color: #b8bb26;
+  border-color: rgba(184, 187, 38, 0.5);
 }
 
-/* Spinner animation */
-@keyframes ocode-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+/* Cancel/Stop pill — red accent */
+.ocode-cancel-pill {
+  color: #fb4934 !important;
+  border-color: rgba(251, 73, 52, 0.3) !important;
 }
 
-.ocode-spin {
-  animation: ocode-spin 1s linear infinite;
+.ocode-cancel-pill:hover {
+  background-color: rgba(251, 73, 52, 0.12) !important;
+  color: #fb4934 !important;
+  border-color: rgba(251, 73, 52, 0.5) !important;
+}
+
+/* Clear pill — icon only, smaller */
+.ocode-clear-pill {
+  padding: 2px 6px;
 }
 
 /* ─── Code area ───────────────────────────────── */
@@ -131,7 +163,6 @@
   color: var(--ocode-line-num, #504945);
   user-select: none;
   font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
 }
 
 .ocode-wrapper .line:hover .ocode-line-num {
@@ -150,15 +181,15 @@
   padding: 4px 12px;
   background-color: var(--ocode-header-bg, #282828);
   border-bottom: 1px solid var(--ocode-border, #3c3836);
-  gap: 6px;
+  gap: 8px;
 }
 
 .ocode-output-label {
+  flex: 1;
   font-size: 11px;
   color: var(--ocode-muted, #928374);
   letter-spacing: 0.5px;
   user-select: none;
-  flex: 1;
 }
 
 .ocode-output-content {
@@ -176,29 +207,74 @@
   border: none !important;
 }
 
-.ocode-stdout {
-  color: var(--ocode-fg, #ebdbb2);
-}
+.ocode-stdout { color: var(--ocode-fg, #ebdbb2); }
+.ocode-stderr { color: #fb4934; }
+.ocode-no-output { color: var(--ocode-line-num, #504945); font-style: italic; }
 
-.ocode-stderr {
-  color: #fb4934; /* Gruvbox red */
-}
-
-.ocode-no-output {
-  color: var(--ocode-line-num, #504945);
+.ocode-stdin-echo {
+  color: #83a598; /* Gruvbox blue */
   font-style: italic;
 }
 
-/* ─── Hide Obsidian's default copy button on our blocks ─── */
+/* ─── Image output ────────────────────────────── */
+.ocode-output-images {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.ocode-output-img {
+  max-width: 100%;
+  border-radius: 4px;
+  border: 1px solid var(--ocode-border, #3c3836);
+}
+
+/* ─── Stdin input bar ─────────────────────────── */
+.ocode-input-bar {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  gap: 6px;
+  border-top: 1px solid var(--ocode-border, #3c3836);
+  background-color: var(--ocode-header-bg, #282828);
+}
+
+.ocode-input-field {
+  flex: 1;
+  background: var(--ocode-bg, #1d2021);
+  border: 1px solid var(--ocode-border, #3c3836);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--ocode-fg, #ebdbb2);
+  outline: none;
+}
+
+.ocode-input-field:focus {
+  border-color: #83a598;
+}
+
+.ocode-input-field::placeholder {
+  color: var(--ocode-line-num, #504945);
+}
+
+.ocode-send-pill {
+  padding: 4px 8px;
+}
+
+/* ─── Hide Obsidian default copy button ───────── */
 .ocode-wrapper .copy-code-button {
   display: none !important;
 }
 
 /* ─── Wide code blocks ────────────────────────── */
 body.ocode-wide-blocks .ocode-wrapper {
-  margin-left: -5%;
-  margin-right: -5%;
-  width: calc(100% + 10%);
+  margin-left: -3%;
+  margin-right: -3%;
+  width: calc(100% + 6%);
 }
 
 /* ─── Embedded file styling ───────────────────── */
@@ -210,41 +286,20 @@ body.ocode-wide-blocks .ocode-wrapper {
 }
 
 .ocode-embedded .ocode-label {
-  font-weight: 500;
   color: #d3869b; /* Gruvbox purple for filenames */
+  font-weight: 500;
 }
 
-/* ─── Scrollbar inside code blocks ────────────── */
-.ocode-wrapper pre.shiki::-webkit-scrollbar {
-  height: 6px;
-}
+/* ─── Scrollbar — code area ───────────────────── */
+.ocode-wrapper pre.shiki::-webkit-scrollbar { height: 6px; }
+.ocode-wrapper pre.shiki::-webkit-scrollbar-track { background: transparent; }
+.ocode-wrapper pre.shiki::-webkit-scrollbar-thumb { background: var(--ocode-border, #3c3836); border-radius: 3px; }
+.ocode-wrapper pre.shiki::-webkit-scrollbar-thumb:hover { background: var(--ocode-line-num, #504945); }
 
-.ocode-wrapper pre.shiki::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.ocode-wrapper pre.shiki::-webkit-scrollbar-thumb {
-  background: var(--ocode-border, #3c3836);
-  border-radius: 3px;
-}
-
-.ocode-wrapper pre.shiki::-webkit-scrollbar-thumb:hover {
-  background: var(--ocode-line-num, #504945);
-}
-
-/* Output scrollbar */
-.ocode-output-content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.ocode-output-content::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.ocode-output-content::-webkit-scrollbar-thumb {
-  background: var(--ocode-border, #3c3836);
-  border-radius: 3px;
-}
+/* ─── Scrollbar — output area ─────────────────── */
+.ocode-output-content::-webkit-scrollbar { width: 6px; }
+.ocode-output-content::-webkit-scrollbar-track { background: transparent; }
+.ocode-output-content::-webkit-scrollbar-thumb { background: var(--ocode-border, #3c3836); border-radius: 3px; }
 
 /* ─── Selection ───────────────────────────────── */
 .ocode-wrapper pre.shiki code::selection,
@@ -252,11 +307,65 @@ body.ocode-wide-blocks .ocode-wrapper {
   background-color: rgba(168, 153, 132, 0.3);
 }
 
-/* ─── Editor source mode — match Gruvbox feel ─── */
-/* Make the editor code blocks look closer to preview */
+/* ============================================
+   Editor (Source/Live Preview) mode styling
+   Make edit mode code blocks match reading view
+   ============================================ */
+
+/* Code block background */
 .cm-s-obsidian .HyperMD-codeblock {
-  line-height: 1.6;
+  background-color: var(--ocode-bg, #1d2021) !important;
+  font-family: var(--font-monospace), "Fira Code", "JetBrains Mono", "Cascadia Code", monospace;
   font-size: 13.5px;
+  line-height: 1.6;
+}
+
+/* First line of code block (with ```) */
+.cm-s-obsidian .HyperMD-codeblock-begin {
+  background-color: var(--ocode-header-bg, #282828) !important;
+  border-top: 1px solid var(--ocode-border, #3c3836);
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  padding-top: 4px !important;
+}
+
+/* Last line of code block (closing ```) */
+.cm-s-obsidian .HyperMD-codeblock-end {
+  background-color: var(--ocode-header-bg, #282828) !important;
+  border-bottom: 1px solid var(--ocode-border, #3c3836);
+  border-bottom-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  padding-bottom: 4px !important;
+}
+
+/* Side border for all code lines */
+.cm-s-obsidian .HyperMD-codeblock {
+  border-left: 1px solid var(--ocode-border, #3c3836) !important;
+  border-right: 1px solid var(--ocode-border, #3c3836) !important;
+}
+
+/* Language info token (```python) */
+.cm-s-obsidian .HyperMD-codeblock-begin .cm-hmd-codeblock {
+  color: var(--ocode-muted, #928374) !important;
+}
+
+/* Active line in code block */
+.cm-s-obsidian .cm-active.HyperMD-codeblock {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+/* Code block formatting marks (```) */
+.cm-s-obsidian .cm-formatting-code-block {
+  color: var(--ocode-border, #3c3836) !important;
+}
+
+/* Inline code in editor */
+.cm-s-obsidian .cm-inline-code {
+  background-color: var(--ocode-bg, #1d2021) !important;
+  color: #d3869b !important; /* Gruvbox purple */
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 0.92em;
 }
 
 /* ─── Mobile ──────────────────────────────────── */
@@ -272,11 +381,13 @@ body.ocode-wide-blocks .ocode-wrapper {
   }
 
   .ocode-header {
-    padding: 3px 8px;
+    padding: 4px 8px;
+    flex-wrap: wrap;
   }
 
-  .ocode-label {
+  .ocode-pill {
     font-size: 10px;
+    padding: 2px 8px;
   }
 
   body.ocode-wide-blocks .ocode-wrapper {
@@ -298,15 +409,16 @@ body.ocode-wide-blocks .ocode-wrapper {
     print-color-adjust: exact;
   }
 
-  .ocode-btn,
-  .ocode-output {
+  .ocode-btn-group,
+  .ocode-output,
+  .ocode-input-bar {
     display: none !important;
   }
 }
 
-/* ─── Gruvbox CSS Variables (theme-adaptive) ──── */
-/* Dark variants */
-.theme-dark .ocode-wrapper {
+/* ─── Gruvbox CSS Variables ───────────────────── */
+.theme-dark .ocode-wrapper,
+.theme-dark .cm-s-obsidian .HyperMD-codeblock {
   --ocode-bg: #1d2021;
   --ocode-header-bg: #282828;
   --ocode-border: #3c3836;
@@ -316,8 +428,8 @@ body.ocode-wide-blocks .ocode-wrapper {
   --ocode-output-bg: #1a1a1a;
 }
 
-/* Light variants */
-.theme-light .ocode-wrapper {
+.theme-light .ocode-wrapper,
+.theme-light .cm-s-obsidian .HyperMD-codeblock {
   --ocode-bg: #f9f5d7;
   --ocode-header-bg: #f2e5bc;
   --ocode-border: #d5c4a1;
