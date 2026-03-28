@@ -112,7 +112,11 @@ except ImportError:
 export function startExecution(
   code: string,
   lang: string,
-  settings: CodePluginSettings
+  settings: CodePluginSettings,
+  callbacks?: {
+    onStdout?: (data: string) => void;
+    onStderr?: (data: string) => void;
+  }
 ): RunningProcess {
   if (!Platform.isDesktop) {
     const result: ExecutionResult = {
@@ -202,7 +206,9 @@ export function startExecution(
   }, settings.executionTimeout);
 
   proc.stdout?.on("data", (data: Buffer) => {
-    stdout += data.toString();
+    const text = data.toString();
+    stdout += text;
+    callbacks?.onStdout?.(text);
     if (stdout.length > 200_000) {
       stdout = stdout.slice(0, 200_000) + "\n... (output truncated)";
       killed = true;
@@ -211,7 +217,9 @@ export function startExecution(
   });
 
   proc.stderr?.on("data", (data: Buffer) => {
-    stderr += data.toString();
+    const text = data.toString();
+    stderr += text;
+    callbacks?.onStderr?.(text);
     if (stderr.length > 100_000) {
       stderr = stderr.slice(0, 100_000) + "\n... (stderr truncated)";
     }

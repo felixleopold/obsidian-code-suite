@@ -121,27 +121,18 @@ export default class CodePlugin extends Plugin {
     wrapper.className = "ocode-wrapper";
     wrapper.innerHTML = html;
 
-    // ─── Header bar (label left, buttons right in pill style) ───
-    const header = document.createElement("div");
-    header.className = "ocode-header";
-
-    // Left side: language label as a pill
+    // ─── Floating language label (top-left, v1 style) ───
     if (this.settings.showLanguageLabel && (displayLang || fileName)) {
-      const label = document.createElement("span");
+      const label = document.createElement("div");
       label.className = "ocode-label";
       label.textContent = fileName || displayLang;
-      header.appendChild(label);
+      wrapper.appendChild(label);
     }
 
-    const spacer = document.createElement("span");
-    spacer.className = "ocode-spacer";
-    header.appendChild(spacer);
-
-    // Right side: buttons as pills
+    // ─── Floating button group (top-right) ───
     const btnGroup = document.createElement("div");
     btnGroup.className = "ocode-btn-group";
 
-    // Copy button
     const copyBtn = this.createPillButton("Copy", ICON.copy, () => {
       navigator.clipboard.writeText(code).then(() => {
         copyBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.check;
@@ -154,7 +145,6 @@ export default class CodePlugin extends Plugin {
     });
     btnGroup.appendChild(copyBtn);
 
-    // Run button
     if (this.settings.enableExecution && isExecutable(lang) && Platform.isDesktop) {
       const runBtn = this.createPillButton("Run", ICON.play, () => {
         this.runCode(code, lang, wrapper, runBtn);
@@ -162,8 +152,7 @@ export default class CodePlugin extends Plugin {
       btnGroup.appendChild(runBtn);
     }
 
-    header.appendChild(btnGroup);
-    wrapper.prepend(header);
+    wrapper.appendChild(btnGroup);
 
     // ─── Line numbers ───
     if (this.settings.showLineNumbers) {
@@ -219,32 +208,9 @@ export default class CodePlugin extends Plugin {
     runBtn.classList.add("ocode-cancel-pill");
 
     // Remove previous output
-    const existingOutput = wrapper.querySelector(".ocode-output");
-    if (existingOutput) existingOutput.remove();
+    wrapper.querySelector(".ocode-output")?.remove();
 
-    // Start execution
-    const proc = startExecution(code, lang, this.settings);
-    this.runningProcs.set(wrapper, proc);
-
-    try {
-      const result = await proc.promise;
-      this.buildOutputPanel(wrapper, result, proc);
-    } catch (err: unknown) {
-      new Notice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      this.runningProcs.delete(wrapper);
-      // Restore run button
-      runBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.play;
-      runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
-      runBtn.classList.remove("ocode-cancel-pill");
-    }
-  }
-
-  private buildOutputPanel(
-    wrapper: HTMLElement,
-    result: { stdout: string; stderr: string; exitCode: number | null; killed: boolean; images: string[] },
-    proc: RunningProcess
-  ) {
+    // ─── Build live output panel immediately ───
     const outputPanel = document.createElement("div");
     outputPanel.className = "ocode-output";
 
@@ -254,70 +220,30 @@ export default class CodePlugin extends Plugin {
 
     const outLabel = document.createElement("span");
     outLabel.className = "ocode-output-label";
-    outLabel.textContent = result.killed
-      ? "Output (timed out)"
-      : result.exitCode === 0
-      ? "Output"
-      : `Output (exit: ${result.exitCode})`;
+    outLabel.textContent = "Running\u2026";
     outHeader.appendChild(outLabel);
 
-    // Clear button
     const clearBtn = document.createElement("button");
     clearBtn.className = "ocode-pill ocode-clear-pill";
     clearBtn.innerHTML = `<span class="ocode-pill-icon">${ICON.close}</span>`;
     clearBtn.setAttribute("aria-label", "Clear output");
     clearBtn.addEventListener("click", () => outputPanel.remove());
     outHeader.appendChild(clearBtn);
-
     outputPanel.appendChild(outHeader);
 
-    // ─── Images ─────────────
-    if (result.images.length > 0) {
-      const imgContainer = document.createElement("div");
-      imgContainer.className = "ocode-output-images";
-      for (const base64 of result.images) {
-        const img = document.createElement("img");
-        img.src = `data:image/png;base64,${base64}`;
-        img.className = "ocode-output-img";
-        imgContainer.appendChild(img);
-      }
-      outputPanel.appendChild(imgContainer);
-    }
-
-    // ─── Text output ────────
+    // Scrollable text content area
     const outContent = document.createElement("pre");
     outContent.className = "ocode-output-content";
+    outputPanel.appendChild(outContent);
 
-    if (result.stderr) {
-      const errSpan = document.createElement("span");
-      errSpan.className = "ocode-stderr";
-      errSpan.textContent = result.stderr;
-      outContent.appendChild(errSpan);
-    }
-    if (result.stdout) {
-      const outSpan = document.createElement("span");
-      outSpan.className = "ocode-stdout";
-      outSpan.textContent = result.stdout;
-      outContent.appendChild(outSpan);
-    }
-    if (!result.stdout && !result.stderr && result.images.length === 0) {
-      outContent.textContent = "(no output)";
-      outContent.classList.add("ocode-no-output");
-    }
-
-    // Only show text content if there's text
-    if (result.stdout || result.stderr || result.images.length === 0) {
-      outputPanel.appendChild(outContent);
-    }
-
-    // ─── Stdin input bar ────
+    // Stdin input bar (visible while running)
     const inputBar = document.createElement("div");
     inputBar.className = "ocode-input-bar";
 
     const inputField = document.createElement("input");
     inputField.type = "text";
     inputField.className = "ocode-input-field";
-    inputField.placeholder = "Type input and press Enter...";
+    inputField.placeholder = "Type input and press Enter\u2026";
     inputBar.appendChild(inputField);
 
     const sendBtn = document.createElement("button");
@@ -325,27 +251,95 @@ export default class CodePlugin extends Plugin {
     sendBtn.innerHTML = `<span class="ocode-pill-icon">${ICON.send}</span>`;
     sendBtn.setAttribute("aria-label", "Send input");
     inputBar.appendChild(sendBtn);
+    outputPanel.appendChild(inputBar);
 
+    wrapper.appendChild(outputPanel);
+
+    // ─── Start execution with live streaming ───
+    const proc = startExecution(code, lang, this.settings, {
+      onStdout: (data) => {
+        const span = document.createElement("span");
+        span.className = "ocode-stdout";
+        span.textContent = data;
+        outContent.appendChild(span);
+        outContent.scrollTop = outContent.scrollHeight;
+      },
+      onStderr: (data) => {
+        const span = document.createElement("span");
+        span.className = "ocode-stderr";
+        span.textContent = data;
+        outContent.appendChild(span);
+        outContent.scrollTop = outContent.scrollHeight;
+      },
+    });
+    this.runningProcs.set(wrapper, proc);
+
+    // ─── Wire up stdin ───
     const doSend = () => {
       const text = inputField.value;
       if (text !== undefined) {
         proc.writeStdin(text + "\n");
         inputField.value = "";
-        // Append to output
         const echo = document.createElement("span");
         echo.className = "ocode-stdin-echo";
         echo.textContent = `> ${text}\n`;
         outContent.appendChild(echo);
+        outContent.scrollTop = outContent.scrollHeight;
       }
     };
-
     inputField.addEventListener("keydown", (e) => {
       if (e.key === "Enter") { e.preventDefault(); doSend(); }
     });
     sendBtn.addEventListener("click", doSend);
 
-    outputPanel.appendChild(inputBar);
-    wrapper.appendChild(outputPanel);
+    // Focus input field
+    inputField.focus();
+
+    try {
+      const result = await proc.promise;
+
+      // Process finished — remove input bar
+      inputBar.remove();
+
+      // Update label
+      outLabel.textContent = result.killed
+        ? "Output (timed out)"
+        : result.exitCode === 0
+        ? "Output"
+        : `Output (exit: ${result.exitCode})`;
+
+      // Add images (before text content)
+      if (result.images.length > 0) {
+        const imgContainer = document.createElement("div");
+        imgContainer.className = "ocode-output-images";
+        for (const base64 of result.images) {
+          const img = document.createElement("img");
+          img.src = `data:image/png;base64,${base64}`;
+          img.className = "ocode-output-img";
+          imgContainer.appendChild(img);
+        }
+        outputPanel.insertBefore(imgContainer, outContent);
+      }
+
+      // If no output at all
+      if (!outContent.childNodes.length && result.images.length === 0) {
+        outContent.textContent = "(no output)";
+        outContent.classList.add("ocode-no-output");
+      }
+
+      // Hide text area if only images, no text
+      if (!outContent.childNodes.length && result.images.length > 0) {
+        outContent.style.display = "none";
+      }
+    } catch (err: unknown) {
+      new Notice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      this.runningProcs.delete(wrapper);
+      // Restore run button
+      runBtn.querySelector(".ocode-pill-icon")!.innerHTML = ICON.play;
+      runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
+      runBtn.classList.remove("ocode-cancel-pill");
+    }
   }
 
   // ─── Embedded Code File Rendering ─────────────────────────────
