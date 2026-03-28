@@ -332,6 +332,7 @@ body.ocode-wide-blocks .ocode-wrapper {
 
 /* ============================================
    Editor (Source/Live Preview) — Gruvbox styling
+   Uses Obsidian's native cm-* token classes
    ============================================ */
 
 /* ─── Code block container ────────────────────── */
@@ -351,7 +352,7 @@ body.ocode-wide-blocks .ocode-wrapper {
   padding-top: 4px !important;
 }
 
-/* Last line (closing ```) — same bg as opening */
+/* Last line (closing ```) */
 .cm-s-obsidian .HyperMD-codeblock-end {
   background-color: var(--ocode-header-bg, #282828) !important;
   border-bottom: 1px solid var(--ocode-border, #3c3836);
@@ -366,7 +367,12 @@ body.ocode-wide-blocks .ocode-wrapper {
   border-right: 1px solid var(--ocode-border, #3c3836) !important;
 }
 
-/* Language info token (```python) */
+/* Backtick marks (``` ) — same color for both open and close */
+.cm-s-obsidian .cm-formatting-code-block {
+  color: var(--ocode-muted, #928374) !important;
+}
+
+/* Language info text (```python) */
 .cm-s-obsidian .HyperMD-codeblock-begin .cm-hmd-codeblock {
   color: var(--ocode-muted, #928374) !important;
 }
@@ -374,11 +380,6 @@ body.ocode-wide-blocks .ocode-wrapper {
 /* Active line in code block */
 .cm-s-obsidian .cm-active.HyperMD-codeblock {
   background-color: rgba(255, 255, 255, 0.03) !important;
-}
-
-/* Backtick formatting marks — visible in both begin/end bar */
-.cm-s-obsidian .cm-formatting-code-block {
-  color: var(--ocode-line-num, #504945) !important;
 }
 
 /* Inline code in editor */
@@ -390,153 +391,113 @@ body.ocode-wide-blocks .ocode-wrapper {
   font-size: 0.92em;
 }
 
-/* ─── Gruvbox token colors for CM6 edit mode ──── */
+/* ─── Gruvbox token colors (cm-* classes from Obsidian) ── */
 
-/* Keywords: if, else, for, while, return, def, class, import, from, etc. */
-.cm-s-obsidian .HyperMD-codeblock .tok-keyword {
-  color: #fb4934 !important;
-}
-
-/* Control flow */
-.cm-s-obsidian .HyperMD-codeblock .tok-controlKeyword {
-  color: #fb4934 !important;
-}
-
-/* operator keywords: in, not, and, or, is */
-.cm-s-obsidian .HyperMD-codeblock .tok-operatorKeyword {
+/* Keywords: import, def, class, if, for, while, return, etc. */
+.cm-s-obsidian .HyperMD-codeblock .cm-keyword {
   color: #fb4934 !important;
 }
 
 /* Strings */
-.cm-s-obsidian .HyperMD-codeblock .tok-string,
-.cm-s-obsidian .HyperMD-codeblock .tok-string2 {
+.cm-s-obsidian .HyperMD-codeblock .cm-string {
+  color: #b8bb26 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .cm-string-2 {
   color: #b8bb26 !important;
 }
 
 /* Numbers */
-.cm-s-obsidian .HyperMD-codeblock .tok-number {
-  color: #d3869b !important;
-}
-
-/* Booleans, null, None, True, False */
-.cm-s-obsidian .HyperMD-codeblock .tok-bool,
-.cm-s-obsidian .HyperMD-codeblock .tok-null {
-  color: #d3869b !important;
-}
-.cm-s-obsidian .HyperMD-codeblock .tok-atom {
+.cm-s-obsidian .HyperMD-codeblock .cm-number {
   color: #d3869b !important;
 }
 
 /* Comments */
-.cm-s-obsidian .HyperMD-codeblock .tok-comment {
+.cm-s-obsidian .HyperMD-codeblock .cm-comment {
   color: #928374 !important;
   font-style: italic;
 }
 
-/* Function calls and definitions */
-.cm-s-obsidian .HyperMD-codeblock .tok-function {
+/* Variables / identifiers */
+.cm-s-obsidian .HyperMD-codeblock .cm-variable {
+  color: #83a598 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .cm-variable-2 {
+  color: #83a598 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .cm-variable-3 {
   color: #fabd2f !important;
 }
 
-/* Variable names, definitions */
-.cm-s-obsidian .HyperMD-codeblock .tok-variableName {
-  color: #83a598 !important;
+/* Operators: =, +, -, *, etc. */
+.cm-s-obsidian .HyperMD-codeblock .cm-operator {
+  color: #8ec07c !important;
 }
 
-/* Variable names that are definitions */
-.cm-s-obsidian .HyperMD-codeblock .tok-definition {
-  color: #83a598 !important;
+/* Function definitions / calls */
+.cm-s-obsidian .HyperMD-codeblock .cm-def {
+  color: #fabd2f !important;
 }
-
-/* Type names, class names */
-.cm-s-obsidian .HyperMD-codeblock .tok-typeName,
-.cm-s-obsidian .HyperMD-codeblock .tok-className,
-.cm-s-obsidian .HyperMD-codeblock .tok-standard {
+.cm-s-obsidian .HyperMD-codeblock .cm-callee {
   color: #fabd2f !important;
 }
 
 /* Properties */
-.cm-s-obsidian .HyperMD-codeblock .tok-propertyName {
+.cm-s-obsidian .HyperMD-codeblock .cm-property {
   color: #83a598 !important;
 }
 
-/* Operators: =, +, -, *, etc. */
-.cm-s-obsidian .HyperMD-codeblock .tok-operator {
-  color: #8ec07c !important;
-}
-
-/* Punctuation: (), [], {}, commas, colons */
-.cm-s-obsidian .HyperMD-codeblock .tok-punctuation,
-.cm-s-obsidian .HyperMD-codeblock .tok-paren,
-.cm-s-obsidian .HyperMD-codeblock .tok-squareBracket,
-.cm-s-obsidian .HyperMD-codeblock .tok-brace,
-.cm-s-obsidian .HyperMD-codeblock .tok-separator {
-  color: #a89984 !important;
-}
-
-/* Decorators, annotations, meta */
-.cm-s-obsidian .HyperMD-codeblock .tok-meta,
-.cm-s-obsidian .HyperMD-codeblock .tok-annotation {
-  color: #fe8019 !important;
-}
-
-/* self, this */
-.cm-s-obsidian .HyperMD-codeblock .tok-self {
-  color: #fe8019 !important;
-}
-
-/* Escape sequences */
-.cm-s-obsidian .HyperMD-codeblock .tok-escape {
-  color: #fe8019 !important;
-}
-
-/* HTML/XML tags */
-.cm-s-obsidian .HyperMD-codeblock .tok-tagName {
-  color: #fb4934 !important;
-}
-.cm-s-obsidian .HyperMD-codeblock .tok-attributeName {
+/* Types */
+.cm-s-obsidian .HyperMD-codeblock .cm-type {
   color: #fabd2f !important;
 }
-.cm-s-obsidian .HyperMD-codeblock .tok-attributeValue {
-  color: #b8bb26 !important;
-}
-.cm-s-obsidian .HyperMD-codeblock .tok-angleBracket {
-  color: #a89984 !important;
-}
 
-/* Regex */
-.cm-s-obsidian .HyperMD-codeblock .tok-regexp {
-  color: #b8bb26 !important;
+/* Built-in constants: True, False, None, null */
+.cm-s-obsidian .HyperMD-codeblock .cm-atom {
+  color: #d3869b !important;
 }
-
-/* Headings (markdown in code?) */
-.cm-s-obsidian .HyperMD-codeblock .tok-heading {
-  color: #b8bb26 !important;
-  font-weight: bold;
-}
-
-/* Link, URL */
-.cm-s-obsidian .HyperMD-codeblock .tok-link {
-  color: #83a598 !important;
-}
-.cm-s-obsidian .HyperMD-codeblock .tok-url {
-  color: #83a598 !important;
-}
-
-/* Diff */
-.cm-s-obsidian .HyperMD-codeblock .tok-inserted {
-  color: #b8bb26 !important;
-}
-.cm-s-obsidian .HyperMD-codeblock .tok-deleted {
-  color: #fb4934 !important;
-}
-.cm-s-obsidian .HyperMD-codeblock .tok-changed {
+.cm-s-obsidian .HyperMD-codeblock .cm-builtin {
   color: #fe8019 !important;
 }
 
-/* Invalid */
-.cm-s-obsidian .HyperMD-codeblock .tok-invalid {
+/* Punctuation */
+.cm-s-obsidian .HyperMD-codeblock .cm-punctuation {
+  color: #a89984 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .cm-bracket {
+  color: #a89984 !important;
+}
+
+/* Meta / decorators */
+.cm-s-obsidian .HyperMD-codeblock .cm-meta {
+  color: #fe8019 !important;
+}
+
+/* Tags (HTML/XML) */
+.cm-s-obsidian .HyperMD-codeblock .cm-tag {
   color: #fb4934 !important;
+}
+.cm-s-obsidian .HyperMD-codeblock .cm-attribute {
+  color: #fabd2f !important;
+}
+
+/* Qualifier */
+.cm-s-obsidian .HyperMD-codeblock .cm-qualifier {
+  color: #b8bb26 !important;
+}
+
+/* Links */
+.cm-s-obsidian .HyperMD-codeblock .cm-link {
+  color: #83a598 !important;
+}
+
+/* Error */
+.cm-s-obsidian .HyperMD-codeblock .cm-error {
+  color: #fb4934 !important;
+}
+
+/* Default code text color inside code blocks */
+.cm-s-obsidian .HyperMD-codeblock .cm-hmd-codeblock {
+  color: var(--ocode-fg, #ebdbb2) !important;
 }
 
 /* ─── Mobile ──────────────────────────────────── */

@@ -5,8 +5,6 @@ import {
   Notice,
   Platform,
 } from "obsidian";
-import { syntaxHighlighting } from "@codemirror/language";
-import { classHighlighter } from "@lezer/highlight";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess } from "./executor";
@@ -42,11 +40,6 @@ export default class CodePlugin extends Plugin {
     if (this.settings.wideCodeBlocks) {
       document.body.addClass("ocode-wide-blocks");
     }
-
-    // Editor (CM6): register classHighlighter so .tok-* CSS classes appear on tokens
-    this.registerEditorExtension([
-      syntaxHighlighting(classHighlighter),
-    ]);
 
     // Reading view: syntax highlighting + execution
     this.registerMarkdownPostProcessor(
