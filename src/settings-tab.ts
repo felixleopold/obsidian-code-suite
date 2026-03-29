@@ -16,7 +16,7 @@ export class CodeSettingTab extends PluginSettingTab {
 
     // ─── About ───────────────────────────────────
     const aboutDiv = containerEl.createDiv({ cls: "ocode-settings-about" });
-    aboutDiv.createEl("p").textContent = "CodeSuite replaces the default code block rendering with Shiki-powered syntax highlighting \u2014 the same engine used by VS Code. It works in both reading view and editor (live preview / source mode)."
+    aboutDiv.createEl("p").textContent = "CodeSuite replaces the default code block rendering with syntax highlighting \u2014 the same engine used by VS Code. It works in both reading view and editor (live preview / source mode)."
     aboutDiv.createEl("p").textContent = "Code execution runs locally on your machine using the language runtimes installed on your system (e.g python3, node). Output is streamed live and displayed below the code block. No code is sent to any server."
 
     // ─── Theme ───────────────────────────────────
