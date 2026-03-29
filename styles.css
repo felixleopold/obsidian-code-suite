@@ -327,6 +327,14 @@ body.ocode-wide-blocks .ocode-wrapper {
   font-weight: 500;
 }
 
+.ocode-label-link {
+  cursor: pointer;
+}
+
+.ocode-label-link:hover {
+  text-decoration: underline;
+}
+
 /* ─── Collapsible embeds ──────────────────────── */
 .ocode-collapse-arrow {
   font-size: 10px;

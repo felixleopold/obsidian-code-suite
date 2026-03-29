@@ -303,7 +303,7 @@ export default class CodePlugin extends Plugin {
     const header = document.createElement("div");
     header.className = "ocode-header";
 
-    if (this.settings.showLanguageLabel && (displayLang || fileName)) {
+    if (fileName || (this.settings.showLanguageLabel && displayLang)) {
       const label = document.createElement("span");
       label.className = "ocode-label";
       label.textContent = fileName || displayLang;
@@ -640,18 +640,31 @@ export default class CodePlugin extends Plugin {
     const lang = this.highlighter.resolveExtension(ext);
     const lineCount = code.split("\n").length;
 
+    // Replace the .internal-embed element with a plain container so
+    // Obsidian's click-to-open handler is completely severed.
+    const container = document.createElement("div");
+    container.className = "ocode-embed-container";
+    embedEl.replaceWith(container);
+
     // Re-use the same render path
     const tempPre = document.createElement("pre");
-    embedEl.empty();
-    embedEl.appendChild(tempPre);
-    embedEl.classList.add("ocode-embed-container");
+    container.appendChild(tempPre);
 
     this.renderCodeBlock(tempPre, code, lang, lang, file.name);
 
     // Mark as embedded
-    const wrapper = embedEl.querySelector(".ocode-wrapper");
+    const wrapper = container.querySelector(".ocode-wrapper");
     if (!wrapper) return;
     wrapper.classList.add("ocode-embedded");
+
+    // Always show filename and make it a link to the file
+    const labelEl = wrapper.querySelector<HTMLElement>(".ocode-label");
+    if (labelEl) {
+      labelEl.classList.add("ocode-label-link");
+      labelEl.addEventListener("click", () => {
+        void this.app.workspace.getLeaf().openFile(file);
+      });
+    }
 
     // Collapsible behaviour
     if (this.settings.collapseEmbeds) {
@@ -680,8 +693,9 @@ export default class CodePlugin extends Plugin {
       // Click header to toggle
       header.classList.add("ocode-collapse-toggle");
       header.addEventListener("click", (e) => {
-        // Don't toggle when clicking buttons
+        // Don't toggle when clicking buttons or the filename label
         if ((e.target as HTMLElement).closest(".ocode-pill")) return;
+        if ((e.target as HTMLElement).closest(".ocode-label")) return;
         // Prevent Obsidian from opening the embedded file
         e.preventDefault();
         e.stopPropagation();
