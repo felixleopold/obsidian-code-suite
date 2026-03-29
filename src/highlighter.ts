@@ -176,7 +176,7 @@ export const EXT_TO_LANG: Record<string, string> = {
 };
 
 export class Highlighter {
-  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents -- false positive from moduleResolution mismatch between Shiki types and project config
   private core: HighlighterCoreInstance | null = null;
   private loadedLanguages: Set<string> = new Set();
   private loadedThemes: Set<string> = new Set();

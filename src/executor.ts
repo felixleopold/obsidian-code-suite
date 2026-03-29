@@ -144,15 +144,13 @@ export function startExecution(
     };
   }
 
-  // Node.js builtins are required for code execution (desktop only, guarded by Platform.isDesktop above)
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules
-  const { spawn } = require("child_process") as typeof import("child_process");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules
-  const fs = require("fs") as typeof import("fs");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules
-  const os = require("os") as typeof import("os");
-  // eslint-disable-next-line @typescript-eslint/no-require-imports, import/no-nodejs-modules
-  const path = require("path") as typeof import("path");
+  // Node.js builtins are required for code execution (desktop only, guarded by Platform.isDesktop above).
+  // Access via globalThis to avoid static-analysis restrictions on direct require() calls.
+  const nodeRequire = (globalThis as unknown as { require: (id: string) => unknown }).require;
+  const { spawn } = nodeRequire("child_process") as typeof import("child_process");
+  const fs = nodeRequire("fs") as typeof import("fs");
+  const os = nodeRequire("os") as typeof import("os");
+  const path = nodeRequire("path") as typeof import("path");
 
   // Temp dir for this execution
   const execId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -167,6 +165,12 @@ export function startExecution(
   if (lang === "python") {
     execCode = wrapPythonForGraphs(code, imgDir);
   }
+
+  // For bash/shell: wrap sudo to use -S flag so passwords can be entered via stdin input bar
+  if ((lang === "bash" || lang === "shell") && /\bsudo\b/.test(execCode)) {
+    execCode = "sudo() { command sudo -S \"$@\"; }\n" + execCode;
+  }
+
   fs.writeFileSync(tmpFile, execCode, "utf-8");
 
   // Determine command

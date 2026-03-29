@@ -1,4 +1,4 @@
-/** Settings types and defaults for Obsidian Code plugin */
+/** Settings types and defaults for CodeSuite plugin */
 
 /** All bundled Shiki themes available */
 export const BUNDLED_THEMES: Record<string, string> = {

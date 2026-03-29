@@ -30,7 +30,8 @@ const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
 
 /** Parse an SVG string into a DOM element without using innerHTML */
 function parseSvg(svgString: string): Node {
-  return new DOMParser().parseFromString(svgString, "image/svg+xml").documentElement;
+  const doc = new DOMParser().parseFromString(svgString, "text/html");
+  return document.adoptNode(doc.body.firstChild!);
 }
 
 /** Replace element content with parsed SVG */
@@ -432,13 +433,14 @@ export default class CodePlugin extends Plugin {
 
     // Stdin input bar — only shown if the code reads from stdin
     const needsStdin = this.codeUsesStdin(code, lang);
+    const isSudo = this.codeUsesSudo(code, lang);
     const inputBar = document.createElement("div");
     inputBar.className = needsStdin ? "ocode-input-bar ocode-input-bar-visible" : "ocode-input-bar";
 
     const inputField = document.createElement("input");
-    inputField.type = "text";
+    inputField.type = isSudo ? "password" : "text";
     inputField.className = "ocode-input-field";
-    inputField.placeholder = "Type input and press enter\u2026";
+    inputField.placeholder = isSudo ? "Enter password\u2026" : "Type input and press enter\u2026";
     inputBar.appendChild(inputField);
 
     const sendBtn = document.createElement("button");
@@ -452,6 +454,12 @@ export default class CodePlugin extends Plugin {
     outputPanel.appendChild(inputBar);
 
     wrapper.appendChild(outputPanel);
+
+    // Auto-focus the input field if the stdin bar is visible from the start
+    if (needsStdin) {
+      // requestAnimationFrame ensures the element is rendered before focusing
+      requestAnimationFrame(() => inputField.focus());
+    }
 
     // ─── Start execution with live streaming ───
     let stderrText = "";
@@ -467,7 +475,8 @@ export default class CodePlugin extends Plugin {
         stderrText += data;
         const span = document.createElement("span");
         span.className = "ocode-stderr";
-        span.textContent = data;
+        // Ensure stderr chunks end with a newline so subsequent stdout starts on a new line
+        span.textContent = data.endsWith("\n") ? data : data + "\n";
         outContent.appendChild(span);
         outContent.scrollTop = outContent.scrollHeight;
       },
@@ -475,16 +484,25 @@ export default class CodePlugin extends Plugin {
     this.runningProcs.set(wrapper, proc);
 
     // ─── Wire up stdin ───
+    // Track whether the current input is a password prompt (sudo or stderr 'Password:')
+    let isPasswordMode = isSudo;
     const doSend = () => {
       const text = inputField.value;
       if (text !== undefined) {
         proc.writeStdin(text + "\n");
         inputField.value = "";
-        const echo = document.createElement("span");
-        echo.className = "ocode-stdin-echo";
-        echo.textContent = `> ${text}\n`;
-        outContent.appendChild(echo);
-        outContent.scrollTop = outContent.scrollHeight;
+        // Never echo password input — switch back to text mode after sending
+        if (isPasswordMode) {
+          isPasswordMode = false;
+          inputField.type = "text";
+          inputField.placeholder = "Type input and press enter\u2026";
+        } else {
+          const echo = document.createElement("span");
+          echo.className = "ocode-stdin-echo";
+          echo.textContent = `> ${text}\n`;
+          outContent.appendChild(echo);
+          outContent.scrollTop = outContent.scrollHeight;
+        }
       }
     };
     inputField.addEventListener("keydown", (e) => {
@@ -505,10 +523,12 @@ export default class CodePlugin extends Plugin {
         ? "Output"
         : `Output (exit: ${result.exitCode})`;
 
-      // Add copy-error button if there was stderr
-      if (stderrText) {
+      // Add copy-error button if there was meaningful stderr
+      // Strip the sudo password prompt line — it's not an error
+      const errorText = stderrText.replace(/^Password:\s*/m, "").trim();
+      if (errorText) {
         const copyErrBtn = this.createPillButton("Copy error", ICON.copy, () => {
-          void navigator.clipboard.writeText(stderrText).then(() => {
+          void navigator.clipboard.writeText(errorText).then(() => {
             setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.check);
             copyErrBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
             setTimeout(() => {
@@ -558,6 +578,11 @@ export default class CodePlugin extends Plugin {
 
   // ─── Stdin Detection ──────────────────────────────────────────
 
+  /** Check if code uses sudo (requires password masking) */
+  private codeUsesSudo(code: string, lang: string): boolean {
+    return (lang === "bash" || lang === "shell") && /\bsudo\b/.test(code);
+  }
+
   /** Check if code likely reads from stdin, based on common patterns per language */
   private codeUsesStdin(code: string, lang: string): boolean {
     switch (lang) {
@@ -568,7 +593,7 @@ export default class CodePlugin extends Plugin {
         return /\bprocess\.stdin\b/.test(code) || /\breadline\b/.test(code) || /\bprompt\s*\(/.test(code);
       case "bash":
       case "shell":
-        return /\bread\b/.test(code);
+        return /\bread\b/.test(code) || /\bsudo\b/.test(code);
       case "ruby":
         return /\bgets\b/.test(code) || /\bSTDIN\b/.test(code) || /\breadline\b/.test(code);
       case "lua":

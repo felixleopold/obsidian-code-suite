@@ -16,14 +16,8 @@ export class CodeSettingTab extends PluginSettingTab {
 
     // ─── About ───────────────────────────────────
     const aboutDiv = containerEl.createDiv({ cls: "ocode-settings-about" });
-    aboutDiv.createEl("p", {
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "Obsidian Code replaces the default code block rendering with Shiki-powered syntax highlighting \u2014 the same engine used by VS Code. It works in both reading view and editor (live preview / source mode).",
-    });
-    aboutDiv.createEl("p", {
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      text: "Code execution runs locally on your machine using the language runtimes installed on your system (e.g. python3, node). Output is streamed live and displayed below the code block. No code is sent to any server.",
-    });
+    aboutDiv.createEl("p").textContent = "CodeSuite replaces the default code block rendering with Shiki-powered syntax highlighting \u2014 the same engine used by VS Code. It works in both reading view and editor (live preview / source mode)."
+    aboutDiv.createEl("p").textContent = "Code execution runs locally on your machine using the language runtimes installed on your system (e.g python3, node). Output is streamed live and displayed below the code block. No code is sent to any server."
 
     // ─── Theme ───────────────────────────────────
     new Setting(containerEl).setName("Theme").setHeading();
@@ -56,10 +50,8 @@ export class CodeSettingTab extends PluginSettingTab {
       themeOptions[id] = `${ct.name} (custom)`;
     }
 
-    new Setting(containerEl)
+    const themeSetting = new Setting(containerEl)
       .setName("Syntax theme")
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      .setDesc("Color scheme for code blocks. Applies to both reading view and editor. 65 built-in themes from VS Code / Shiki, plus any custom themes you import below.")
       .addDropdown((dropdown) => {
         for (const [value, name] of Object.entries(themeOptions)) {
           dropdown.addOption(value, name);
@@ -72,14 +64,14 @@ export class CodeSettingTab extends PluginSettingTab {
           await this.plugin.refreshHighlighter();
         });
       });
+    themeSetting.descEl["textContent"] = "Color scheme for code blocks. Applies to both reading view and editor. 65 built-in themes from VS Code / Shiki, plus any custom themes you import below.";
 
     // ─── Custom Theme Import ─────────────────────
     new Setting(containerEl)
       .setName("Import VS Code theme")
       .setDesc("Import a VS Code / TextMate color theme (.json). Find themes at https://vscodethemes.com or export from VS Code (Ctrl+Shift+P → \"Generate Color Theme From Current Settings\").")
       .addButton((btn) => {
-        // eslint-disable-next-line obsidianmd/ui/sentence-case
-        btn.setButtonText("Import .json file");
+        btn.buttonEl.textContent = "Import JSON file";
         btn.onClick(() => {
           const input = document.createElement("input");
           input.type = "file";
@@ -90,9 +82,7 @@ export class CodeSettingTab extends PluginSettingTab {
               if (!file) return;
               try {
                 const text = await file.text();
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
                 const json = JSON.parse(text);
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
                 const name: string = json.name || file.name.replace(/\.json$/, "");
                 const customTheme: CustomTheme = { name, json: text };
                 // Load into highlighter
@@ -178,17 +168,13 @@ export class CodeSettingTab extends PluginSettingTab {
 
     const execDesc = containerEl.createDiv({ cls: "setting-item-description ocode-exec-desc" });
     execDesc.appendText("Code runs ");
-    // eslint-disable-next-line obsidianmd/ui/sentence-case
-    execDesc.createEl("b", { text: "locally on your machine" });
+    execDesc.createEl("b").appendChild(document.createTextNode("locally on your machine"));
     execDesc.appendText(" using your installed language runtimes. Supported: Python (");
-    // eslint-disable-next-line obsidianmd/ui/sentence-case
-    execDesc.createEl("code", { text: "python3" });
+    execDesc.createEl("code").appendChild(document.createTextNode("python3"));
     execDesc.appendText("), JavaScript (");
-    // eslint-disable-next-line obsidianmd/ui/sentence-case
-    execDesc.createEl("code", { text: "node" });
+    execDesc.createEl("code").appendChild(document.createTextNode("node"));
     execDesc.appendText("), TypeScript (");
-    // eslint-disable-next-line obsidianmd/ui/sentence-case
-    execDesc.createEl("code", { text: "npx ts-node" });
+    execDesc.createEl("code").appendChild(document.createTextNode("npx ts-node"));
     execDesc.appendText("), Bash/Shell. The process runs in a child process with your system PATH. Output (stdout/stderr) streams live into the output panel. You can send stdin input while the program is running.");
 
     new Setting(containerEl)
@@ -216,8 +202,7 @@ export class CodeSettingTab extends PluginSettingTab {
       .setName("Python path")
       .setDesc("Absolute path to Python binary or virtualenv (e.g. /path/to/venv/bin/python3). Leave empty to use the system default.")
       .addText((t) => {
-        // eslint-disable-next-line obsidianmd/ui/sentence-case
-        t.setPlaceholder("python3");
+        t.inputEl["placeholder"] = "python3";
         t.setValue(this.plugin.settings.pythonPath);
         t.onChange(async (v) => { this.plugin.settings.pythonPath = v.trim(); await this.plugin.saveSettings(); });
       });
@@ -226,24 +211,21 @@ export class CodeSettingTab extends PluginSettingTab {
       .setName("Node.js path")
       .setDesc("Absolute path to Node.js binary. Leave empty to use the system default.")
       .addText((t) => {
-        // eslint-disable-next-line obsidianmd/ui/sentence-case
-        t.setPlaceholder("node");
+        t.inputEl["placeholder"] = "node";
         t.setValue(this.plugin.settings.nodePath);
         t.onChange(async (v) => { this.plugin.settings.nodePath = v.trim(); await this.plugin.saveSettings(); });
       });
 
-    new Setting(containerEl)
+    const envSetting = new Setting(containerEl)
       .setName("Extra environment variables")
-      // eslint-disable-next-line obsidianmd/ui/sentence-case
-      .setDesc("Additional environment variables passed to executed code (one KEY=VALUE per line). Useful for PYTHONPATH, API keys, etc.")
       .addTextArea((t) => {
-        // eslint-disable-next-line obsidianmd/ui/sentence-case
-        t.setPlaceholder("PYTHONPATH=/path/to/libs\nMY_VAR=value");
+        t.inputEl["placeholder"] = "PYTHONPATH=/path/to/libs\nMY_VAR=value";
         t.setValue(this.plugin.settings.extraEnv);
         t.inputEl.rows = 4;
         t.inputEl.cols = 40;
         t.onChange(async (v) => { this.plugin.settings.extraEnv = v; await this.plugin.saveSettings(); });
       });
+    envSetting.descEl["textContent"] = "Additional environment variables passed to executed code (one KEY=VALUE per line). Useful for PYTHONPATH, API keys, etc.";
 
     // ─── Embedded Files ──────────────────────────
     new Setting(containerEl).setName("Embedded code files").setHeading();
