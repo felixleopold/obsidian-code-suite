@@ -1,29 +1,29 @@
 # CodeSuite
 
-VS Code-quality code blocks for [Obsidian](https://obsidian.md), powered by [Shiki](https://shiki.style/) — the same syntax highlighting engine used by VS Code.
+VS Code-quality code blocks for [Obsidian](https://obsidian.md), powered by [Shiki](https://shiki.style/), the same syntax highlighting engine used by VS Code.
 
 Works in **both reading view and editor** (live preview / source mode).
 
 ## Features
 
 ### Syntax Highlighting
-- **65+ built-in themes** — Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, GitHub, Material, and many more
-- **Import VS Code themes** — load any `.json` color theme from VS Code
-- **Editor highlighting** — full Shiki-powered tokens in live preview and source mode via a CM6 ViewPlugin
-- **36 languages** — Python, JS/TS, Rust, Go, C/C++, Java, Ruby, and more with common aliases (`py`, `js`, `sh`, etc.)
-- **Dynamic theme colors** — code block chrome (headers, borders, output panels) automatically adapts to match the selected theme
+- **65+ built-in themes:** Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, GitHub, Material, and many more
+- **Import VS Code themes:** load any `.json` color theme from VS Code
+- **Editor highlighting:** full Shiki-powered tokens in live preview and source mode via a CM6 ViewPlugin
+- **36 languages:** Python, JS/TS, Rust, Go, C/C++, Java, Ruby, and more with common aliases (`py`, `js`, `sh`, etc.)
+- **Dynamic theme colors:** code block chrome (headers, borders, output panels) automatically adapts to match the selected theme
 
 ### Code Execution
-- **Run code from Obsidian** — execute Python, JavaScript, TypeScript, Bash, Ruby, Go, Lua, Perl, PHP, R, and Swift directly from code blocks
-- **Live streaming output** — stdout and stderr stream in real-time
-- **Smart stdin** — input bar appears only when your code reads from stdin (detects `input()`, `process.stdin`, `read`, etc.)
-- **Matplotlib & Plotly support** — graphs render inline as images
-- **Execution timeout** — configurable auto-kill for runaway processes
-- **Custom interpreter paths** — set Python virtualenvs, custom Node paths, extra environment variables
+- **Run code from Obsidian:** execute Python, JavaScript, TypeScript, Bash, Ruby, Go, Lua, Perl, PHP, R, and Swift directly from code blocks
+- **Live streaming output:** stdout and stderr stream in real-time
+- **Smart stdin:** input bar appears only when your code reads from stdin (detects `input()`, `process.stdin`, `read`, etc.)
+- **Matplotlib & Plotly support:** graphs render inline as images
+- **Execution timeout:** configurable auto-kill for runaway processes
+- **Custom interpreter paths:** set Python virtualenvs, custom Node paths, extra environment variables
 
 ### Embedded Code Files
 - **Render `![[file.py]]` embeds** as fully highlighted code blocks
-- **Collapsible by default** — long files show collapsed with a line count; click to expand
+- **Collapsible by default:** long files show collapsed with a line count; click to expand
 - **Copy & Run** buttons on embedded files
 
 ### UI
@@ -83,9 +83,9 @@ All settings are in **Settings → CodeSuite**:
 
 ## Credits
 
-- [Shiki](https://shiki.style/) — Syntax highlighting engine (MIT)
-- [Obsidian](https://obsidian.md/) — The app this plugin is built for
-- [CodeMirror 6](https://codemirror.net/) — Editor framework used by Obsidian
+- [Shiki](https://shiki.style/): syntax highlighting engine (MIT)
+- [Obsidian](https://obsidian.md/): the app this plugin is built for
+- [CodeMirror 6](https://codemirror.net/): editor framework used by Obsidian
 
 ## License
 
