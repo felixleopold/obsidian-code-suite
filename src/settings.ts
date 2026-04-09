@@ -93,6 +93,8 @@ export interface CustomTheme {
   json: string; // Raw VS Code theme JSON
 }
 
+export type ExecutionCwdMode = "vault" | "home" | "custom";
+
 export interface CodePluginSettings {
   theme: string;
   showLineNumbers: boolean;
@@ -102,6 +104,10 @@ export interface CodePluginSettings {
   collapseEmbeds: boolean;
   wideCodeBlocks: boolean;
   executionTimeout: number;
+  /** Working directory for code execution */
+  executionCwd: ExecutionCwdMode;
+  /** Custom working directory path (used when executionCwd is "custom") */
+  executionCwdCustom: string;
   /** Custom Python path or virtualenv path (e.g. /path/to/venv/bin/python) */
   pythonPath: string;
   /** Custom Node.js path */
@@ -121,6 +127,8 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   collapseEmbeds: true,
   wideCodeBlocks: false,
   executionTimeout: 30000,
+  executionCwd: "vault",
+  executionCwdCustom: "",
   pythonPath: "",
   nodePath: "",
   extraEnv: "",

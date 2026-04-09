@@ -463,6 +463,7 @@ export default class CodePlugin extends Plugin {
 
     // ─── Start execution with live streaming ───
     let stderrText = "";
+    const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
     const proc = startExecution(code, lang, this.settings, {
       onStdout: (data) => {
         const span = document.createElement("span");
@@ -480,7 +481,7 @@ export default class CodePlugin extends Plugin {
         outContent.appendChild(span);
         outContent.scrollTop = outContent.scrollHeight;
       },
-    });
+    }, vaultPath);
     this.runningProcs.set(wrapper, proc);
 
     // ─── Wire up stdin ───

@@ -17,6 +17,9 @@ dist/
 *.log
 npm-debug.log*
 
+# Local scripts
+install-plugin.sh
+
 # Environment
 .env
 .env.local

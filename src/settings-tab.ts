@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting, Notice } from "obsidian";
 import type CodePlugin from "./main";
-import { BUNDLED_THEMES, type CustomTheme } from "./settings";
+import { BUNDLED_THEMES, type CustomTheme, type ExecutionCwdMode } from "./settings";
 
 export class CodeSettingTab extends PluginSettingTab {
   plugin: CodePlugin;
@@ -189,18 +189,51 @@ export class CodeSettingTab extends PluginSettingTab {
       .setName("Execution timeout")
       .setDesc("Maximum seconds before a running process is automatically killed.")
       .addSlider((s) => {
-        s.setLimits(5, 120, 5);
+        s.setLimits(5, 300, 5);
         s.setValue(this.plugin.settings.executionTimeout / 1000);
         s.setDynamicTooltip();
         s.onChange(async (v) => { this.plugin.settings.executionTimeout = v * 1000; await this.plugin.saveSettings(); });
       });
+
+    // ─── Working Directory ───────────────────────
+    const cwdOptions: Record<ExecutionCwdMode, string> = {
+      vault: "Vault root",
+      home: "Home directory",
+      custom: "Custom path",
+    };
+
+    new Setting(containerEl)
+      .setName("Working directory")
+      .setDesc("Directory code executes in. The vault root is recommended so scripts can access vault files with relative paths.")
+      .addDropdown((dropdown) => {
+        for (const [value, label] of Object.entries(cwdOptions)) {
+          dropdown.addOption(value, label);
+        }
+        dropdown.setValue(this.plugin.settings.executionCwd);
+        dropdown.onChange(async (value) => {
+          this.plugin.settings.executionCwd = value as ExecutionCwdMode;
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+
+    if (this.plugin.settings.executionCwd === "custom") {
+      new Setting(containerEl)
+        .setName("Custom working directory")
+        .setDesc("Absolute path to use as the working directory for code execution.")
+        .addText((t) => {
+          t.inputEl["placeholder"] = "/path/to/directory";
+          t.setValue(this.plugin.settings.executionCwdCustom);
+          t.onChange(async (v) => { this.plugin.settings.executionCwdCustom = v.trim(); await this.plugin.saveSettings(); });
+        });
+    }
 
     // ─── Environment ─────────────────────────────
     new Setting(containerEl).setName("Environment").setHeading();
 
     new Setting(containerEl)
       .setName("Python path")
-      .setDesc("Absolute path to Python binary or virtualenv (e.g. /path/to/venv/bin/python3). Leave empty to use the system default.")
+      .setDesc("Absolute path to Python binary or virtualenv (e.g. /path/to/venv/bin/python3). When pointing to a venv, its tools (pip, playwright, etc.) are available to all languages including bash.")
       .addText((t) => {
         t.inputEl["placeholder"] = "python3";
         t.setValue(this.plugin.settings.pythonPath);

@@ -106,6 +106,25 @@ except ImportError:
 }
 
 /**
+ * Resolve the working directory for code execution.
+ */
+function resolveExecutionCwd(
+  settings: CodePluginSettings,
+  vaultPath: string | undefined,
+  os: typeof import("os"),
+): string {
+  switch (settings.executionCwd) {
+    case "vault":
+      return vaultPath || os.homedir();
+    case "custom":
+      return settings.executionCwdCustom || os.homedir();
+    case "home":
+    default:
+      return os.homedir();
+  }
+}
+
+/**
  * Start code execution. Returns a RunningProcess handle.
  */
 export function startExecution(
@@ -115,7 +134,8 @@ export function startExecution(
   callbacks?: {
     onStdout?: (data: string) => void;
     onStderr?: (data: string) => void;
-  }
+  },
+  vaultPath?: string,
 ): RunningProcess {
   if (!Platform.isDesktop) {
     const result: ExecutionResult = {
@@ -185,8 +205,9 @@ export function startExecution(
   const extraEnv = parseExtraEnv(settings.extraEnv);
   const env = { ...process.env, ...extraEnv };
 
-  // If pythonPath is a venv python, also set VIRTUAL_ENV
-  if (lang === "python" && settings.pythonPath) {
+  // If pythonPath is a venv python, set VIRTUAL_ENV and prepend bin to PATH
+  // (applies to all languages so bash/shell blocks can call pip, etc.)
+  if (settings.pythonPath) {
     const venvBin = path.dirname(settings.pythonPath);
     const venvDir = path.dirname(venvBin);
     if (fs.existsSync(path.join(venvDir, "pyvenv.cfg"))) {
@@ -201,8 +222,9 @@ export function startExecution(
   let stdout = "";
   let stderr = "";
 
+  const cwd = resolveExecutionCwd(settings, vaultPath, os);
   proc = spawn(cmd, args, {
-    cwd: os.homedir(),
+    cwd,
     env,
     shell: false,
     stdio: ["pipe", "pipe", "pipe"],

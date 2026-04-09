@@ -35,6 +35,9 @@ Works in **both reading view and editor** (live preview / source mode).
 ## Installation
 
 ### From Obsidian Community Plugins
+
+> **Status:** Pending community review — [PR #11502](https://github.com/obsidianmd/obsidian-releases/pull/11502)
+
 1. Open **Settings → Community Plugins → Browse**
 2. Search for "CodeSuite"
 3. Click **Install**, then **Enable**
@@ -69,6 +72,7 @@ All settings are in **Settings → CodeSuite**:
 | **Wide code blocks** | Extend code blocks beyond content width |
 | **Enable code execution** | Show Run button on supported languages |
 | **Execution timeout** | Auto-kill after N seconds (5–120) |
+| **Working directory** | Where code runs: vault root (default), home dir, or custom path |
 | **Python path** | Custom Python binary or virtualenv path |
 | **Node.js path** | Custom Node.js binary path |
 | **Extra env variables** | Additional KEY=VALUE pairs for execution |
