@@ -31,7 +31,7 @@ const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
 /** Parse an SVG string into a DOM element without using innerHTML */
 function parseSvg(svgString: string): Node {
   const doc = new DOMParser().parseFromString(svgString, "text/html");
-  return document.adoptNode(doc.body.firstChild!);
+  return activeDocument.adoptNode(doc.body.firstChild!);
 }
 
 /** Replace element content with parsed SVG */
@@ -58,7 +58,7 @@ export default class CodePlugin extends Plugin {
     this.addSettingTab(new CodeSettingTab(this.app, this));
 
     if (this.settings.wideCodeBlocks) {
-      document.body.addClass("ocode-wide-blocks");
+      activeDocument.body.addClass("ocode-wide-blocks");
     }
 
     // Apply theme CSS variables
@@ -95,7 +95,7 @@ export default class CodePlugin extends Plugin {
     }
     this.runningProcs.clear();
     this.highlighter.dispose();
-    document.body.removeClass("ocode-wide-blocks");
+    activeDocument.body.removeClass("ocode-wide-blocks");
   }
 
   async loadSettings() {
@@ -121,7 +121,7 @@ export default class CodePlugin extends Plugin {
   applyThemeColors() {
     const bg = this.highlighter.getThemeBg(this.settings.theme);
     const fg = this.highlighter.getThemeFg(this.settings.theme);
-    const root = document.documentElement;
+    const root = activeDocument.documentElement;
     if (bg) {
       root.style.setProperty("--ocode-bg", bg);
       // Derive a slightly lighter/darker header bg
@@ -292,7 +292,7 @@ export default class CodePlugin extends Plugin {
     const html = this.highlighter.highlight(code, lang, this.settings.theme);
     if (!html) return;
 
-    const wrapper = document.createElement("div");
+    const wrapper = createDiv();
     wrapper.className = "ocode-wrapper";
     const parsedHtml = new DOMParser().parseFromString(html, "text/html");
     for (const node of Array.from(parsedHtml.body.childNodes)) {
@@ -300,31 +300,31 @@ export default class CodePlugin extends Plugin {
     }
 
     // ─── Header bar (label left, buttons right) ───
-    const header = document.createElement("div");
+    const header = createDiv();
     header.className = "ocode-header";
 
     if (fileName || (this.settings.showLanguageLabel && displayLang)) {
-      const label = document.createElement("span");
+      const label = createSpan();
       label.className = "ocode-label";
       label.textContent = fileName || displayLang;
       header.appendChild(label);
     }
 
-    const spacer = document.createElement("span");
+    const spacer = createSpan();
     spacer.className = "ocode-spacer";
     header.appendChild(spacer);
 
-    const btnGroup = document.createElement("div");
+    const btnGroup = createDiv();
     btnGroup.className = "ocode-btn-group";
 
     const copyBtn = this.createPillButton("Copy", ICON.copy, () => {
       void navigator.clipboard.writeText(code).then(() => {
         setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
         copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
-        setTimeout(() => {
+        activeWindow.setTimeout(() => {
           setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
           copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copy";
-        }, 2000);
+        }, 2000) as unknown as number;
       });
     });
     btnGroup.appendChild(copyBtn);
@@ -346,7 +346,7 @@ export default class CodePlugin extends Plugin {
         const lines = shikiPre.querySelectorAll(".line");
         let lineNum = 1;
         for (const line of Array.from(lines)) {
-          const numSpan = document.createElement("span");
+          const numSpan = createSpan();
           numSpan.className = "ocode-line-num";
           numSpan.textContent = String(lineNum);
           line.prepend(numSpan);
@@ -365,13 +365,13 @@ export default class CodePlugin extends Plugin {
     onClick: () => void,
     extraClass?: string
   ): HTMLButtonElement {
-    const btn = document.createElement("button");
+    const btn = createEl("button");
     btn.className = `ocode-pill ${extraClass || ""}`.trim();
-    const iconSpan = document.createElement("span");
+    const iconSpan = createSpan();
     iconSpan.className = "ocode-pill-icon";
     iconSpan.appendChild(parseSvg(icon));
     btn.appendChild(iconSpan);
-    const textSpan = document.createElement("span");
+    const textSpan = createSpan();
     textSpan.className = "ocode-pill-text";
     textSpan.textContent = text;
     btn.appendChild(textSpan);
@@ -403,21 +403,21 @@ export default class CodePlugin extends Plugin {
     wrapper.querySelector(".ocode-output")?.remove();
 
     // ─── Build live output panel immediately ───
-    const outputPanel = document.createElement("div");
+    const outputPanel = createDiv();
     outputPanel.className = "ocode-output";
 
     // Output header
-    const outHeader = document.createElement("div");
+    const outHeader = createDiv();
     outHeader.className = "ocode-output-header";
 
-    const outLabel = document.createElement("span");
+    const outLabel = createSpan();
     outLabel.className = "ocode-output-label";
     outLabel.textContent = "Running\u2026";
     outHeader.appendChild(outLabel);
 
-    const clearBtn = document.createElement("button");
+    const clearBtn = createEl("button");
     clearBtn.className = "ocode-pill ocode-clear-pill";
-    const clearBtnIcon = document.createElement("span");
+    const clearBtnIcon = createSpan();
     clearBtnIcon.className = "ocode-pill-icon";
     clearBtnIcon.appendChild(parseSvg(ICON.close));
     clearBtn.appendChild(clearBtnIcon);
@@ -427,25 +427,25 @@ export default class CodePlugin extends Plugin {
     outputPanel.appendChild(outHeader);
 
     // Scrollable text content area
-    const outContent = document.createElement("pre");
+    const outContent = createEl("pre");
     outContent.className = "ocode-output-content";
     outputPanel.appendChild(outContent);
 
     // Stdin input bar — only shown if the code reads from stdin
     const needsStdin = this.codeUsesStdin(code, lang);
     const isSudo = this.codeUsesSudo(code, lang);
-    const inputBar = document.createElement("div");
+    const inputBar = createDiv();
     inputBar.className = needsStdin ? "ocode-input-bar ocode-input-bar-visible" : "ocode-input-bar";
 
-    const inputField = document.createElement("input");
+    const inputField = createEl("input");
     inputField.type = isSudo ? "password" : "text";
     inputField.className = "ocode-input-field";
     inputField.placeholder = isSudo ? "Enter password\u2026" : "Type input and press enter\u2026";
     inputBar.appendChild(inputField);
 
-    const sendBtn = document.createElement("button");
+    const sendBtn = createEl("button");
     sendBtn.className = "ocode-pill ocode-send-pill";
-    const sendBtnIcon = document.createElement("span");
+    const sendBtnIcon = createSpan();
     sendBtnIcon.className = "ocode-pill-icon";
     sendBtnIcon.appendChild(parseSvg(ICON.send));
     sendBtn.appendChild(sendBtnIcon);
@@ -466,7 +466,7 @@ export default class CodePlugin extends Plugin {
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
     const proc = startExecution(code, lang, this.settings, {
       onStdout: (data) => {
-        const span = document.createElement("span");
+        const span = createSpan();
         span.className = "ocode-stdout";
         span.textContent = data;
         outContent.appendChild(span);
@@ -474,7 +474,7 @@ export default class CodePlugin extends Plugin {
       },
       onStderr: (data) => {
         stderrText += data;
-        const span = document.createElement("span");
+        const span = createSpan();
         span.className = "ocode-stderr";
         // Ensure stderr chunks end with a newline so subsequent stdout starts on a new line
         span.textContent = data.endsWith("\n") ? data : data + "\n";
@@ -498,7 +498,7 @@ export default class CodePlugin extends Plugin {
           inputField.type = "text";
           inputField.placeholder = "Type input and press enter\u2026";
         } else {
-          const echo = document.createElement("span");
+          const echo = createSpan();
           echo.className = "ocode-stdin-echo";
           echo.textContent = `> ${text}\n`;
           outContent.appendChild(echo);
@@ -532,7 +532,7 @@ export default class CodePlugin extends Plugin {
           void navigator.clipboard.writeText(errorText).then(() => {
             setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.check);
             copyErrBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
-            setTimeout(() => {
+            activeWindow.setTimeout(() => {
               setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
               copyErrBtn.querySelector(".ocode-pill-text")!.textContent = "Copy error";
             }, 2000);
@@ -545,10 +545,10 @@ export default class CodePlugin extends Plugin {
 
       // Add images (before text content)
       if (result.images.length > 0) {
-        const imgContainer = document.createElement("div");
+        const imgContainer = createDiv();
         imgContainer.className = "ocode-output-images";
         for (const base64 of result.images) {
-          const img = document.createElement("img");
+          const img = createEl("img");
           img.src = `data:image/png;base64,${base64}`;
           img.className = "ocode-output-img";
           imgContainer.appendChild(img);
@@ -643,12 +643,12 @@ export default class CodePlugin extends Plugin {
 
     // Replace the .internal-embed element with a plain container so
     // Obsidian's click-to-open handler is completely severed.
-    const container = document.createElement("div");
+    const container = createDiv();
     container.className = "ocode-embed-container";
     embedEl.replaceWith(container);
 
     // Re-use the same render path
-    const tempPre = document.createElement("pre");
+    const tempPre = createEl("pre");
     container.appendChild(tempPre);
 
     this.renderCodeBlock(tempPre, code, lang, lang, file.name);
@@ -679,13 +679,13 @@ export default class CodePlugin extends Plugin {
       const header = wrapper.querySelector(".ocode-header");
       if (!header) return;
 
-      const arrow = document.createElement("span");
+      const arrow = createSpan();
       arrow.className = "ocode-collapse-arrow";
       arrow.textContent = "\u25B6"; // ▶
       header.prepend(arrow);
 
       // Add line count hint
-      const hint = document.createElement("span");
+      const hint = createSpan();
       hint.className = "ocode-collapse-hint";
       hint.textContent = `${lineCount} lines`;
       const spacer = header.querySelector(".ocode-spacer");

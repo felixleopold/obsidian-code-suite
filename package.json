@@ -1,6 +1,6 @@
 {
   "name": "obsidian-syntax-highlighting",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "VS Code-quality syntax highlighting for Obsidian code blocks using Shiki + Gruvbox",
   "main": "dist/main.js",
   "scripts": {
@@ -40,6 +40,8 @@
     "typescript-eslint": "^8.57.2"
   },
   "dependencies": {
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.36.5",
     "shiki": "^4.0.2"
   }
 }

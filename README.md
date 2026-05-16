@@ -36,7 +36,7 @@ Works in **both reading view and editor** (live preview / source mode).
 
 ### From Obsidian Community Plugins
 
-> **Status:** Pending community review — [PR #11502](https://github.com/obsidianmd/obsidian-releases/pull/11502)
+> **Status:** Submitted for community review via the [Obsidian plugin submission portal](https://community.obsidian.md/plugins/code-suite). Obsidian has moved from GitHub PRs to a dedicated submission site for new community plugins.
 
 1. Open **Settings → Community Plugins → Browse**
 2. Search for "CodeSuite"

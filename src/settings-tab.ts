@@ -73,7 +73,7 @@ export class CodeSettingTab extends PluginSettingTab {
       .addButton((btn) => {
         btn.buttonEl.textContent = "Import JSON file";
         btn.onClick(() => {
-          const input = document.createElement("input");
+          const input = createEl("input");
           input.type = "file";
           input.accept = ".json";
           input.addEventListener("change", () => {
@@ -159,7 +159,7 @@ export class CodeSettingTab extends PluginSettingTab {
         t.onChange(async (v) => {
           this.plugin.settings.wideCodeBlocks = v;
           await this.plugin.saveSettings();
-          document.body.toggleClass("ocode-wide-blocks", v);
+          activeDocument.body.toggleClass("ocode-wide-blocks", v);
         });
       });
 

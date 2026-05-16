@@ -1,10 +1,9 @@
 /** Highlighter module — manages Shiki highlighter lifecycle */
 
 import { createHighlighterCore } from "shiki/core";
+import type { HighlighterCore } from "shiki/core";
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import type { CustomTheme } from "./settings";
-
-type HighlighterCoreInstance = Awaited<ReturnType<typeof createHighlighterCore>>;
 
 // ─── Theme imports (all 65 bundled Shiki themes) ────────────
 import gruvboxDarkHard from "shiki/themes/gruvbox-dark-hard.mjs";
@@ -176,8 +175,7 @@ export const EXT_TO_LANG: Record<string, string> = {
 };
 
 export class Highlighter {
-  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents -- false positive from moduleResolution mismatch between Shiki types and project config
-  private core: HighlighterCoreInstance | null = null;
+  private core: HighlighterCore | null = null;
   private loadedLanguages: Set<string> = new Set();
   private loadedThemes: Set<string> = new Set();
 
