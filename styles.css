@@ -1,6 +1,6 @@
 /* ============================================
-   Obsidian Code Plugin — v3.3 Styles
-   Header bar, auto-stdin, Gruvbox CM6 tokens,
+   CodeSuite Styles
+   Header bar, live I/O, Shiki CM6 tokens,
    copy-error, clean labels
    ============================================ */
 
@@ -50,7 +50,7 @@
 }
 
 /* ─── Pill button (icon + text) ───────────────── */
-.ocode-pill {
+.ocode-wrapper .ocode-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -58,7 +58,7 @@
   border: 1px solid var(--ocode-border, #3c3836);
   border-radius: 4px;
   background-color: var(--ocode-bg, #1d2021);
-  color: var(--ocode-muted, #928374);
+  color: var(--ocode-fg, #ebdbb2);
   font-family: inherit;
   font-size: 11px;
   cursor: pointer;
@@ -66,9 +66,10 @@
   user-select: none;
   white-space: nowrap;
   line-height: 1.4;
+  box-shadow: none;
 }
 
-.ocode-pill:hover {
+.ocode-wrapper .ocode-pill:hover {
   background-color: var(--ocode-border, #3c3836);
   color: var(--ocode-fg, #ebdbb2);
   border-color: var(--ocode-line-num, #504945);
@@ -83,28 +84,27 @@
   font-size: 11px;
 }
 
-/* Run pill — green accent */
-.ocode-run-pill {
-  color: #b8bb26;
-  border-color: rgba(184, 187, 38, 0.3);
+/* Run pill — uses theme foreground so it matches any CodeSuite theme */
+.ocode-wrapper .ocode-run-pill {
+  border-color: var(--ocode-border, #3c3836);
 }
 
-.ocode-run-pill:hover {
-  background-color: rgba(184, 187, 38, 0.12);
-  color: #b8bb26;
-  border-color: rgba(184, 187, 38, 0.5);
+.ocode-wrapper .ocode-run-pill:hover {
+  background-color: var(--ocode-border, #3c3836);
+  color: var(--ocode-fg, #ebdbb2);
+  border-color: var(--ocode-line-num, #504945);
 }
 
-/* Cancel/Stop pill — red accent */
-.ocode-cancel-pill {
-  color: #fb4934 !important;
-  border-color: rgba(251, 73, 52, 0.3) !important;
+/* Cancel/Stop pill — semantic red blended toward fg so it reads on any bg */
+.ocode-wrapper .ocode-pill.ocode-cancel-pill {
+  color: color-mix(in srgb, #ff4444 80%, var(--ocode-fg, #ebdbb2));
+  border-color: color-mix(in srgb, #ff4444 30%, transparent);
 }
 
-.ocode-cancel-pill:hover {
-  background-color: rgba(251, 73, 52, 0.12) !important;
-  color: #fb4934 !important;
-  border-color: rgba(251, 73, 52, 0.5) !important;
+.ocode-wrapper .ocode-pill.ocode-cancel-pill:hover {
+  background-color: color-mix(in srgb, #ff4444 12%, transparent);
+  color: color-mix(in srgb, #ff4444 80%, var(--ocode-fg, #ebdbb2));
+  border-color: color-mix(in srgb, #ff4444 50%, transparent);
 }
 
 /* Clear pill — icon only, smaller */
@@ -114,11 +114,11 @@
 
 /* ─── Code area ───────────────────────────────── */
 .ocode-wrapper pre.shiki {
-  margin: 0 !important;
-  padding: 12px 16px !important;
-  background-color: transparent !important;
-  border: none !important;
-  border-radius: 0 !important;
+  margin: 0;
+  padding: 12px 16px;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
   overflow-x: auto;
   font-family: inherit;
   font-size: 13.5px;
@@ -127,9 +127,9 @@
 }
 
 .ocode-wrapper pre.shiki code {
-  background: none !important;
-  padding: 0 !important;
-  border: none !important;
+  background: none;
+  padding: 0;
+  border: none;
   font-size: inherit;
   font-family: inherit;
   line-height: inherit;
@@ -188,9 +188,9 @@
   user-select: none;
 }
 
-.ocode-output-content {
-  margin: 0 !important;
-  padding: 10px 16px !important;
+.ocode-output .ocode-output-content {
+  margin: 0;
+  padding: 10px 16px;
   font-family: inherit;
   font-size: 13px;
   line-height: 1.5;
@@ -199,13 +199,14 @@
   max-height: 400px;
   overflow-y: auto;
   color: var(--ocode-fg, #ebdbb2);
-  background: none !important;
-  border: none !important;
+  background: none;
+  border: none;
+  border-radius: 0;
 }
 
 /* Hide empty output content area */
-.ocode-output-content:empty {
-  padding: 0 !important;
+.ocode-output .ocode-output-content:empty {
+  padding: 0;
 }
 
 .ocode-stdout { color: var(--ocode-fg, #ebdbb2); }
@@ -218,14 +219,14 @@
 }
 
 /* ─── Copy Error pill (output header) ─────────── */
-.ocode-copy-err-pill {
+.ocode-wrapper .ocode-copy-err-pill {
   color: #fb4934;
   border-color: rgba(251, 73, 52, 0.3);
   font-size: 10px;
   padding: 1px 8px;
 }
 
-.ocode-copy-err-pill:hover {
+.ocode-wrapper .ocode-copy-err-pill:hover {
   background-color: rgba(251, 73, 52, 0.12);
   color: #fb4934;
   border-color: rgba(251, 73, 52, 0.5);
@@ -289,12 +290,12 @@
 }
 
 /* ─── Utility classes ─────────────────────────── */
-.ocode-hidden { display: none !important; }
+.ocode-hidden { display: none; }
 .ocode-exec-desc { margin-bottom: 12px; }
 
 /* ─── Hide Obsidian default copy button ───────── */
 .ocode-wrapper .copy-code-button {
-  display: none !important;
+  display: none;
 }
 
 /* ─── Wide code blocks ────────────────────────── */
@@ -306,20 +307,20 @@ body.ocode-wide-blocks .ocode-wrapper {
 
 /* ─── Embedded file styling ───────────────────── */
 .ocode-embed-container {
-  display: block !important;
-  padding: 0 !important;
-  border: none !important;
-  background: none !important;
-  text-align: left !important;
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  text-align: left;
 }
 
 .ocode-embed-container .ocode-wrapper {
-  text-align: left !important;
+  text-align: left;
 }
 
 .ocode-embed-container .ocode-wrapper pre.shiki,
 .ocode-embed-container .ocode-wrapper pre.shiki code {
-  text-align: left !important;
+  text-align: left;
 }
 
 .ocode-embedded .ocode-label {
@@ -391,56 +392,49 @@ body.ocode-wide-blocks .ocode-wrapper {
    ============================================ */
 
 /* ─── Code block container ────────────────────── */
-.cm-s-obsidian .HyperMD-codeblock {
-  background-color: var(--ocode-bg, #1d2021) !important;
+.cm-s-obsidian .cm-line.HyperMD-codeblock {
+  background-color: var(--ocode-bg, #1d2021);
   font-family: var(--font-monospace), "Fira Code", "JetBrains Mono", "Cascadia Code", monospace;
   font-size: 13.5px;
   line-height: 1.6;
+  border-left: 1px solid var(--ocode-border, #3c3836);
+  border-right: 1px solid var(--ocode-border, #3c3836);
 }
 
 /* First line (opening ```) */
-.cm-s-obsidian .HyperMD-codeblock-begin {
-  background-color: var(--ocode-header-bg, #282828) !important;
+/* No background-color here — delimiter text inherits Obsidian's theme color,
+   so setting a code-theme background would make it invisible when themes differ. */
+.cm-s-obsidian .cm-line.HyperMD-codeblock-begin {
   border-top: 1px solid var(--ocode-border, #3c3836);
   border-top-left-radius: 6px;
   border-top-right-radius: 6px;
-  padding-top: 4px !important;
+  padding-top: 4px;
 }
 
 /* Last line (closing ```) */
-.cm-s-obsidian .HyperMD-codeblock-end {
-  background-color: var(--ocode-header-bg, #282828) !important;
+.cm-s-obsidian .cm-line.HyperMD-codeblock-end {
   border-bottom: 1px solid var(--ocode-border, #3c3836);
   border-bottom-left-radius: 6px;
   border-bottom-right-radius: 6px;
-  padding-bottom: 4px !important;
+  padding-bottom: 4px;
 }
 
-/* Side borders */
-.cm-s-obsidian .HyperMD-codeblock {
-  border-left: 1px solid var(--ocode-border, #3c3836) !important;
-  border-right: 1px solid var(--ocode-border, #3c3836) !important;
-}
+/* Side borders — merged into .cm-line.HyperMD-codeblock above */
 
 /* Backtick marks (``` ) — same color for both open and close */
 .cm-s-obsidian .cm-formatting-code-block {
-  color: var(--ocode-muted, #928374) !important;
+  color: var(--ocode-muted, #928374);
 }
 
 /* Language info text (```python) */
 .cm-s-obsidian .HyperMD-codeblock-begin .cm-hmd-codeblock {
-  color: var(--ocode-muted, #928374) !important;
-}
-
-/* Active line in code block */
-.cm-s-obsidian .cm-active.HyperMD-codeblock {
-  background-color: rgba(255, 255, 255, 0.03) !important;
+  color: var(--ocode-muted, #928374);
 }
 
 /* Inline code in editor */
 .cm-s-obsidian .cm-inline-code {
-  background-color: var(--ocode-bg, #1d2021) !important;
-  color: #d3869b !important;
+  background-color: var(--ocode-bg, #1d2021);
+  color: #d3869b;
   border-radius: 3px;
   padding: 1px 4px;
   font-size: 0.92em;
@@ -453,116 +447,116 @@ body.ocode-wide-blocks .ocode-wrapper {
 
 /* Keywords: import, def, class, if, for, while, return, etc. */
 .cm-s-obsidian .HyperMD-codeblock .cm-keyword {
-  color: #fb4934 !important;
+  color: #fb4934;
 }
 
 /* Strings */
 .cm-s-obsidian .HyperMD-codeblock .cm-string {
-  color: #b8bb26 !important;
+  color: #b8bb26;
 }
 .cm-s-obsidian .HyperMD-codeblock .cm-string-2 {
-  color: #b8bb26 !important;
+  color: #b8bb26;
 }
 
 /* Numbers */
 .cm-s-obsidian .HyperMD-codeblock .cm-number {
-  color: #d3869b !important;
+  color: #d3869b;
 }
 
 /* Comments */
 .cm-s-obsidian .HyperMD-codeblock .cm-comment {
-  color: #928374 !important;
+  color: #928374;
   font-style: italic;
 }
 
 /* Variables / identifiers */
 .cm-s-obsidian .HyperMD-codeblock .cm-variable {
-  color: #83a598 !important;
+  color: #83a598;
 }
 .cm-s-obsidian .HyperMD-codeblock .cm-variable-2 {
-  color: #83a598 !important;
+  color: #83a598;
 }
 .cm-s-obsidian .HyperMD-codeblock .cm-variable-3 {
-  color: #fabd2f !important;
+  color: #fabd2f;
 }
 
 /* Operators: =, +, -, *, etc. */
 .cm-s-obsidian .HyperMD-codeblock .cm-operator {
-  color: #8ec07c !important;
+  color: #8ec07c;
 }
 
 /* Function definitions / calls */
 .cm-s-obsidian .HyperMD-codeblock .cm-def {
-  color: #fabd2f !important;
+  color: #fabd2f;
 }
 .cm-s-obsidian .HyperMD-codeblock .cm-callee {
-  color: #fabd2f !important;
+  color: #fabd2f;
 }
 
 /* Properties */
 .cm-s-obsidian .HyperMD-codeblock .cm-property {
-  color: #83a598 !important;
+  color: #83a598;
 }
 
 /* Types */
 .cm-s-obsidian .HyperMD-codeblock .cm-type {
-  color: #fabd2f !important;
+  color: #fabd2f;
 }
 
 /* Built-in constants: True, False, None, null */
 .cm-s-obsidian .HyperMD-codeblock .cm-atom {
-  color: #d3869b !important;
+  color: #d3869b;
 }
 .cm-s-obsidian .HyperMD-codeblock .cm-builtin {
-  color: #fe8019 !important;
+  color: #fe8019;
 }
 
 /* Punctuation */
 .cm-s-obsidian .HyperMD-codeblock .cm-punctuation {
-  color: #a89984 !important;
+  color: #a89984;
 }
 .cm-s-obsidian .HyperMD-codeblock .cm-bracket {
-  color: #a89984 !important;
+  color: #a89984;
 }
 
 /* Meta / decorators */
 .cm-s-obsidian .HyperMD-codeblock .cm-meta {
-  color: #fe8019 !important;
+  color: #fe8019;
 }
 
 /* Tags (HTML/XML) */
 .cm-s-obsidian .HyperMD-codeblock .cm-tag {
-  color: #fb4934 !important;
+  color: #fb4934;
 }
 .cm-s-obsidian .HyperMD-codeblock .cm-attribute {
-  color: #fabd2f !important;
+  color: #fabd2f;
 }
 
 /* Qualifier */
 .cm-s-obsidian .HyperMD-codeblock .cm-qualifier {
-  color: #b8bb26 !important;
+  color: #b8bb26;
 }
 
 /* Links */
 .cm-s-obsidian .HyperMD-codeblock .cm-link {
-  color: #83a598 !important;
+  color: #83a598;
 }
 
 /* Error */
 .cm-s-obsidian .HyperMD-codeblock .cm-error {
-  color: #fb4934 !important;
+  color: #fb4934;
 }
 
 /* Default code text color inside code blocks */
 .cm-s-obsidian .HyperMD-codeblock .cm-hmd-codeblock {
-  color: var(--ocode-fg, #ebdbb2) !important;
+  color: var(--ocode-fg, #ebdbb2);
 }
 
 /* ─── Mobile ──────────────────────────────────── */
 @media (max-width: 768px) {
   .ocode-wrapper pre.shiki {
     font-size: 12.5px;
-    padding: 10px 12px !important;
+    padding: 10px 12px;
   }
 
   .ocode-line-num {
@@ -590,8 +584,7 @@ body.ocode-wide-blocks .ocode-wrapper {
 /* ─── Print ───────────────────────────────────── */
 @media print {
   .ocode-wrapper {
-    border: 1px solid #ccc;
-    break-inside: avoid;
+    border: 1px solid #cccccc;
   }
 
   .ocode-wrapper pre.shiki {
@@ -602,6 +595,6 @@ body.ocode-wide-blocks .ocode-wrapper {
   .ocode-btn-group,
   .ocode-output,
   .ocode-input-bar {
-    display: none !important;
+    display: none;
   }
 }

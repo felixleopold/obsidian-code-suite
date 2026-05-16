@@ -97,6 +97,12 @@ export type ExecutionCwdMode = "vault" | "home" | "custom";
 
 export interface CodePluginSettings {
   theme: string;
+  /** Automatically switch theme based on Obsidian's dark/light mode */
+  autoTheme: boolean;
+  /** Theme to use in dark mode when autoTheme is enabled */
+  darkAutoTheme: string;
+  /** Theme to use in light mode when autoTheme is enabled */
+  lightAutoTheme: string;
   showLineNumbers: boolean;
   showLanguageLabel: boolean;
   enableExecution: boolean;
@@ -120,6 +126,9 @@ export interface CodePluginSettings {
 
 export const DEFAULT_SETTINGS: CodePluginSettings = {
   theme: "gruvbox-dark-hard",
+  autoTheme: false,
+  darkAutoTheme: "gruvbox-dark-hard",
+  lightAutoTheme: "github-light",
   showLineNumbers: true,
   showLanguageLabel: true,
   enableExecution: true,

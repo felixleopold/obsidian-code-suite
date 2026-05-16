@@ -36,11 +36,10 @@ export class CodeSettingTab extends PluginSettingTab {
       }
     }
 
-    // Dark themes first
+    // Dark themes first (☾), then light themes (☀)
     for (const [id, name] of darkThemes.sort((a, b) => a[1].localeCompare(b[1]))) {
-      themeOptions[id] = name;
+      themeOptions[id] = `${name} ☾`;
     }
-    // Then light themes
     for (const [id, name] of lightThemes.sort((a, b) => a[1].localeCompare(b[1]))) {
       themeOptions[id] = `${name} ☀`;
     }
@@ -50,21 +49,85 @@ export class CodeSettingTab extends PluginSettingTab {
       themeOptions[id] = `${ct.name} (custom)`;
     }
 
-    const themeSetting = new Setting(containerEl)
-      .setName("Syntax theme")
-      .addDropdown((dropdown) => {
-        for (const [value, name] of Object.entries(themeOptions)) {
-          dropdown.addOption(value, name);
-        }
-        dropdown.setValue(this.plugin.settings.theme);
-        dropdown.onChange(async (value) => {
-          this.plugin.settings.theme = value;
+    // ─── Auto-theme toggle (always first) ────────
+    new Setting(containerEl)
+      .setName("Auto-switch theme")
+      .setDesc("Automatically switch between a dark and a light theme when Obsidian's appearance changes.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.autoTheme);
+        t.onChange(async (v) => {
+          this.plugin.settings.autoTheme = v;
           await this.plugin.saveSettings();
-          this.plugin.applyThemeColors();
-          await this.plugin.refreshHighlighter();
+          if (v) this.plugin.applyAutoTheme();
+          this.display();
         });
       });
-    themeSetting.descEl["textContent"] = "Color scheme for code blocks. Applies to both reading view and editor. 65 built-in themes from VS Code / Shiki, plus any custom themes you import below.";
+
+    if (this.plugin.settings.autoTheme) {
+      // When auto-switching is on, show dark + light pickers (hide the single theme picker)
+      new Setting(containerEl)
+        .setName("Dark mode theme")
+        .setDesc("Used when Obsidian is in dark mode.")
+        .addDropdown((dropdown) => {
+          for (const [value, name] of Object.entries(themeOptions)) {
+            dropdown.addOption(value, name);
+          }
+          dropdown.setValue(this.plugin.settings.darkAutoTheme);
+          dropdown.onChange(async (value) => {
+            this.plugin.settings.darkAutoTheme = value;
+            // Only apply immediately when currently in dark mode — applying the
+            // wrong-mode theme produces incorrect colors until mode switches.
+            const isDark = activeDocument.body.classList.contains("theme-dark");
+            if (isDark) {
+              this.plugin.settings.theme = value;
+            }
+            await this.plugin.saveSettings();
+            if (isDark) {
+              this.plugin.applyThemeColors();
+              await this.plugin.refreshHighlighter();
+            }
+          });
+        });
+
+      new Setting(containerEl)
+        .setName("Light mode theme")
+        .setDesc("Used when Obsidian is in light mode.")
+        .addDropdown((dropdown) => {
+          for (const [value, name] of Object.entries(themeOptions)) {
+            dropdown.addOption(value, name);
+          }
+          dropdown.setValue(this.plugin.settings.lightAutoTheme);
+          dropdown.onChange(async (value) => {
+            this.plugin.settings.lightAutoTheme = value;
+            const isDark = activeDocument.body.classList.contains("theme-dark");
+            if (!isDark) {
+              this.plugin.settings.theme = value;
+            }
+            await this.plugin.saveSettings();
+            if (!isDark) {
+              this.plugin.applyThemeColors();
+              await this.plugin.refreshHighlighter();
+            }
+          });
+        });
+    } else {
+      // When auto-switching is off, show the single theme picker
+      const themeSetting = new Setting(containerEl)
+        .setName("Syntax theme")
+        .addDropdown((dropdown) => {
+          for (const [value, name] of Object.entries(themeOptions)) {
+            dropdown.addOption(value, name);
+          }
+          dropdown.setValue(this.plugin.settings.theme);
+          dropdown.onChange(async (value) => {
+            this.plugin.settings.theme = value;
+            await this.plugin.saveSettings();
+            this.plugin.applyThemeColors();
+            await this.plugin.refreshHighlighter();
+          });
+        });
+      themeSetting.descEl["textContent"] = "Color scheme for code blocks. Applies to both reading view and editor. 65 built-in themes from VS Code / Shiki, plus any custom themes you import below.";
+    }
 
     // ─── Custom Theme Import ─────────────────────
     new Setting(containerEl)

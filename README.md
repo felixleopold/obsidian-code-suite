@@ -85,6 +85,14 @@ All settings are in **Settings → CodeSuite**:
 - **Editor (live preview / source):** A CodeMirror 6 ViewPlugin scans the document for code fences, tokenizes them with Shiki, and applies inline `Decoration.mark` styles for each token.
 - **Code execution:** Runs locally on your machine via `child_process.spawn`. No code is sent to any server. Output streams live over stdout/stderr pipes.
 
+## Known Limitations
+
+### Active-line highlight in editor
+
+When your cursor sits on a line inside a code block in live preview / source mode, Obsidian's active-line highlight (the subtle background glow from the current theme) shows through the code block background. This is a side-effect of how Obsidian's active-line extension injects its background color — it can't be reliably overridden through CSS or CodeMirror decorations from a plugin.
+
+**Workaround:** enable **Auto-switch theme** in Settings → CodeSuite → Theme. When the active-line color of your chosen Obsidian theme closely matches the code block background (e.g. both dark), the highlight becomes invisible. The auto-switch feature makes this easy to manage across light and dark Obsidian modes.
+
 ## Credits
 
 - [Shiki](https://shiki.style/): syntax highlighting engine (MIT)

@@ -1,6 +1,7 @@
 import {
   Plugin,
   MarkdownPostProcessorContext,
+  MarkdownView,
   TFile,
   Notice,
   Platform,
@@ -45,9 +46,24 @@ export default class CodePlugin extends Plugin {
   highlighter: Highlighter = new Highlighter();
   /** Track running processes per wrapper element for cancel */
   private runningProcs: Map<HTMLElement, RunningProcess> = new Map();
+  /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
+  private _refreshSeq = 0;
+  /** Debounce timer for auto-theme switching (css-change can fire many times per mode switch) */
+  private _autoThemeTimer: ReturnType<typeof setTimeout> | null = null;
 
   async onload() {
     await this.loadSettings();
+
+    // Apply auto-theme selection before init so the correct theme is active from the start
+    if (this.settings.autoTheme) {
+      const isDark = activeDocument.body.classList.contains("theme-dark");
+      const autoTheme = isDark ? this.settings.darkAutoTheme : this.settings.lightAutoTheme;
+      if (this.settings.theme !== autoTheme) {
+        this.settings.theme = autoTheme;
+        await this.saveSettings();
+      }
+    }
+
     await this.highlighter.init();
 
     // Load any custom themes from settings
@@ -63,6 +79,13 @@ export default class CodePlugin extends Plugin {
 
     // Apply theme CSS variables
     this.applyThemeColors();
+
+    // Auto-theme: re-apply whenever Obsidian's dark/light mode changes
+    this.registerEvent(
+      this.app.workspace.on("css-change", () => {
+        void this.applyAutoTheme();
+      })
+    );
 
     // Editor (CM6): Shiki-based syntax highlighting via ViewPlugin
     this.registerEditorExtension([
@@ -89,6 +112,10 @@ export default class CodePlugin extends Plugin {
   }
 
   onunload() {
+    if (this._autoThemeTimer !== null) {
+      activeWindow.clearTimeout(this._autoThemeTimer);
+      this._autoThemeTimer = null;
+    }
     // Kill all running processes
     for (const proc of this.runningProcs.values()) {
       proc.cancel();
@@ -107,14 +134,60 @@ export default class CodePlugin extends Plugin {
   }
 
   async refreshHighlighter() {
+    // Grab a sequence number before the first async gap. If a newer call starts
+    // while we are awaiting init(), it will increment _refreshSeq and we discard
+    // our stale results rather than double-rendering or corrupting state.
+    const seq = ++this._refreshSeq;
     this.highlighter.dispose();
     this.highlighter = new Highlighter();
     await this.highlighter.init();
+    if (seq !== this._refreshSeq) return; // Superseded — a newer refresh is in progress
     // Reload custom themes
     for (const ct of this.settings.customThemes) {
       this.highlighter.loadCustomTheme(ct);
     }
+    // Trigger editor ViewPlugins to re-tokenize (lastTheme check in update())
     this.app.workspace.updateOptions();
+    // Re-render all open reading views so post-processors re-run with new theme
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.getMode() === "preview") {
+        view.previewMode.rerender(true);
+      }
+    });
+  }
+
+  /**
+   * Debounced entry point for auto-theme switching.
+   * css-change fires several times per mode switch; we coalesce them into one
+   * actual switch by resetting the timer on every call.
+   */
+  applyAutoTheme() {
+    if (!this.settings.autoTheme) return;
+    if (this._autoThemeTimer !== null) {
+      activeWindow.clearTimeout(this._autoThemeTimer);
+    }
+    this._autoThemeTimer = activeWindow.setTimeout(() => {
+      this._autoThemeTimer = null;
+      void this._runAutoTheme();
+    }, 75);
+  }
+
+  /** Performs the actual auto-theme switch after the debounce delay. */
+  private async _runAutoTheme() {
+    if (!this.settings.autoTheme) return;
+    const isDark = activeDocument.body.classList.contains("theme-dark");
+    const newTheme = isDark ? this.settings.darkAutoTheme : this.settings.lightAutoTheme;
+    if (this.settings.theme === newTheme) {
+      // Theme ID is already correct but CSS vars may have drifted (e.g. after
+      // Obsidian reloads stylesheets). Re-sync them.
+      this.applyThemeColors();
+      return;
+    }
+    this.settings.theme = newTheme;
+    await this.saveSettings();
+    this.applyThemeColors();
+    await this.refreshHighlighter();
   }
 
   /** Apply the current theme's bg/fg colors as CSS variables on the body */
@@ -123,19 +196,28 @@ export default class CodePlugin extends Plugin {
     const fg = this.highlighter.getThemeFg(this.settings.theme);
     const root = activeDocument.documentElement;
     if (bg) {
+      // For light themes, shift toward darker to create contrast;
+      // for dark themes, shift toward lighter. +/- are relative to bg.
+      const light = this.isLightColor(bg);
       root.style.setProperty("--ocode-bg", bg);
-      // Derive a slightly lighter/darker header bg
-      root.style.setProperty("--ocode-header-bg", this.adjustBrightness(bg, 10));
-      // Derive border from bg
-      root.style.setProperty("--ocode-border", this.adjustBrightness(bg, 25));
-      root.style.setProperty("--ocode-output-bg", this.adjustBrightness(bg, -5));
+      root.style.setProperty("--ocode-header-bg", this.adjustBrightness(bg, light ? -10 : 10));
+      root.style.setProperty("--ocode-border",    this.adjustBrightness(bg, light ? -25 : 25));
+      root.style.setProperty("--ocode-output-bg", this.adjustBrightness(bg, light ?  -8 : -5));
     }
     if (fg) {
       root.style.setProperty("--ocode-fg", fg);
-      // Muted = fg at 60% opacity approximation
-      root.style.setProperty("--ocode-muted", this.blendColor(fg, bg || "#000000", 0.6));
+      root.style.setProperty("--ocode-muted",    this.blendColor(fg, bg || "#000000", 0.6));
       root.style.setProperty("--ocode-line-num", this.blendColor(fg, bg || "#000000", 0.35));
     }
+  }
+
+  /** True if hex colour is perceptually light (luminance > 50%). */
+  private isLightColor(hex: string): boolean {
+    const c = hex.replace("#", "");
+    const r = parseInt(c.substring(0, 2), 16);
+    const g = parseInt(c.substring(2, 4), 16);
+    const b = parseInt(c.substring(4, 6), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
   }
 
   /** Adjust hex color brightness by amount (-255 to 255) */
@@ -169,13 +251,17 @@ export default class CodePlugin extends Plugin {
     return ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
+        private lastTheme: string;
 
         constructor(view: EditorView) {
+          this.lastTheme = getTheme();
           this.decorations = this.buildDecorations(view);
         }
 
         update(update: ViewUpdate) {
-          if (update.docChanged || update.viewportChanged) {
+          const currentTheme = getTheme();
+          if (update.docChanged || update.viewportChanged || currentTheme !== this.lastTheme) {
+            this.lastTheme = currentTheme;
             this.decorations = this.buildDecorations(update.view);
           }
         }
@@ -217,11 +303,13 @@ export default class CodePlugin extends Plugin {
             const tokens = tokenize(code, lang, getTheme());
             if (!tokens) continue;
 
-            for (let lineIdx = 0; lineIdx < tokens.length && lineIdx < block.lines.length; lineIdx++) {
+            for (let lineIdx = 0; lineIdx < block.lines.length; lineIdx++) {
               const codeLine = block.lines[lineIdx];
+
+              const lineTokens = tokens[lineIdx] ?? [];
               let offset = codeLine.from;
 
-              for (const token of tokens[lineIdx]) {
+              for (const token of lineTokens) {
                 const tokenFrom = offset;
                 const tokenTo = offset + token.content.length;
 
@@ -463,6 +551,8 @@ export default class CodePlugin extends Plugin {
 
     // ─── Start execution with live streaming ───
     let stderrText = "";
+    // Track whether the current input is a password prompt (sudo or dynamic detection)
+    let isPasswordMode = isSudo;
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
     const proc = startExecution(code, lang, this.settings, {
       onStdout: (data) => {
@@ -474,6 +564,15 @@ export default class CodePlugin extends Plugin {
       },
       onStderr: (data) => {
         stderrText += data;
+        // Dynamically detect password prompts so we mask input even when static
+        // detection didn't fire (indirect sudo, wrong password retry, ssh keys, etc.)
+        if (/password[:\s]/i.test(data) || /\bpassphrase\b/i.test(data)) {
+          isPasswordMode = true;
+          inputField.type = "password";
+          inputField.placeholder = "Enter password\u2026";
+          inputBar.classList.add("ocode-input-bar-visible");
+          requestAnimationFrame(() => inputField.focus());
+        }
         const span = createSpan();
         span.className = "ocode-stderr";
         // Ensure stderr chunks end with a newline so subsequent stdout starts on a new line
@@ -485,14 +584,13 @@ export default class CodePlugin extends Plugin {
     this.runningProcs.set(wrapper, proc);
 
     // ─── Wire up stdin ───
-    // Track whether the current input is a password prompt (sudo or stderr 'Password:')
-    let isPasswordMode = isSudo;
     const doSend = () => {
       const text = inputField.value;
       if (text !== undefined) {
         proc.writeStdin(text + "\n");
         inputField.value = "";
-        // Never echo password input — switch back to text mode after sending
+        // Never echo password input; reset to text mode after sending so
+        // normal (non-password) prompts following the password work correctly.
         if (isPasswordMode) {
           isPasswordMode = false;
           inputField.type = "text";

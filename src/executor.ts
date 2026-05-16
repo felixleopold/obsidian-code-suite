@@ -12,6 +12,7 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
   javascript: { cmd: "node",     args: [],           ext: ".js" },
   typescript: { cmd: "npx",      args: ["tsx"],      ext: ".ts" },
   bash:       { cmd: "bash",     args: [],           ext: ".sh" },
+  zsh:        { cmd: "zsh",      args: [],           ext: ".sh" },
   shell:      { cmd: "sh",       args: [],           ext: ".sh" },
   ruby:       { cmd: "ruby",     args: [],           ext: ".rb" },
   lua:        { cmd: "lua",      args: [],           ext: ".lua" },
@@ -187,7 +188,7 @@ export function startExecution(
   }
 
   // For bash/shell: wrap sudo to use -S flag so passwords can be entered via stdin input bar
-  if ((lang === "bash" || lang === "shell") && /\bsudo\b/.test(execCode)) {
+  if ((lang === "bash" || lang === "zsh" || lang === "shell") && /\bsudo\b/.test(execCode)) {
     execCode = "sudo() { command sudo -S \"$@\"; }\n" + execCode;
   }
 
