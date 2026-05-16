@@ -363,6 +363,12 @@ export default class CodePlugin extends Plugin {
         c.startsWith("language-")
       );
       const rawLang = langClass ? langClass.replace("language-", "") : "";
+
+      // Skip languages that Obsidian (or its plugins) render natively — let
+      // them handle the block so we don't swallow their output.
+      const PASSTHROUGH_LANGS = new Set(["mermaid", "dataview", "dataviewjs", "query"]);
+      if (PASSTHROUGH_LANGS.has(rawLang.toLowerCase())) continue;
+
       const lang = this.highlighter.resolveLanguage(rawLang);
       const code = codeEl.textContent || "";
 
