@@ -3,7 +3,7 @@
   "name": "CodeSuite",
   "version": "1.2.0",
   "minAppVersion": "1.5.0",
-  "description": "VS Code-style code blocks: Shiki syntax highlighting with 65+ themes and custom theme import, code execution with live I/O, shared variables with inline $var substitution, and embedded code file rendering.",
+  "description": "Shiki syntax highlighting with 65+ themes, live code execution with shared variables and vars blocks, embedded file rendering, and VS Code theme import.",
   "author": "Felix Leopold",
   "authorUrl": "https://github.com/felixleopold",
   "isDesktopOnly": false

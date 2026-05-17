@@ -1,12 +1,13 @@
 # CodeSuite
 
-Syntax highlighting, code execution, embedded files, shared variables, and VS Code theme import for [Obsidian](https://obsidian.md) — a complete VS Code-style coding experience inside your notes.
+A VS Code-style coding environment for [Obsidian](https://obsidian.md): Shiki syntax highlighting, live code execution, shared variables across blocks, and embedded file rendering — all inside your notes.
 
 Works in **both reading view and editor** (live preview / source mode).
 
 ## Features
 
-### Syntax Highlighting (Shiki, the engine VS Code uses)
+### Syntax Highlighting
+Powered by Shiki — the same engine VS Code uses.
 - **65+ built-in themes** — Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, GitHub, Material, etc.
 - **Import any VS Code theme** — load any `.json` color theme file
 - **Auto light/dark switching** to follow your Obsidian theme
@@ -15,19 +16,24 @@ Works in **both reading view and editor** (live preview / source mode).
 
 ### Code Execution
 - **Run code from your notes** — Python, JavaScript, TypeScript, Bash, Ruby, Go, Lua, Perl, PHP, R, Swift
-- **Live streaming output** for stdout and stderr
-- **Interactive stdin** — input bar appears automatically when your code needs input
-- **Matplotlib & Plotly support** — graphs render inline as images
-- **Configurable timeout, working directory, interpreter paths, environment variables**
+- **Live stdout/stderr streaming**
+- **Interactive stdin** — input bar appears automatically when your code reads from stdin
+- **Password masking** — detects `sudo` and masked prompts automatically
+- **Cancel** any running block mid-execution
+- **Matplotlib & Plotly** — graphs render inline as images
+- **Configurable timeout, working directory, interpreter paths, and environment variables**
 
-### Shared Execution Context & Inline Variables (new)
-- **Share state across code blocks** in the same note (Python and Bash) — define a variable in one block, use it in any later block
-- **Inline `$varname` substitution** — write \`$peak\` anywhere in your note and the value updates live after each run
-- **Per-note, in-memory, kernel-free** — zero setup, resets when Obsidian closes; one-click "Clear session" to reset manually
+### Shared Execution Context & Variables
+- **`vars` blocks** — define note-scoped variables in a dedicated block; injected automatically into every code run
+- **Share state across code blocks** in the same note (Python and Bash) — define a variable in one block, use it in the next
+- **Inline `$varname`** — write `` `$peak` `` anywhere in your note and the value updates live after each run
+- **Run All** — single click runs every executable block top-to-bottom in sequence; stops on first error so context stays consistent
+- **Clear Session** — reset accumulated state from the note header at any time
+- Per-note, in-memory — zero setup, resets when Obsidian closes
 
 ### Embedded Code Files
 - **Render `![[file.py]]` embeds** as fully highlighted code blocks
-- **Collapsible by default** with line count; click to expand
+- **Collapsible** by default with line count; click to expand
 - **Copy & Run** buttons on embedded files
 
 ### UI
@@ -39,8 +45,6 @@ Works in **both reading view and editor** (live preview / source mode).
 ## Installation
 
 ### From Obsidian Community Plugins
-
-> **Status:** Submitted for community review via the [Obsidian plugin submission portal](https://community.obsidian.md/plugins/code-suite). Obsidian has moved from GitHub PRs to a dedicated submission site for new community plugins.
 
 1. Open **Settings → Community Plugins → Browse**
 2. Search for "CodeSuite"
@@ -94,9 +98,13 @@ All settings are in **Settings → CodeSuite**:
 
 ### Active-line highlight in editor
 
-When your cursor sits on a line inside a code block in live preview / source mode, Obsidian's active-line highlight (the subtle background glow from the current theme) shows through the code block background. This is a side-effect of how Obsidian's active-line extension injects its background color — it can't be reliably overridden through CSS or CodeMirror decorations from a plugin.
+When your cursor sits on a line inside a code block in live preview / source mode, Obsidian's active-line highlight shows through the code block background. This is a side-effect of how Obsidian's active-line extension injects its background color.
 
-**Workaround:** enable **Auto-switch theme** in Settings → CodeSuite → Theme. When the active-line color of your chosen Obsidian theme closely matches the code block background (e.g. both dark), the highlight becomes invisible. The auto-switch feature makes this easy to manage across light and dark Obsidian modes.
+**Workaround:** enable **Auto-switch theme** in Settings → CodeSuite → Theme. When the Obsidian theme's active-line color closely matches the code block background, the highlight becomes invisible.
+
+## Contributing
+
+Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/felixleopold/obsidian-code-suite/issues).
 
 ## Credits
 
@@ -106,4 +114,4 @@ When your cursor sits on a line inside a code block in live preview / source mod
 
 ## License
 
-[MIT](LICENSE) © Felix Leopold
+[Apache 2.0](LICENSE) © Felix Leopold

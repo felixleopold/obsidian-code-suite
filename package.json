@@ -19,7 +19,7 @@
     "gruvbox"
   ],
   "author": "Felix Leopold",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/felixleopold/obsidian-syntax-highlighting/issues"

@@ -58,6 +58,8 @@ export default class CodePlugin extends Plugin {
   private noteVarsBlockStore: Map<string, Record<string, string>> = new Map();
   /** Tracks which MarkdownView instances have already had view-header actions added. */
   private viewActionsAdded = new WeakSet<MarkdownView>();
+  /** All action buttons added to view headers — removed in onunload so plugin reloads don't duplicate them. */
+  private viewActionEls: HTMLElement[] = [];
 
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
@@ -171,6 +173,9 @@ export default class CodePlugin extends Plugin {
     this.runningProcs.clear();
     this.highlighter.dispose();
     activeDocument.body.removeClass("ocode-wide-blocks");
+    // Remove all view-header action buttons so a plugin reload doesn't duplicate them.
+    for (const el of this.viewActionEls) el.remove();
+    this.viewActionEls = [];
   }
 
   async loadSettings() {
@@ -413,20 +418,26 @@ export default class CodePlugin extends Plugin {
    */
   private ensureViewActions(view: MarkdownView): void {
     if (this.viewActionsAdded.has(view)) return;
+    // DOM guard: previous plugin load may have left buttons behind (plugin reload/update).
+    if (view.containerEl.querySelector('[aria-label="Clear execution session"]')) return;
     this.viewActionsAdded.add(view);
 
-    view.addAction("rotate-ccw", "Clear execution session", () => {
-      const file = view.file;
-      if (file) {
-        this.clearNoteSession(file.path);
-        new Notice("Execution session cleared.");
-      }
-    });
+    this.viewActionEls.push(
+      view.addAction("rotate-ccw", "Clear execution session", () => {
+        const file = view.file;
+        if (file) {
+          this.clearNoteSession(file.path);
+          new Notice("Execution session cleared.");
+        }
+      })
+    );
 
     if (this.settings.enableExecution && Platform.isDesktop) {
-      view.addAction("play-circle", "Run all code blocks", () => {
-        void this.runAllBlocks(view);
-      });
+      this.viewActionEls.push(
+        view.addAction("play-circle", "Run all code blocks", () => {
+          void this.runAllBlocks(view);
+        })
+      );
     }
   }
 
@@ -462,6 +473,16 @@ export default class CodePlugin extends Plugin {
         };
         activeWindow.setTimeout(poll, 150);
       });
+      // Stop Run All if the block exited with an error so later blocks don't
+      // run against incomplete shared context and produce confusing failures.
+      const label = wrapper.querySelector<HTMLElement>(".ocode-output-label");
+      if (label) {
+        const t = label.textContent ?? "";
+        if (t.startsWith("Output (exit:") || t === "Output (timed out)") {
+          new Notice("Run All stopped: a block exited with an error.");
+          return;
+        }
+      }
     }
     if (ran === 0) new Notice("All code blocks are currently running.");
   }
@@ -691,14 +712,14 @@ __ocode_emit_vars
       for (const [k, v] of entries) varsStore[k] = v;
     }
 
-    // Format as Python-style assignments for Shiki highlighting
+    // Format as INI-style assignments for Shiki highlighting (values unquoted, as written)
     const displayCode = entries.length
-      ? entries.map(([k, v]) => `${k} = "${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join("\n")
+      ? entries.map(([k, v]) => `${k} = ${v}`).join("\n")
       : "# (no variables defined)";
 
     const wrapper = createDiv({ cls: "ocode-wrapper ocode-vars-wrapper" });
 
-    const html = this.highlighter.highlight(displayCode, "python", this.settings.theme);
+    const html = this.highlighter.highlight(displayCode, "ini", this.settings.theme);
     if (html) {
       const parsedHtml = new DOMParser().parseFromString(html, "text/html");
       for (const node of Array.from(parsedHtml.body.childNodes)) {

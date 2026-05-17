@@ -109,6 +109,7 @@ import langPhp from "shiki/langs/php.mjs";
 import langPerl from "shiki/langs/perl.mjs";
 import langTsx from "shiki/langs/tsx.mjs";
 import langJsx from "shiki/langs/jsx.mjs";
+import langIni from "shiki/langs/ini.mjs";
 
 const ALL_THEMES = [
   gruvboxDarkHard, gruvboxDarkMedium, gruvboxDarkSoft,
@@ -139,7 +140,7 @@ const ALL_LANGS = [
   langJson, langYaml, langToml, langSql, langMarkdown, langLatex, langR,
   langRuby, langLua, langSwift, langKotlin, langXml, langDiff,
   langDockerfile, langMakefile, langPowershell, langGraphql, langHaskell,
-  langScala, langPhp, langPerl, langTsx, langJsx,
+  langScala, langPhp, langPerl, langTsx, langJsx, langIni,
 ];
 
 /** Map common aliases to Shiki language IDs */
