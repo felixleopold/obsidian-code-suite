@@ -25,6 +25,7 @@ const ICON = {
   stop: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>`,
   close: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   send: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+  reload: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`,
 };
 
 const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
@@ -53,6 +54,8 @@ export default class CodePlugin extends Plugin {
   private noteContexts: Map<string, Map<string, string[]>> = new Map();
   /** Latest variable snapshot per note (Python only). Maps note path → {varName: displayValue}. */
   private noteVarStore: Map<string, Record<string, string>> = new Map();
+  /** Variables declared in ```vars blocks — injected into code execution as seed assignments. */
+  private noteVarsBlockStore: Map<string, Record<string, string>> = new Map();
 
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
@@ -396,16 +399,37 @@ export default class CodePlugin extends Plugin {
    * Previous blocks are prepended with their stdout/stderr suppressed so they
    * re-establish variables silently. Only the current block produces visible output.
    */
-  private buildSharedContextCode(lang: string, prevBlocks: string[], currentBlock: string): string {
+  private buildSharedContextCode(
+    lang: string,
+    prevBlocks: string[],
+    currentBlock: string,
+    seedVars?: Record<string, string>
+  ): string {
     const accum = prevBlocks.join("\n\n");
 
+    // Build language-specific seed-var assignment lines from the vars block store
+    const pythonSeedLines: string[] = [];
+    const bashSeedLines: string[] = [];
+    if (seedVars) {
+      for (const [k, v] of Object.entries(seedVars)) {
+        pythonSeedLines.push(`${k} = ${JSON.stringify(String(v))}`);
+        bashSeedLines.push(`${k}='${String(v).replace(/'/g, "'\\''")}' `);
+      }
+    }
+    const pythonSeed = pythonSeedLines.length ? pythonSeedLines.join("\n") + "\n" : "";
+    const bashSeed   = bashSeedLines.length   ? bashSeedLines.join("\n")   + "\n" : "";
+
     if (lang === "python") {
+      // Fast path: only seed vars, no accumulated blocks
+      if (!accum.trim()) return pythonSeed + currentBlock;
+
       // Redirect stdout/stderr to a sink while the accumulated blocks run,
       // then restore before the current block so only the new output is shown.
       // Also suppress matplotlib/plotly plot saves so images from previous runs
       // don't bleed into the current block's output panel.
       const indented = accum.split("\n").map((l) => "    " + l).join("\n");
       return [
+        pythonSeed,
         "import sys as __sys, io as __io",
         "__ocode_null = __io.StringIO()",
         "__ocode_prev_out, __ocode_prev_err = __sys.stdout, __sys.stderr",
@@ -435,9 +459,11 @@ export default class CodePlugin extends Plugin {
     }
 
     if (lang === "bash" || lang === "zsh" || lang === "shell") {
+      // Fast path: only seed vars, no accumulated blocks
+      if (!accum.trim()) return bashSeed + currentBlock;
       // Group-command redirect: variables set inside { } are still exported to
       // the outer shell because { } is a grouping construct, not a subshell.
-      return `{\n${accum}\n} > /dev/null 2>&1\n\n${currentBlock}`;
+      return `${bashSeed}{\n${accum}\n} > /dev/null 2>&1\n\n${currentBlock}`;
     }
 
     return currentBlock;
@@ -561,8 +587,9 @@ __ocode_emit_vars
   }
 
   /**
-   * Render a ```vars block as a styled key-value table and immediately seed the
-   * noteVarStore so inline $varname spans resolve without needing to run code.
+   * Render a ```vars block using the same ocode-wrapper / Shiki structure as a
+   * regular code block. Variables are seeded into noteVarStore (for inline
+   * $varname spans) and noteVarsBlockStore (for injection into code execution).
    * Syntax: one `key = value` (or `key: value`) assignment per line; blank
    * lines and lines starting with `#` are ignored.
    */
@@ -580,26 +607,79 @@ __ocode_emit_vars
       if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) entries.push([key, val]);
     }
 
-    // Seed noteVarStore
+    // Seed both stores
     if (entries.length && sourcePath) {
       if (!this.noteVarStore.has(sourcePath)) this.noteVarStore.set(sourcePath, {});
       const store = this.noteVarStore.get(sourcePath)!;
       for (const [k, v] of entries) store[k] = v;
       this.updateInlineVarRefs(sourcePath, store);
+
+      if (!this.noteVarsBlockStore.has(sourcePath)) this.noteVarsBlockStore.set(sourcePath, {});
+      const varsStore = this.noteVarsBlockStore.get(sourcePath)!;
+      for (const [k, v] of entries) varsStore[k] = v;
     }
 
-    // Build the rendered widget
-    const wrapper = createDiv({ cls: "ocode-vars-block" });
-    const header = wrapper.createDiv({ cls: "ocode-vars-header" });
-    header.createSpan({ cls: "ocode-vars-label", text: "vars" });
+    // Format as Python-style assignments for Shiki highlighting
+    const displayCode = entries.length
+      ? entries.map(([k, v]) => `${k} = "${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`).join("\n")
+      : "# (no variables defined)";
 
-    const table = wrapper.createEl("table", { cls: "ocode-vars-table" });
-    for (const [key, val] of entries) {
-      const row = table.createEl("tr");
-      row.createEl("td", { cls: "ocode-vars-key", text: key });
-      row.createEl("td", { cls: "ocode-vars-eq", text: "=" });
-      row.createEl("td", { cls: "ocode-vars-val", text: val });
+    const wrapper = createDiv({ cls: "ocode-wrapper ocode-vars-wrapper" });
+
+    const html = this.highlighter.highlight(displayCode, "python", this.settings.theme);
+    if (html) {
+      const parsedHtml = new DOMParser().parseFromString(html, "text/html");
+      for (const node of Array.from(parsedHtml.body.childNodes)) {
+        wrapper.appendChild(activeDocument.adoptNode(node));
+      }
     }
+
+    // Header bar — "vars" label, copy button, apply button
+    const header = createDiv({ cls: "ocode-header" });
+    const label = createSpan({ cls: "ocode-label", text: "vars" });
+    header.appendChild(label);
+
+    const spacer = createSpan({ cls: "ocode-spacer" });
+    header.appendChild(spacer);
+
+    const btnGroup = createDiv({ cls: "ocode-btn-group" });
+
+    // Copy — copies the raw source text as the user wrote it
+    const copyBtn = this.createPillButton("Copy", ICON.copy, () => {
+      void navigator.clipboard.writeText(source).then(() => {
+        setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
+        copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
+        activeWindow.setTimeout(() => {
+          setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
+          copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copy";
+        }, 2000) as unknown as number;
+      });
+    });
+    btnGroup.appendChild(copyBtn);
+
+    // Apply — re-seeds both stores (useful after clearing a session)
+    const applyBtn = this.createPillButton("Apply", ICON.reload, () => {
+      if (entries.length && sourcePath) {
+        if (!this.noteVarStore.has(sourcePath)) this.noteVarStore.set(sourcePath, {});
+        const store = this.noteVarStore.get(sourcePath)!;
+        for (const [k, v] of entries) store[k] = v;
+        this.updateInlineVarRefs(sourcePath, store);
+
+        if (!this.noteVarsBlockStore.has(sourcePath)) this.noteVarsBlockStore.set(sourcePath, {});
+        const varsStore = this.noteVarsBlockStore.get(sourcePath)!;
+        for (const [k, v] of entries) varsStore[k] = v;
+      }
+      setSvgContent(applyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
+      applyBtn.querySelector(".ocode-pill-text")!.textContent = "Applied";
+      activeWindow.setTimeout(() => {
+        setSvgContent(applyBtn.querySelector(".ocode-pill-icon")!, ICON.reload);
+        applyBtn.querySelector(".ocode-pill-text")!.textContent = "Apply";
+      }, 1500) as unknown as number;
+    });
+    btnGroup.appendChild(applyBtn);
+
+    header.appendChild(btnGroup);
+    wrapper.insertBefore(header, wrapper.firstChild);
 
     originalPre.replaceWith(wrapper);
   }
@@ -757,8 +837,10 @@ __ocode_emit_vars
     let execCode = code;
     if (useSharedCtx) {
       const prevBlocks = this.noteContexts.get(sourcePath)?.get(lang) ?? [];
-      if (prevBlocks.length > 0) {
-        execCode = this.buildSharedContextCode(lang, prevBlocks, code);
+      const seedVars   = this.noteVarsBlockStore.get(sourcePath);
+      const hasSeed    = seedVars && Object.keys(seedVars).length > 0;
+      if (prevBlocks.length > 0 || hasSeed) {
+        execCode = this.buildSharedContextCode(lang, prevBlocks, code, seedVars);
       }
       // Append the var-extraction postamble so we can snapshot variables
       if (lang === "python") {
