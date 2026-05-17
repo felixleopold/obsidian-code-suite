@@ -1,9 +1,9 @@
 {
   "id": "code-suite",
   "name": "CodeSuite",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "minAppVersion": "1.5.0",
-  "description": "Shiki syntax highlighting (65+ themes, custom VS Code theme import, auto light/dark), live code execution with stdin/stdout streaming, shared variables across blocks, inline $var substitution, Matplotlib/Plotly inline graphs, and embedded file rendering.",
+  "description": "Shiki syntax highlighting, live code execution with stdin/stdout streaming, shared variables across blocks, inline $var substitution, Matplotlib/Plotly inline graphs, and embedded file rendering.",
   "author": "Felix Leopold",
   "authorUrl": "https://github.com/felixleopold",
   "isDesktopOnly": false
