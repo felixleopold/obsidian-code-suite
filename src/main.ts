@@ -56,6 +56,8 @@ export default class CodePlugin extends Plugin {
   private noteVarStore: Map<string, Record<string, string>> = new Map();
   /** Variables declared in ```vars blocks — injected into code execution as seed assignments. */
   private noteVarsBlockStore: Map<string, Record<string, string>> = new Map();
+  /** Tracks which MarkdownView instances have already had view-header actions added. */
+  private viewActionsAdded = new WeakSet<MarkdownView>();
 
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
@@ -133,6 +135,17 @@ export default class CodePlugin extends Plugin {
           new Notice("Execution session cleared.");
         }
       },
+    });
+
+    // View-header actions: Run All + Clear Session
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", (leaf) => {
+        const view = leaf?.view;
+        if (view instanceof MarkdownView) this.ensureViewActions(view);
+      })
+    );
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view instanceof MarkdownView) this.ensureViewActions(leaf.view);
     });
 
     // Reading view: embedded code file rendering
@@ -392,6 +405,65 @@ export default class CodePlugin extends Plugin {
         el.removeAttribute("data-resolved");
       }
     }
+  }
+
+  /**
+   * Add "Run All" and "Clear Session" icon buttons to a MarkdownView's header.
+   * Each view only receives the actions once (tracked via WeakSet).
+   */
+  private ensureViewActions(view: MarkdownView): void {
+    if (this.viewActionsAdded.has(view)) return;
+    this.viewActionsAdded.add(view);
+
+    view.addAction("rotate-ccw", "Clear execution session", () => {
+      const file = view.file;
+      if (file) {
+        this.clearNoteSession(file.path);
+        new Notice("Execution session cleared.");
+      }
+    });
+
+    if (this.settings.enableExecution && Platform.isDesktop) {
+      view.addAction("play-circle", "Run all code blocks", () => {
+        void this.runAllBlocks(view);
+      });
+    }
+  }
+
+  /**
+   * Run every executable code block in the view sequentially, waiting for each
+   * to finish before starting the next (so shared context accumulates in order).
+   */
+  private async runAllBlocks(view: MarkdownView): Promise<void> {
+    const runBtns = Array.from(
+      view.contentEl.querySelectorAll<HTMLButtonElement>(".ocode-run-pill")
+    );
+    if (runBtns.length === 0) {
+      new Notice("No executable code blocks found. Switch to Reading view first.");
+      return;
+    }
+    let ran = 0;
+    for (const btn of runBtns) {
+      if (btn.classList.contains("ocode-cancel-pill")) continue; // already running
+      const wrapper = btn.closest<HTMLElement>(".ocode-wrapper");
+      if (!wrapper) continue;
+      btn.click();
+      ran++;
+      // runCode runs synchronously up to its first await, so runningProcs.set()
+      // is already called by the time btn.click() returns. Poll for completion.
+      await new Promise<void>((resolve) => {
+        const deadline = Date.now() + 120_000; // 2-min safety timeout
+        const poll = () => {
+          if (!this.runningProcs.has(wrapper) || Date.now() > deadline) {
+            resolve();
+          } else {
+            activeWindow.setTimeout(poll, 150);
+          }
+        };
+        activeWindow.setTimeout(poll, 150);
+      });
+    }
+    if (ran === 0) new Notice("All code blocks are currently running.");
   }
 
   /**
@@ -870,15 +942,6 @@ __ocode_emit_vars
     outLabel.className = "ocode-output-label";
     outLabel.textContent = "Running\u2026";
     outHeader.appendChild(outLabel);
-
-    // Clear-session pill (visible only in shared context mode)
-    if (useSharedCtx) {
-      const clearSessionBtn = this.createPillButton("Clear session", ICON.close, () => {
-        if (sourcePath) this.clearNoteSession(sourcePath);
-        new Notice("Execution session cleared.");
-      }, "ocode-clear-session-pill");
-      outHeader.appendChild(clearSessionBtn);
-    }
 
     const clearBtn = createEl("button");
     clearBtn.className = "ocode-pill ocode-clear-pill";

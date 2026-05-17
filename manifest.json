@@ -1,7 +1,7 @@
 {
   "id": "code-suite",
   "name": "CodeSuite",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "minAppVersion": "1.5.0",
   "description": "VS Code-style code blocks: Shiki syntax highlighting with 65+ themes and custom theme import, code execution with live I/O, shared variables with inline $var substitution, and embedded code file rendering.",
   "author": "Felix Leopold",
