@@ -1,36 +1,40 @@
 # CodeSuite
 
-VS Code-quality code blocks for [Obsidian](https://obsidian.md), powered by [Shiki](https://shiki.style/), the same syntax highlighting engine used by VS Code.
+Syntax highlighting, code execution, embedded files, shared variables, and VS Code theme import for [Obsidian](https://obsidian.md) — a complete VS Code-style coding experience inside your notes.
 
 Works in **both reading view and editor** (live preview / source mode).
 
 ## Features
 
-### Syntax Highlighting
-- **65+ built-in themes:** Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, GitHub, Material, and many more
-- **Import VS Code themes:** load any `.json` color theme from VS Code
-- **Editor highlighting:** full Shiki-powered tokens in live preview and source mode via a CM6 ViewPlugin
-- **36 languages:** Python, JS/TS, Rust, Go, C/C++, Java, Ruby, and more with common aliases (`py`, `js`, `sh`, etc.)
-- **Dynamic theme colors:** code block chrome (headers, borders, output panels) automatically adapts to match the selected theme
+### Syntax Highlighting (Shiki, the engine VS Code uses)
+- **65+ built-in themes** — Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, GitHub, Material, etc.
+- **Import any VS Code theme** — load any `.json` color theme file
+- **Auto light/dark switching** to follow your Obsidian theme
+- **36+ languages** with common aliases (`py`, `js`, `sh`, …)
+- **Editor highlighting** — full Shiki tokens in live preview and source mode via a CM6 ViewPlugin
 
 ### Code Execution
-- **Run code from Obsidian:** execute Python, JavaScript, TypeScript, Bash, Ruby, Go, Lua, Perl, PHP, R, and Swift directly from code blocks
-- **Live streaming output:** stdout and stderr stream in real-time
-- **Smart stdin:** input bar appears only when your code reads from stdin (detects `input()`, `process.stdin`, `read`, etc.)
-- **Matplotlib & Plotly support:** graphs render inline as images
-- **Execution timeout:** configurable auto-kill for runaway processes
-- **Custom interpreter paths:** set Python virtualenvs, custom Node paths, extra environment variables
+- **Run code from your notes** — Python, JavaScript, TypeScript, Bash, Ruby, Go, Lua, Perl, PHP, R, Swift
+- **Live streaming output** for stdout and stderr
+- **Interactive stdin** — input bar appears automatically when your code needs input
+- **Matplotlib & Plotly support** — graphs render inline as images
+- **Configurable timeout, working directory, interpreter paths, environment variables**
+
+### Shared Execution Context & Inline Variables (new)
+- **Share state across code blocks** in the same note (Python and Bash) — define a variable in one block, use it in any later block
+- **Inline `$varname` substitution** — write \`$peak\` anywhere in your note and the value updates live after each run
+- **Per-note, in-memory, kernel-free** — zero setup, resets when Obsidian closes; one-click "Clear session" to reset manually
 
 ### Embedded Code Files
 - **Render `![[file.py]]` embeds** as fully highlighted code blocks
-- **Collapsible by default:** long files show collapsed with a line count; click to expand
+- **Collapsible by default** with line count; click to expand
 - **Copy & Run** buttons on embedded files
 
 ### UI
-- **Header bar** with language label, Copy, and Run buttons
-- **Line numbers** with hover highlight
-- **Wide code blocks** option for more horizontal space
-- **Mobile-friendly** responsive layout
+- Header bar with language label, Copy, and Run buttons
+- Line numbers with hover highlight
+- Optional wide code blocks for more horizontal space
+- Mobile-friendly responsive layout
 
 ## Installation
 
@@ -78,6 +82,7 @@ All settings are in **Settings → CodeSuite**:
 | **Extra env variables** | Additional KEY=VALUE pairs for execution |
 | **Render embedded files** | Highlight `![[file.py]]` embeds |
 | **Collapse embedded files** | Start embedded files collapsed |
+| **Shared execution context** | Share variables across blocks of the same note & enable inline `$varname` (on by default) |
 
 ## How It Works
 

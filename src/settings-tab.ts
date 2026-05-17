@@ -249,6 +249,14 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Shared execution context")
+      .setDesc("When enabled, each code block you run accumulates into a per-note session. Later blocks can reference variables defined in earlier blocks (Python and Bash). The session is note-specific, lives in memory only, and resets when Obsidian is closed. Use the 'Clear execution session' command to reset manually. Run blocks top-to-bottom — order matters.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.sharedContext);
+        t.onChange(async (v) => { this.plugin.settings.sharedContext = v; await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
       .setName("Execution timeout")
       .setDesc("Maximum seconds before a running process is automatically killed.")
       .addSlider((s) => {

@@ -118,6 +118,12 @@ export interface CodePluginSettings {
   pythonPath: string;
   /** Custom Node.js path */
   nodePath: string;
+  /**
+   * When true, each code block execution accumulates into a per-note session.
+   * Later blocks can reference variables defined in earlier blocks (Python & Bash).
+   * The session lives in memory and resets when Obsidian is closed.
+   */
+  sharedContext: boolean;
   /** Extra environment variables for code execution (KEY=VALUE per line) */
   extraEnv: string;
   /** User-imported VS Code themes */
@@ -141,6 +147,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   pythonPath: "",
   nodePath: "",
   extraEnv: "",
+  sharedContext: true,
   customThemes: [],
 };
 

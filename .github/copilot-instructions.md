@@ -2,7 +2,7 @@
 
 ## What This Is
 
-**CodeSuite** (`id: code-suite`) is an Obsidian plugin providing VS Code-quality code blocks: Shiki syntax highlighting, code execution with live I/O, embedded file rendering, and custom theme import. Built with esbuild (CommonJS, ES2020) from TypeScript source in `src/`.
+**CodeSuite** (`id: code-suite`) is an Obsidian plugin providing a VS Code-style coding experience: Shiki syntax highlighting, code execution with live I/O, shared variables across blocks with inline `$varname` substitution, embedded file rendering, and custom theme import. Built with esbuild (CommonJS, ES2020) from TypeScript source in `src/`.
 
 ## Architecture
 

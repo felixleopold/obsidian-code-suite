@@ -293,6 +293,78 @@
 .ocode-hidden { display: none; }
 .ocode-exec-desc { margin-bottom: 12px; }
 
+/* ─── Inline $varname substitution ───────────── */
+/* Dim + italic until a value is known */
+code.ocode-var-ref {
+  opacity: 0.5;
+  font-style: italic;
+}
+/* Normal once a value is resolved */
+code.ocode-var-ref[data-resolved] {
+  opacity: 1;
+  font-style: normal;
+}
+
+/* ─── vars block ──────────────────────────────── */
+.ocode-vars-block {
+  border-radius: 6px;
+  overflow: hidden;
+  margin: 0.75em 0;
+  background: var(--code-background, #1e1e2e);
+  border: 1px solid var(--background-modifier-border);
+}
+.ocode-vars-header {
+  display: flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.ocode-vars-label {
+  font-size: 11px;
+  font-family: var(--font-monospace);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+.ocode-vars-table {
+  border-collapse: collapse;
+  width: 100%;
+  padding: 6px 0;
+}
+.ocode-vars-table tr {
+  transition: background 0.1s;
+}
+.ocode-vars-table tr:hover {
+  background: rgba(255,255,255,0.04);
+}
+.ocode-vars-key,
+.ocode-vars-eq,
+.ocode-vars-val {
+  font-family: var(--font-monospace);
+  font-size: var(--code-size, 13px);
+  padding: 2px 12px;
+  border: none;
+  white-space: pre;
+}
+.ocode-vars-key { color: #83a598; font-weight: 600; width: 1%; }
+.ocode-vars-eq  { color: var(--text-muted); padding: 2px 4px; width: 1%; }
+.ocode-vars-val { color: #fabd2f; }
+
+/* Clear-session pill */
+.ocode-clear-session-pill {
+  font-size: 10px;
+  padding: 1px 7px;
+  color: #fabd2f;
+  border-color: rgba(250, 189, 47, 0.3);
+}
+.ocode-clear-session-pill:hover {
+  background-color: rgba(250, 189, 47, 0.12);
+  color: #fabd2f;
+  border-color: rgba(250, 189, 47, 0.5);
+}
+
 /* ─── Hide Obsidian default copy button ───────── */
 .ocode-wrapper .copy-code-button {
   display: none;

@@ -46,6 +46,14 @@ export default class CodePlugin extends Plugin {
   highlighter: Highlighter = new Highlighter();
   /** Track running processes per wrapper element for cancel */
   private runningProcs: Map<HTMLElement, RunningProcess> = new Map();
+  /**
+   * Shared execution context. Maps note path → language → ordered list of
+   * previously-executed code blocks. In-memory only; cleared on unload.
+   */
+  private noteContexts: Map<string, Map<string, string[]>> = new Map();
+  /** Latest variable snapshot per note (Python only). Maps note path → {varName: displayValue}. */
+  private noteVarStore: Map<string, Record<string, string>> = new Map();
+
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
   /** Debounce timer for auto-theme switching (css-change can fire many times per mode switch) */
@@ -99,6 +107,30 @@ export default class CodePlugin extends Plugin {
       },
       1000
     );
+
+    // Reading view: inline $varname substitution.
+    // Always run — tagging is cheap, and we need spans tagged regardless of
+    // when the user enables shared context (Obsidian doesn't re-post-process on
+    // setting toggle, so a gated post-processor would miss already-rendered notes).
+    this.registerMarkdownPostProcessor(
+      (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
+        this.processInlineVarRefs(el, ctx);
+      },
+      1001
+    );
+
+    // Command: clear the execution session for the current note
+    this.addCommand({
+      id: "clear-execution-session",
+      name: "Clear execution session for this note",
+      callback: () => {
+        const file = this.app.workspace.getActiveFile();
+        if (file) {
+          this.clearNoteSession(file.path);
+          new Notice("Execution session cleared.");
+        }
+      },
+    });
 
     // Reading view: embedded code file rendering
     this.registerMarkdownPostProcessor(
@@ -339,9 +371,155 @@ export default class CodePlugin extends Plugin {
     );
   }
 
+  // ─── Shared Execution Context ────────────────────────────────
+
+  /** Languages that support shared context (prepend-and-suppress approach). */
+  private static readonly SHARED_CTX_LANGS = new Set(["python", "bash", "zsh", "shell"]);
+
+  /** Clear accumulated context, var store, and inline var DOM state for a note. */
+  private clearNoteSession(notePath: string): void {
+    this.noteContexts.delete(notePath);
+    this.noteVarStore.delete(notePath);
+    // Reset all inline $var spans back to their placeholder appearance
+    const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
+    for (const el of Array.from(els)) {
+      const name = el.getAttribute("data-ocode-var");
+      if (name) {
+        el.textContent = `$${name}`;
+        el.removeAttribute("data-resolved");
+      }
+    }
+  }
+
+  /**
+   * Build the full execution script for a shared-context run.
+   * Previous blocks are prepended with their stdout/stderr suppressed so they
+   * re-establish variables silently. Only the current block produces visible output.
+   */
+  private buildSharedContextCode(lang: string, prevBlocks: string[], currentBlock: string): string {
+    const accum = prevBlocks.join("\n\n");
+
+    if (lang === "python") {
+      // Redirect stdout/stderr to a sink while the accumulated blocks run,
+      // then restore before the current block so only the new output is shown.
+      // Also suppress matplotlib/plotly plot saves so images from previous runs
+      // don't bleed into the current block's output panel.
+      const indented = accum.split("\n").map((l) => "    " + l).join("\n");
+      return [
+        "import sys as __sys, io as __io",
+        "__ocode_null = __io.StringIO()",
+        "__ocode_prev_out, __ocode_prev_err = __sys.stdout, __sys.stderr",
+        "__sys.stdout = __sys.stderr = __ocode_null",
+        // Suppress matplotlib plot saves during replay
+        "try:",
+        "    __ocode_plt_bak = __plt.show; __plt.show = lambda *a,**kw: None",
+        "except Exception: pass",
+        // Suppress plotly saves during replay
+        "try:",
+        "    import plotly.io as __ocode_pio; __ocode_pio_bak = __ocode_pio.show; __ocode_pio.show = lambda *a,**kw: None",
+        "except Exception: pass",
+        "try:",
+        indented,
+        "finally:",
+        "    __sys.stdout = __ocode_prev_out",
+        "    __sys.stderr = __ocode_prev_err",
+        "    __ocode_null.close()",
+        "    del __ocode_null, __ocode_prev_out, __ocode_prev_err",
+        "    try: __plt.show = __ocode_plt_bak; del __ocode_plt_bak",
+        "    except Exception: pass",
+        "    try: __ocode_pio.show = __ocode_pio_bak; del __ocode_pio, __ocode_pio_bak",
+        "    except Exception: pass",
+        "",
+        currentBlock,
+      ].join("\n");
+    }
+
+    if (lang === "bash" || lang === "zsh" || lang === "shell") {
+      // Group-command redirect: variables set inside { } are still exported to
+      // the outer shell because { } is a grouping construct, not a subshell.
+      return `{\n${accum}\n} > /dev/null 2>&1\n\n${currentBlock}`;
+    }
+
+    return currentBlock;
+  }
+
+  /**
+   * Python postamble: serialise all non-private globals to a single
+   * `__OCODE_VARS__=<json>` line printed to stdout. The onStdout handler
+   * intercepts and removes this line before it reaches the output panel.
+   */
+  private static readonly PYTHON_VAR_POSTAMBLE = `
+try:
+    import json as __json, types as __types
+    __ocode_snap = {}
+    for __k in list(globals().keys()):
+        if __k.startswith('_'):
+            continue
+        __v = globals()[__k]
+        if isinstance(__v, (__types.ModuleType, __types.FunctionType,
+                             __types.BuiltinFunctionType, __types.MethodType, type)):
+            continue
+        try:
+            __ocode_snap[__k] = __json.loads(__json.dumps(__v))
+        except Exception:
+            try:
+                __ocode_snap[__k] = repr(__v)
+            except Exception:
+                pass
+    print('\\n__OCODE_VARS__=' + __json.dumps(__ocode_snap), flush=True)
+    del __json, __types, __ocode_snap
+except Exception:
+    pass
+`;
+
+  /**
+   * Bash postamble: emit non-builtin, non-environment variables as JSON.
+   * Filters out shell internals, exported env, and arrays/functions for safety.
+   */
+  private static readonly BASH_VAR_POSTAMBLE = `
+__ocode_emit_vars() {
+  local __ocode_k __ocode_v __ocode_first=1
+  local __ocode_skip='^(BASH|BASHOPTS|BASHPID|BASH_.*|COMP_.*|DIRSTACK|EPOCHREALTIME|EPOCHSECONDS|EUID|FUNCNAME|GROUPS|HISTCMD|HOSTNAME|HOSTTYPE|IFS|LINENO|MACHTYPE|OLDPWD|OPTERR|OPTIND|OSTYPE|PATH|PIPESTATUS|PPID|PS[0-9]|PWD|RANDOM|SECONDS|SHELL|SHELLOPTS|SHLVL|SRANDOM|TERM|UID|_|__ocode_.*)$'
+  printf '\\n__OCODE_VARS__={'
+  while IFS= read -r __ocode_k; do
+    [[ -z $__ocode_k || $__ocode_k == _* ]] && continue
+    [[ $__ocode_k =~ $__ocode_skip ]] && continue
+    declare -p "$__ocode_k" 2>/dev/null | grep -q '^declare -[^ ]*x' && continue
+    declare -p "$__ocode_k" 2>/dev/null | grep -qE '^declare -[^ ]*[afA]' && continue
+    __ocode_v="\${!__ocode_k}"
+    __ocode_v="\${__ocode_v//\\\\/\\\\\\\\}"
+    __ocode_v="\${__ocode_v//\\"/\\\\\\"}"
+    __ocode_v="\${__ocode_v//$'\\n'/\\\\n}"
+    __ocode_v="\${__ocode_v//$'\\t'/\\\\t}"
+    __ocode_v="\${__ocode_v//$'\\r'/\\\\r}"
+    [[ $__ocode_first -eq 1 ]] || printf ','
+    __ocode_first=0
+    printf '"%s":"%s"' "$__ocode_k" "$__ocode_v"
+  done < <(compgen -v)
+  printf '}\\n'
+}
+__ocode_emit_vars
+`;
+
+  /**
+   * Broadcast the latest var values to all matching inline `$varname` spans in
+   * the current document. Iterates by class then looks up the var name on each
+   * element — avoids any attribute-selector escaping pitfalls.
+   */
+  private updateInlineVarRefs(_notePath: string, store: Record<string, string>): void {
+    const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
+    for (const el of Array.from(els)) {
+      const name = el.getAttribute("data-ocode-var");
+      if (name && Object.prototype.hasOwnProperty.call(store, name)) {
+        el.textContent = String(store[name]);
+        el.setAttribute("data-resolved", "");
+      }
+    }
+  }
+
   // ─── Code Block Processing ────────────────────────────────────
 
-  private processCodeBlocks(el: HTMLElement, _ctx: MarkdownPostProcessorContext) {
+  private processCodeBlocks(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
     const codeBlocks = el.querySelectorAll("pre > code");
     if (!codeBlocks.length) return;
 
@@ -369,10 +547,89 @@ export default class CodePlugin extends Plugin {
       const PASSTHROUGH_LANGS = new Set(["mermaid", "dataview", "dataviewjs", "query"]);
       if (PASSTHROUGH_LANGS.has(rawLang.toLowerCase())) continue;
 
+      // `vars` blocks define note-scoped variables inline — parse and store immediately.
+      if (rawLang.toLowerCase() === "vars") {
+        this.renderVarsBlock(pre, codeEl.textContent || "", ctx.sourcePath);
+        continue;
+      }
+
       const lang = this.highlighter.resolveLanguage(rawLang);
       const code = codeEl.textContent || "";
 
-      this.renderCodeBlock(pre, code, lang, rawLang);
+      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath);
+    }
+  }
+
+  /**
+   * Render a ```vars block as a styled key-value table and immediately seed the
+   * noteVarStore so inline $varname spans resolve without needing to run code.
+   * Syntax: one `key = value` (or `key: value`) assignment per line; blank
+   * lines and lines starting with `#` are ignored.
+   */
+  private renderVarsBlock(originalPre: HTMLElement, source: string, sourcePath: string): void {
+    const entries: Array<[string, string]> = [];
+    for (const raw of source.split("\n")) {
+      const line = raw.trim();
+      if (!line || line.startsWith("#")) continue;
+      const sep = line.indexOf("=") !== -1
+        ? line.indexOf("=")
+        : line.indexOf(":");
+      if (sep === -1) continue;
+      const key = line.slice(0, sep).trim();
+      const val = line.slice(sep + 1).trim();
+      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) entries.push([key, val]);
+    }
+
+    // Seed noteVarStore
+    if (entries.length && sourcePath) {
+      if (!this.noteVarStore.has(sourcePath)) this.noteVarStore.set(sourcePath, {});
+      const store = this.noteVarStore.get(sourcePath)!;
+      for (const [k, v] of entries) store[k] = v;
+      this.updateInlineVarRefs(sourcePath, store);
+    }
+
+    // Build the rendered widget
+    const wrapper = createDiv({ cls: "ocode-vars-block" });
+    const header = wrapper.createDiv({ cls: "ocode-vars-header" });
+    header.createSpan({ cls: "ocode-vars-label", text: "vars" });
+
+    const table = wrapper.createEl("table", { cls: "ocode-vars-table" });
+    for (const [key, val] of entries) {
+      const row = table.createEl("tr");
+      row.createEl("td", { cls: "ocode-vars-key", text: key });
+      row.createEl("td", { cls: "ocode-vars-eq", text: "=" });
+      row.createEl("td", { cls: "ocode-vars-val", text: val });
+    }
+
+    originalPre.replaceWith(wrapper);
+  }
+
+  /**
+   * Scan inline `<code>` elements for `$varname` patterns, mark them with a
+   * `data-ocode-var` attribute, and apply any already-stored value immediately.
+   * Future updates use a live querySelectorAll so stale element references are
+   * never a problem.
+   */
+  private processInlineVarRefs(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
+    const notePath = ctx.sourcePath;
+    // Only inline code (not inside <pre>)
+    const inlineCodes = el.querySelectorAll("code");
+    for (const codeEl of Array.from(inlineCodes)) {
+      if (codeEl.closest("pre")) continue;
+      const text = (codeEl.textContent || "").trim();
+      const match = text.match(/^\$([a-zA-Z_][a-zA-Z0-9_]*)$/);
+      if (!match) continue;
+      const varName = match[1];
+
+      codeEl.addClass("ocode-var-ref");
+      codeEl.setAttribute("data-ocode-var", varName);
+
+      // Apply any already-stored value (e.g. note re-opened after execution)
+      const varStore = this.noteVarStore.get(notePath);
+      if (varStore && varName in varStore) {
+        codeEl.textContent = String(varStore[varName]);
+        codeEl.setAttribute("data-resolved", "");
+      }
     }
   }
 
@@ -381,7 +638,8 @@ export default class CodePlugin extends Plugin {
     code: string,
     lang: string,
     displayLang: string,
-    fileName?: string
+    fileName?: string,
+    sourcePath?: string
   ) {
     const html = this.highlighter.highlight(code, lang, this.settings.theme);
     if (!html) return;
@@ -390,7 +648,7 @@ export default class CodePlugin extends Plugin {
     wrapper.className = "ocode-wrapper";
     const parsedHtml = new DOMParser().parseFromString(html, "text/html");
     for (const node of Array.from(parsedHtml.body.childNodes)) {
-      wrapper.appendChild(document.adoptNode(node));
+      wrapper.appendChild(activeDocument.adoptNode(node));
     }
 
     // ─── Header bar (label left, buttons right) ───
@@ -425,7 +683,7 @@ export default class CodePlugin extends Plugin {
 
     if (this.settings.enableExecution && isExecutable(lang) && Platform.isDesktop) {
       const runBtn = this.createPillButton("Run", ICON.play, () => {
-        void this.runCode(code, lang, wrapper, runBtn);
+        void this.runCode(code, lang, wrapper, runBtn, sourcePath);
       }, "ocode-run-pill");
       btnGroup.appendChild(runBtn);
     }
@@ -479,13 +737,35 @@ export default class CodePlugin extends Plugin {
     code: string,
     lang: string,
     wrapper: HTMLElement,
-    runBtn: HTMLButtonElement
+    runBtn: HTMLButtonElement,
+    sourcePath?: string
   ) {
     // If already running, this is a cancel click
     const existingProc = this.runningProcs.get(wrapper);
     if (existingProc) {
       existingProc.cancel();
       return;
+    }
+
+    // ─── Shared context ───────────────────────────────────────────
+    const useSharedCtx =
+      this.settings.sharedContext &&
+      sourcePath !== undefined &&
+      CodePlugin.SHARED_CTX_LANGS.has(lang);
+
+    // Build the code to actually execute (may prepend accumulated blocks)
+    let execCode = code;
+    if (useSharedCtx) {
+      const prevBlocks = this.noteContexts.get(sourcePath)?.get(lang) ?? [];
+      if (prevBlocks.length > 0) {
+        execCode = this.buildSharedContextCode(lang, prevBlocks, code);
+      }
+      // Append the var-extraction postamble so we can snapshot variables
+      if (lang === "python") {
+        execCode = execCode + CodePlugin.PYTHON_VAR_POSTAMBLE;
+      } else if (lang === "bash" || lang === "zsh" || lang === "shell") {
+        execCode = execCode + CodePlugin.BASH_VAR_POSTAMBLE;
+      }
     }
 
     // Switch button to "Stop" cancel mode
@@ -508,6 +788,15 @@ export default class CodePlugin extends Plugin {
     outLabel.className = "ocode-output-label";
     outLabel.textContent = "Running\u2026";
     outHeader.appendChild(outLabel);
+
+    // Clear-session pill (visible only in shared context mode)
+    if (useSharedCtx) {
+      const clearSessionBtn = this.createPillButton("Clear session", ICON.close, () => {
+        if (sourcePath) this.clearNoteSession(sourcePath);
+        new Notice("Execution session cleared.");
+      }, "ocode-clear-session-pill");
+      outHeader.appendChild(clearSessionBtn);
+    }
 
     const clearBtn = createEl("button");
     clearBtn.className = "ocode-pill ocode-clear-pill";
@@ -560,13 +849,43 @@ export default class CodePlugin extends Plugin {
     // Track whether the current input is a password prompt (sudo or dynamic detection)
     let isPasswordMode = isSudo;
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
-    const proc = startExecution(code, lang, this.settings, {
+
+    // For Python shared context: buffer stdout line-by-line to intercept the
+    // __OCODE_VARS__ snapshot line without disrupting live streaming.
+    let stdoutLineBuffer = "";
+    const appendStdout = (text: string) => {
+      const span = createSpan();
+      span.className = "ocode-stdout";
+      span.textContent = text;
+      outContent.appendChild(span);
+      outContent.scrollTop = outContent.scrollHeight;
+    };
+
+    const proc = startExecution(execCode, lang, this.settings, {
       onStdout: (data) => {
-        const span = createSpan();
-        span.className = "ocode-stdout";
-        span.textContent = data;
-        outContent.appendChild(span);
-        outContent.scrollTop = outContent.scrollHeight;
+        if (useSharedCtx) {
+          // Buffer to cleanly strip the __OCODE_VARS__ line from streamed output
+          stdoutLineBuffer += data;
+          const lines = stdoutLineBuffer.split("\n");
+          stdoutLineBuffer = lines.pop()!; // last (possibly incomplete) chunk
+          for (const line of lines) {
+            if (line.startsWith("__OCODE_VARS__=")) {
+              try {
+                const vars = JSON.parse(line.slice("__OCODE_VARS__=".length)) as Record<string, unknown>;
+                const store: Record<string, string> = {};
+                for (const [k, v] of Object.entries(vars)) {
+                  store[k] = typeof v === "string" ? v : JSON.stringify(v);
+                }
+                this.noteVarStore.set(sourcePath, store);
+                this.updateInlineVarRefs(sourcePath, store);
+              } catch (_e) { /* ignore parse failures */ }
+            } else {
+              appendStdout(line + "\n");
+            }
+          }
+        } else {
+          appendStdout(data);
+        }
       },
       onStderr: (data) => {
         stderrText += data;
@@ -617,6 +936,14 @@ export default class CodePlugin extends Plugin {
 
     try {
       const result = await proc.promise;
+
+      // Flush any remaining buffered stdout (no trailing newline at end of script)
+      if (stdoutLineBuffer) {
+        if (!stdoutLineBuffer.startsWith("__OCODE_VARS__=")) {
+          appendStdout(stdoutLineBuffer);
+        }
+        stdoutLineBuffer = "";
+      }
 
       // Process finished — remove input bar
       inputBar.remove();
@@ -669,6 +996,17 @@ export default class CodePlugin extends Plugin {
       // Hide text area if only images, no text
       if (!outContent.childNodes.length && result.images.length > 0) {
         outContent.classList.add("ocode-hidden");
+      }
+
+      // ─── Accumulate into session on clean exit ───
+      if (useSharedCtx && result.exitCode === 0) {
+        const notePath = sourcePath;
+        if (!this.noteContexts.has(notePath)) {
+          this.noteContexts.set(notePath, new Map());
+        }
+        const noteCtx = this.noteContexts.get(notePath)!;
+        if (!noteCtx.has(lang)) noteCtx.set(lang, []);
+        noteCtx.get(lang)!.push(code); // store the original block, not the wrapped version
       }
     } catch (err: unknown) {
       new Notice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);

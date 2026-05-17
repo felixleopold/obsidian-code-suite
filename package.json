@@ -1,6 +1,6 @@
 {
   "name": "obsidian-syntax-highlighting",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "VS Code-quality syntax highlighting for Obsidian code blocks using Shiki + Gruvbox",
   "main": "dist/main.js",
   "scripts": {
