@@ -27,3 +27,4 @@ install-plugin.sh
 # TypeScript cache
 *.tsbuildinfo
 
+RELEASE_NOTES.md

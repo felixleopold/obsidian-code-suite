@@ -331,6 +331,15 @@ export class CodeSettingTab extends PluginSettingTab {
       });
     envSetting.descEl["textContent"] = "Additional environment variables passed to executed code (one KEY=VALUE per line). Useful for PYTHONPATH, API keys, etc.";
 
+    new Setting(containerEl)
+      .setName(".env file path")
+      .setDesc("Absolute path to a .env file. Variables are loaded into the process environment at execution time. Values from \"Extra environment variables\" (and frontmatter) override anything declared here, so a shared project .env can be mixed with per-note overrides.")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "/path/to/project/.env";
+        t.setValue(this.plugin.settings.envFilePath);
+        t.onChange(async (v) => { this.plugin.settings.envFilePath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
     // ─── Embedded Files ──────────────────────────
     new Setting(containerEl).setName("Embedded code files").setHeading();
 
@@ -348,6 +357,44 @@ export class CodeSettingTab extends PluginSettingTab {
       .addToggle((t) => {
         t.setValue(this.plugin.settings.collapseEmbeds);
         t.onChange(async (v) => { this.plugin.settings.collapseEmbeds = v; await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("Collapsible inline code blocks")
+      .setDesc("Add a collapse toggle to inline code blocks in reading view. Click the header to expand/collapse.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.inlineCollapsible);
+        t.onChange(async (v) => { this.plugin.settings.inlineCollapsible = v; await this.plugin.saveSettings(); this.display(); });
+      });
+
+    if (this.plugin.settings.inlineCollapsible) {
+      new Setting(containerEl)
+        .setName("Collapse inline blocks by default")
+        .setDesc("Start all inline code blocks collapsed. Reading view only.")
+        .addToggle((t) => {
+          t.setValue(this.plugin.settings.inlineCollapsedByDefault);
+          t.onChange(async (v) => { this.plugin.settings.inlineCollapsedByDefault = v; await this.plugin.saveSettings(); });
+        });
+    }
+
+    // ─── Vault code files ───────────────────────
+    new Setting(containerEl).setName("Vault code files").setHeading();
+
+    new Setting(containerEl)
+      .setName("Show code files in the file explorer")
+      .setDesc("Register code file extensions (.py, .js, .sh, etc.) with Obsidian so they appear in the file explorer sidebar and open in CodeSuite's lightweight editor. Requires Obsidian restart to take effect when toggled.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.enableCodeFileView);
+        t.onChange(async (v) => { this.plugin.settings.enableCodeFileView = v; await this.plugin.saveSettings(); new Notice("Restart Obsidian for this change to take effect."); });
+      });
+
+    new Setting(containerEl)
+      .setName("Imports folder")
+      .setDesc("Vault-relative folder used by \"Import code file as alias\". The folder is created on demand. Defaults to CodeSuiteImports.")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "CodeSuiteImports";
+        t.setValue(this.plugin.settings.codeImportsFolder);
+        t.onChange(async (v) => { this.plugin.settings.codeImportsFolder = v.trim(); await this.plugin.saveSettings(); });
       });
   }
 }

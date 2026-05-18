@@ -4,7 +4,7 @@
  */
 
 import { Platform } from "obsidian";
-import { parseExtraEnv, type CodePluginSettings } from "./settings";
+import { parseExtraEnv, parseDotEnvFile, type CodePluginSettings } from "./settings";
 
 /** Runtime definitions */
 const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
@@ -202,9 +202,13 @@ export function startExecution(
     cmd = lang === "javascript" ? settings.nodePath : runtime.cmd;
   }
 
-  // Build env
+  // Build env. Order of precedence (later overrides earlier):
+  //   process.env  <  .env file (shared)  <  extraEnv (settings)
+  // .env values are loaded first so users can keep shared secrets in a file
+  // and override or add note-specific values via the settings UI.
+  const dotEnv = parseDotEnvFile(settings.envFilePath);
   const extraEnv = parseExtraEnv(settings.extraEnv);
-  const env = { ...process.env, ...extraEnv };
+  const env = { ...process.env, ...dotEnv, ...extraEnv };
 
   // If pythonPath is a venv python, set VIRTUAL_ENV and prepend bin to PATH
   // (applies to all languages so bash/shell blocks can call pip, etc.)

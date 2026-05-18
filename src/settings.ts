@@ -126,6 +126,23 @@ export interface CodePluginSettings {
   sharedContext: boolean;
   /** Extra environment variables for code execution (KEY=VALUE per line) */
   extraEnv: string;
+  /**
+   * Optional absolute path to a `.env` file. Variables defined there are
+   * loaded into the process environment at execution time. `extraEnv` (and
+   * any frontmatter overrides) take precedence over `.env` values.
+   */
+  envFilePath: string;
+  /** Show a collapse toggle on inline (non-embedded) code blocks in reading view. */
+  inlineCollapsible: boolean;
+  /** When inlineCollapsible is on, default all inline blocks to collapsed. */
+  inlineCollapsedByDefault: boolean;
+  /**
+   * Register code file extensions (`.py`, `.js`, etc.) with Obsidian so they
+   * appear in the file explorer and open in a CodeSuite editor view.
+   */
+  enableCodeFileView: boolean;
+  /** Default folder (relative to vault root) for "Import code file as alias". */
+  codeImportsFolder: string;
   /** User-imported VS Code themes */
   customThemes: CustomTheme[];
 }
@@ -147,6 +164,11 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   pythonPath: "",
   nodePath: "",
   extraEnv: "",
+  envFilePath: "",
+  inlineCollapsible: false,
+  inlineCollapsedByDefault: false,
+  enableCodeFileView: true,
+  codeImportsFolder: "CodeSuiteImports",
   sharedContext: true,
   customThemes: [],
 };
@@ -170,4 +192,25 @@ export function parseExtraEnv(envStr: string): Record<string, string> {
     }
   }
   return result;
+}
+
+/**
+ * Parse a `.env` file. Supports `KEY=value`, `export KEY=value`,
+ * surrounding quotes, and `#` comments. Returns {} on read/parse failure.
+ */
+export function parseDotEnvFile(filePath: string): Record<string, string> {
+  if (!filePath) return {};
+  try {
+    const nodeRequire = (globalThis as unknown as { require: (id: string) => unknown }).require;
+    const fs = nodeRequire("fs") as typeof import("fs");
+    if (!fs.existsSync(filePath)) return {};
+    const text = fs.readFileSync(filePath, "utf-8");
+    const stripped = text
+      .split("\n")
+      .map((l) => l.replace(/^\s*export\s+/, ""))
+      .join("\n");
+    return parseExtraEnv(stripped);
+  } catch (_e) {
+    return {};
+  }
 }

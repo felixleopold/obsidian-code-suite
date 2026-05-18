@@ -33,4 +33,4 @@ This file tracks the text used in the CodeSuite entry on the Obsidian community 
 - The About text is set separately from the README on the community plugin listing page.
 - Keep it under 1000 characters (including spaces).
 - Update this file whenever the About text is changed so it stays in sync.
-- The manifest.json `description` is used in Obsidian's plugin search — keep it concise (~200 chars max).
+- The manifest.json `description` is used in Obsidian's plugin search — keep it concise (250 chars max).

@@ -633,3 +633,93 @@ body.ocode-wide-blocks .ocode-wrapper {
     display: none;
   }
 }
+
+/* ─── Skip-run-all badge (v1.3.0) ────────────── */
+.ocode-skip-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  margin-right: 4px;
+  border-radius: 4px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  user-select: none;
+}
+
+/* ─── Copy-output pill ───────────────────────── */
+.ocode-copy-out-pill {
+  /* Inherits .ocode-pill styling via class on element */
+}
+
+/* ─── Code file view (v1.3.0) ───────────────── */
+.ocode-file-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--background-primary);
+}
+.ocode-file-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  flex-wrap: wrap;
+}
+.ocode-file-lang {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: auto;
+  font-family: var(--font-monospace);
+}
+.ocode-mode-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+}
+.ocode-mode-pill.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+.ocode-file-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+}
+.ocode-file-editor {
+  width: 100%;
+  height: 100%;
+  min-height: 300px;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 12px 16px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: var(--font-text-size);
+  line-height: 1.55;
+  tab-size: 2;
+  white-space: pre;
+}
+.ocode-file-view .ocode-output {
+  border-top: 1px solid var(--background-modifier-border);
+  max-height: 40%;
+  overflow: auto;
+}
+
+
+/* spacer used in code-file-view toolbar */
+.ocode-spacer-flex { flex: 1; }
+

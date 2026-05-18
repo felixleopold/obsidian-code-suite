@@ -3,6 +3,7 @@ import {
   MarkdownPostProcessorContext,
   MarkdownView,
   TFile,
+  TFolder,
   Notice,
   Platform,
 } from "obsidian";
@@ -16,6 +17,7 @@ import {
   type CodePluginSettings,
   DEFAULT_SETTINGS,
 } from "./settings";
+import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 
 // SVG icons as constants
 const ICON = {
@@ -29,6 +31,25 @@ const ICON = {
 };
 
 const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
+
+/**
+ * Detect the "skip from Run All" marker on the first non-empty line of a code
+ * block. Accepts most common comment styles so the marker works for every
+ * supported language:
+ *   #  codesuite:skip      (python, bash, ruby, perl, r, makefile, …)
+ *   // codesuite:skip      (js, ts, go, swift, java, c, c++, rust, php, kotlin, scala, …)
+ *   -- codesuite:skip      (lua, sql, haskell)
+ *   %  codesuite:skip      (r/latex/matlab)
+ *   /* codesuite:skip *​/   (any C-style)
+ */
+const SKIP_MARKER_RE = /^\s*(?:#|\/\/|--|%|\/\*)\s*codesuite\s*:\s*skip(?:[\s*/]|$)/i;
+function blockHasSkipMarker(code: string): boolean {
+  for (const raw of code.split("\n")) {
+    if (!raw.trim()) continue;
+    return SKIP_MARKER_RE.test(raw);
+  }
+  return false;
+}
 
 /** Parse an SVG string into a DOM element without using innerHTML */
 function parseSvg(svgString: string): Node {
@@ -87,6 +108,24 @@ export default class CodePlugin extends Plugin {
     }
 
     this.addSettingTab(new CodeSettingTab(this.app, this));
+
+    // ─── Code file view (#4 / #11) ──────────────
+    // Register a custom view + bind code file extensions to it so .py, .js,
+    // etc. show up in the Obsidian file explorer and open in CodeSuite's
+    // lightweight editor instead of the default plain-text fallback.
+    this.registerView(CODE_FILE_VIEW_TYPE, (leaf) => new CodeFileView(leaf, this));
+    if (this.settings.enableCodeFileView) {
+      this.registerCodeFileExtensions();
+    }
+
+    // Command: import an external code file into the vault as a symlink alias
+    if (Platform.isDesktop) {
+      this.addCommand({
+        id: "import-code-file-as-alias",
+        name: "Import code file as alias\u2026",
+        callback: () => { void this.importCodeFileAsAlias(); },
+      });
+    }
 
     if (this.settings.wideCodeBlocks) {
       activeDocument.body.addClass("ocode-wide-blocks");
@@ -458,6 +497,8 @@ export default class CodePlugin extends Plugin {
       if (btn.classList.contains("ocode-cancel-pill")) continue; // already running
       const wrapper = btn.closest<HTMLElement>(".ocode-wrapper");
       if (!wrapper) continue;
+      // Skip blocks marked with the "codesuite:skip" comment marker
+      if (wrapper.classList.contains("ocode-skip-run-all")) continue;
       btn.click();
       ran++;
       // runCode runs synchronously up to its first await, so runningProcs.set()
@@ -647,11 +688,132 @@ __ocode_emit_vars
     }
   }
 
+  // ─── Code file integration ───────────────────────────────────
+
+  /**
+   * Register all known code file extensions with Obsidian so they appear in
+   * the file explorer and open via CodeFileView. We skip extensions that
+   * Obsidian or other plugins already own (`.md`, `.css`, `.html`, `.json`,
+   * `.xml`) to avoid stomping on built-in behaviour.
+   */
+  private registerCodeFileExtensions(): void {
+    const reserved = new Set([".md", ".css", ".html", ".htm", ".json", ".xml"]);
+    const exts = Object.keys(EXT_TO_LANG)
+      .filter((e) => !reserved.has(e))
+      .map((e) => e.startsWith(".") ? e.slice(1) : e);
+    try {
+      this.registerExtensions(exts, CODE_FILE_VIEW_TYPE);
+    } catch (_e) {
+      // Some extensions may already be claimed by another plugin — Obsidian
+      // throws in that case. Fall back to per-extension registration so we
+      // still grab everything we can.
+      for (const e of exts) {
+        try { this.registerExtensions([e], CODE_FILE_VIEW_TYPE); } catch (_err) { /* skip taken extension */ }
+      }
+    }
+  }
+
+  /**
+   * Import an external code file as an alias (symlink) inside the vault.
+   * Opens a native file picker, then creates a symlink in the configured
+   * imports folder (created on demand). The file then appears in the
+   * Obsidian file explorer and can be opened, edited, and run like any
+   * other vault file.
+   */
+  private async importCodeFileAsAlias(): Promise<void> {
+    if (!Platform.isDesktop) {
+      new Notice("Importing code files is only available on desktop.");
+      return;
+    }
+    const nodeRequire = (globalThis as unknown as { require: (id: string) => unknown }).require;
+    const fs = nodeRequire("fs") as typeof import("fs");
+    const path = nodeRequire("path") as typeof import("path");
+
+    // Use a hidden <input type="file"> to spawn the OS file picker. In Electron
+    // the resulting File object exposes the absolute path via `.path`.
+    const externalPath = await new Promise<string | null>((resolve) => {
+      const input = createEl("input");
+      input.type = "file";
+      input.style.display = "none";
+      input.addEventListener("change", () => {
+        const f = input.files?.[0] as (File & { path?: string }) | undefined;
+        const p = f?.path;
+        input.remove();
+        resolve(p ?? null);
+      });
+      // If the user cancels there is no change event — clean up via focus.
+      activeWindow.setTimeout(() => {
+        activeDocument.body.addEventListener("focus", function once() {
+          activeDocument.body.removeEventListener("focus", once, true);
+          activeWindow.setTimeout(() => { if (input.isConnected) { input.remove(); resolve(null); } }, 300);
+        }, true);
+      }, 0);
+      activeDocument.body.appendChild(input);
+      input.click();
+    });
+
+    if (!externalPath) return;
+
+    const ext = path.extname(externalPath).toLowerCase();
+    if (!CODE_FILE_EXTENSIONS.has(ext)) {
+      new Notice(`Unsupported file type: ${ext || "(no extension)"}.`);
+      return;
+    }
+
+    const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
+    const folderRel = (this.settings.codeImportsFolder || "CodeSuiteImports").replace(/^\/+|\/+$/g, "");
+
+    // Make sure the destination folder exists both on disk and as a TFolder.
+    const folder = this.app.vault.getAbstractFileByPath(folderRel);
+    if (!folder) {
+      try { await this.app.vault.createFolder(folderRel); } catch (_e) { /* race-safe: folder may have appeared between checks */ }
+    } else if (!(folder instanceof TFolder)) {
+      new Notice(`Cannot import: "${folderRel}" exists and is not a folder.`);
+      return;
+    }
+
+    const baseName = path.basename(externalPath);
+    let targetRel = `${folderRel}/${baseName}`;
+    let targetAbs = path.join(vaultPath, targetRel);
+    // Disambiguate against existing files: file.py → file-1.py → file-2.py
+    if (fs.existsSync(targetAbs)) {
+      const stem = baseName.slice(0, baseName.length - ext.length);
+      let n = 1;
+      while (fs.existsSync(path.join(vaultPath, `${folderRel}/${stem}-${n}${ext}`))) n++;
+      targetRel = `${folderRel}/${stem}-${n}${ext}`;
+      targetAbs = path.join(vaultPath, targetRel);
+    }
+
+    try {
+      fs.symlinkSync(externalPath, targetAbs);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      new Notice(`Failed to create alias: ${msg}`);
+      return;
+    }
+
+    // Trigger a vault refresh so the symlink shows up immediately, then open it.
+    new Notice(`Aliased "${baseName}" → ${targetRel}`);
+    // Give the vault a tick to pick up the new file.
+    activeWindow.setTimeout(() => {
+      const tfile = this.app.vault.getAbstractFileByPath(targetRel);
+      if (tfile instanceof TFile) {
+        void this.app.workspace.getLeaf().openFile(tfile);
+      }
+    }, 200);
+  }
+
   // ─── Code Block Processing ────────────────────────────────────
 
   private processCodeBlocks(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
     const codeBlocks = el.querySelectorAll("pre > code");
     if (!codeBlocks.length) return;
+
+    // Seed any `code_vars:` frontmatter variables into the note's var stores
+    // before processing blocks. This is idempotent — re-rendering a note just
+    // re-applies the same values. Block-level `vars` declarations are merged
+    // *after* this in renderVarsBlock and therefore override frontmatter vars.
+    this.applyFrontmatterVars(ctx);
 
     for (const codeEl of Array.from(codeBlocks)) {
       const pre = codeEl.parentElement;
@@ -796,6 +958,9 @@ __ocode_emit_vars
    */
   private processInlineVarRefs(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
     const notePath = ctx.sourcePath;
+    // Frontmatter vars may have been declared without any vars block — seed
+    // them here as well so inline `$varname` spans resolve immediately.
+    this.applyFrontmatterVars(ctx);
     // Only inline code (not inside <pre>)
     const inlineCodes = el.querySelectorAll("code");
     for (const codeEl of Array.from(inlineCodes)) {
@@ -815,6 +980,38 @@ __ocode_emit_vars
         codeEl.setAttribute("data-resolved", "");
       }
     }
+  }
+
+  /**
+   * Read `code_vars:` from the note's YAML frontmatter and merge those values
+   * into noteVarStore and noteVarsBlockStore for the current note. Called from
+   * both code-block and inline post-processors. Frontmatter vars are seeded
+   * unconditionally — block-level `vars` declarations run later in the same
+   * post-processor pass and overwrite anything from frontmatter (so block
+   * vars take precedence, matching what the issue spec asks for).
+   */
+  private applyFrontmatterVars(ctx: MarkdownPostProcessorContext): void {
+    const fm = ctx.frontmatter as Record<string, unknown> | undefined;
+    if (!fm) return;
+    const raw = fm["code_vars"];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const notePath = ctx.sourcePath;
+    if (!notePath) return;
+
+    if (!this.noteVarStore.has(notePath)) this.noteVarStore.set(notePath, {});
+    if (!this.noteVarsBlockStore.has(notePath)) this.noteVarsBlockStore.set(notePath, {});
+    const varStore = this.noteVarStore.get(notePath)!;
+    const seedStore = this.noteVarsBlockStore.get(notePath)!;
+
+    let changed = false;
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)) continue;
+      const str = v === null || v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
+      // Only seed if not already present (block-level vars take precedence).
+      if (!(k in seedStore)) { seedStore[k] = str; changed = true; }
+      if (!(k in varStore))  { varStore[k]  = str; changed = true; }
+    }
+    if (changed) this.updateInlineVarRefs(notePath, varStore);
   }
 
   private renderCodeBlock(
@@ -872,6 +1069,16 @@ __ocode_emit_vars
       btnGroup.appendChild(runBtn);
     }
 
+    // Mark blocks excluded from Run All so the header can show an indicator
+    // and runAllBlocks can skip them. Individual Run still works.
+    if (blockHasSkipMarker(code)) {
+      wrapper.classList.add("ocode-skip-run-all");
+      const skipBadge = createSpan({ cls: "ocode-skip-badge", text: "skip" });
+      skipBadge.setAttribute("aria-label", "Excluded from Run All");
+      skipBadge.setAttribute("title", "Excluded from Run All");
+      btnGroup.insertBefore(skipBadge, btnGroup.firstChild);
+    }
+
     header.appendChild(btnGroup);
     wrapper.prepend(header);
 
@@ -891,7 +1098,52 @@ __ocode_emit_vars
       }
     }
 
+    // ─── Inline collapsible (reading view) ───
+    // `fileName` is only set for embedded files — they already get the embed
+    // collapse handler in renderEmbeddedFile, so we don't duplicate it here.
+    if (this.settings.inlineCollapsible && !fileName) {
+      this.makeCollapsible(wrapper, this.settings.inlineCollapsedByDefault, code);
+    }
+
     originalPre.replaceWith(wrapper);
+  }
+
+  /**
+   * Add a collapse toggle to a code block wrapper.
+   * Shared by inline code blocks (this method) and embedded files
+   * (which call it with `defaultCollapsed=true`).
+   */
+  private makeCollapsible(wrapper: HTMLElement, defaultCollapsed: boolean, sourceCode: string): void {
+    const codeArea = wrapper.querySelector("pre.shiki") as HTMLElement | null;
+    const header = wrapper.querySelector(".ocode-header");
+    if (!codeArea || !header) return;
+    if (header.querySelector(".ocode-collapse-arrow")) return; // already added
+
+    const arrow = createSpan({ cls: "ocode-collapse-arrow" });
+    arrow.textContent = defaultCollapsed ? "\u25B6" : "\u25BC"; // ▶ / ▼
+    header.prepend(arrow);
+
+    const lineCount = sourceCode.split("\n").length;
+    const hint = createSpan({ cls: "ocode-collapse-hint", text: `${lineCount} lines` });
+    const spacer = header.querySelector(".ocode-spacer");
+    if (spacer) spacer.before(hint); else header.appendChild(hint);
+
+    if (defaultCollapsed) {
+      wrapper.classList.add("ocode-collapsed");
+      codeArea.classList.add("ocode-hidden");
+    }
+
+    header.classList.add("ocode-collapse-toggle");
+    header.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".ocode-pill")) return;
+      if (target.closest(".ocode-label-link")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const collapsed = wrapper.classList.toggle("ocode-collapsed");
+      codeArea.classList.toggle("ocode-hidden", collapsed);
+      arrow.textContent = collapsed ? "\u25B6" : "\u25BC";
+    });
   }
 
   /** Create a pill-style button (icon + text) */
@@ -1132,6 +1384,23 @@ __ocode_emit_vars
         ? "Output"
         : `Output (exit: ${result.exitCode})`;
 
+      // Copy-output button — copies the rendered stdout/stderr text from the panel.
+      // Reads from the DOM so we always include exactly what the user sees
+      // (with the __OCODE_VARS__ snapshot line already stripped).
+      const copyOutBtn = this.createPillButton("Copy output", ICON.copy, () => {
+        const text = outContent.textContent || "";
+        void navigator.clipboard.writeText(text).then(() => {
+          setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.check);
+          copyOutBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
+          activeWindow.setTimeout(() => {
+            setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
+            copyOutBtn.querySelector(".ocode-pill-text")!.textContent = "Copy output";
+          }, 2000);
+        });
+      });
+      copyOutBtn.classList.add("ocode-copy-out-pill");
+      outHeader.insertBefore(copyOutBtn, clearBtn);
+
       // Add copy-error button if there was meaningful stderr
       // Strip the sudo password prompt line — it's not an error
       const errorText = stderrText.replace(/^Password:\s*/m, "").trim();
@@ -1258,7 +1527,6 @@ __ocode_emit_vars
   private async renderEmbeddedFile(embedEl: HTMLElement, file: TFile, ext: string, sourcePath?: string) {
     const code = await this.app.vault.read(file);
     const lang = this.highlighter.resolveExtension(ext);
-    const lineCount = code.split("\n").length;
 
     // Replace the .internal-embed element with a plain container so
     // Obsidian's click-to-open handler is completely severed.
@@ -1286,47 +1554,11 @@ __ocode_emit_vars
       });
     }
 
-    // Collapsible behaviour
+    // Collapsible behaviour — uses the shared helper. Inline blocks may have
+    // already had a collapse toggle attached (via inlineCollapsible), but
+    // makeCollapsible no-ops when an arrow is already present, so this is safe.
     if (this.settings.collapseEmbeds) {
-      const codeArea = wrapper.querySelector("pre.shiki") as HTMLElement;
-      if (!codeArea) return;
-
-      wrapper.classList.add("ocode-collapsed");
-      codeArea.classList.add("ocode-hidden");
-
-      // Add toggle arrow to the header
-      const header = wrapper.querySelector(".ocode-header");
-      if (!header) return;
-
-      const arrow = createSpan();
-      arrow.className = "ocode-collapse-arrow";
-      arrow.textContent = "\u25B6"; // ▶
-      header.prepend(arrow);
-
-      // Add line count hint
-      const hint = createSpan();
-      hint.className = "ocode-collapse-hint";
-      hint.textContent = `${lineCount} lines`;
-      const spacer = header.querySelector(".ocode-spacer");
-      if (spacer) spacer.before(hint);
-
-      // Click header to toggle
-      header.classList.add("ocode-collapse-toggle");
-      header.addEventListener("click", (e) => {
-        // Don't toggle when clicking buttons or the filename label
-        if ((e.target as HTMLElement).closest(".ocode-pill")) return;
-        if ((e.target as HTMLElement).closest(".ocode-label")) return;
-        // Prevent Obsidian from opening the embedded file
-        e.preventDefault();
-        e.stopPropagation();
-        const collapsed = wrapper.classList.toggle("ocode-collapsed");
-        if (collapsed) {
-          codeArea.classList.add("ocode-hidden");
-        } else {
-          codeArea.classList.remove("ocode-hidden");
-        }
-        arrow.textContent = collapsed ? "\u25B6" : "\u25BC"; // ▶ / ▼
-      });
+      this.makeCollapsible(wrapper as HTMLElement, true, code);
     }
   }
 }

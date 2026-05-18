@@ -9,8 +9,10 @@
 - **Shiki syntax highlighting** — 65+ built-in themes, import any VS Code `.json` theme, auto light/dark switching, full color in Reading view *and* the editor
 - **Live code execution** — Python, JS/TS, Bash, Go, Ruby, and more; output streams character-by-character; interactive stdin, password masking, cancel mid-run
 - **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; Matplotlib and Plotly render below the block without a display server
-- **Notebook mode** — shared execution context across blocks, `vars` blocks, inline `` `$varname` `` substitution, **Run All** and **Clear Session**
+- **Notebook mode** — shared execution context across blocks, `vars` blocks, `code_vars:` frontmatter, inline `` `$varname` `` substitution, **Run All** (with `codesuite:skip` opt-out) and **Clear Session**
 - **Embedded code files** — `![[script.py]]` renders as a collapsible, syntax-highlighted, executable block
+- **Code files in the file explorer** — open `.py`, `.js`, `.sh`, … straight from the vault in a lightweight editor with Run + live output, or symlink an external file into your vault with **Import code file as alias…**
+- **Environment management** — combine a shared `.env` file with per-vault overrides; reading values is one click away
 
 ---
 
@@ -78,8 +80,18 @@ Each note maintains an in-memory execution session — the closest thing to a Ju
   ```
   ````
 - **Inline `$varname` substitution** — write `` `$result` `` anywhere in your note; it updates live in Reading view after each run
-- **Run All** — runs every executable block top-to-bottom in sequence, stopping on the first error
+- **`code_vars:` frontmatter** — declare the same variables in YAML frontmatter when you prefer note metadata over a fenced block:
+  ```yaml
+  ---
+  code_vars:
+    threshold: 0.85
+    dataset: sales_q4.csv
+  ---
+  ```
+  A `vars` block in the body still wins if both define the same key.
+- **Run All** — runs every executable block top-to-bottom in sequence, stopping on the first error. Mark a block with a `codesuite:skip` marker on its first line (in any comment style — `# codesuite:skip`, `// codesuite:skip`, `-- codesuite:skip`, `/* codesuite:skip */`, …) to keep it from being run by Run All. Skipped blocks display a small **skip** badge in their toolbar.
 - **Clear Session** — reset all accumulated state from the note header button
+- **Copy output** — every successful run gets a **Copy output** pill next to the Clear button
 
 State is per-note, lives only in memory, and resets when Obsidian is closed.
 
@@ -94,6 +106,21 @@ Embed any code file from your vault with `![[file.py]]` and get a full syntax-hi
 
 - **Collapsible by default** — header shows the filename and line count; click to expand
 - Supports Run, Copy, and all execution features just like inline blocks
+- **Inline blocks** can also be made collapsible from settings — useful for long preludes you only want to skim.
+
+---
+
+## Vault Code Files & External Aliases
+
+Enable **Settings → CodeSuite → Show code files in the file explorer** (on by default) and Obsidian will surface every supported code extension (`.py`, `.js`, `.ts`, `.sh`, `.go`, `.rb`, `.lua`, `.rs`, `.cpp`, `.swift`, …) in the file explorer. Opening one gives you:
+
+- Syntax-highlighted **preview** mode (Shiki, same theme as your code blocks)
+- Switch to **edit** mode for a lightweight in-vault editor (2-space tab insertion, autosave)
+- A **Run** button for any executable language with live streaming output and Cancel support
+
+### Import code file as alias…
+
+Command palette → **Import code file as alias…** opens a native file picker and symlinks the chosen file into your vault under **Imports folder** (default: `CodeSuiteImports/`). The alias behaves like any other vault file — open, edit, and run it without copying its contents. Edits write through to the real file on disk.
 
 ---
 
@@ -136,16 +163,11 @@ The following features are on the roadmap. Track progress or vote on the linked 
 
 | # | Feature | Issue |
 |---|---------|-------|
-| 1 | **Code files in the file explorer** — register code extensions so `.py`, `.js`, etc. appear in the Obsidian sidebar | [#4](https://github.com/felixleopold/obsidian-code-suite/issues/4) |
-| 2 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
-| 3 | **Copy button for output** — one-click copy of the full output panel text | [#6](https://github.com/felixleopold/obsidian-code-suite/issues/6) |
-| 4 | **Collapsible inline code blocks** — collapse/expand toggle in reading view; expanded by default | [#7](https://github.com/felixleopold/obsidian-code-suite/issues/7) |
-| 5 | **`.env` file support** — point to a `.env` file instead of defining environment variables in settings | [#8](https://github.com/felixleopold/obsidian-code-suite/issues/8) |
-| 6 | **Skip blocks in Run All** — mark individual blocks to be ignored when running the whole note | [#9](https://github.com/felixleopold/obsidian-code-suite/issues/9) |
-| 7 | **Variables in YAML frontmatter** — declare shared variables under `code_vars:` in frontmatter, alongside the existing `vars` block syntax | [#10](https://github.com/felixleopold/obsidian-code-suite/issues/10) |
-| 8 | **Lite code editor for vault files** — open and edit code files in Obsidian with syntax highlighting, a Run button, and output display | [#11](https://github.com/felixleopold/obsidian-code-suite/issues/11) |
-| 9 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
-| 10 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+| 1 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
+| 2 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
+| 3 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+
+> Shipped in 1.3.0: code files in the file explorer ([#4](https://github.com/felixleopold/obsidian-code-suite/issues/4)), copy-output button ([#6](https://github.com/felixleopold/obsidian-code-suite/issues/6)), collapsible inline blocks ([#7](https://github.com/felixleopold/obsidian-code-suite/issues/7)), `.env` file support ([#8](https://github.com/felixleopold/obsidian-code-suite/issues/8)), `codesuite:skip` for Run All ([#9](https://github.com/felixleopold/obsidian-code-suite/issues/9)), `code_vars:` frontmatter ([#10](https://github.com/felixleopold/obsidian-code-suite/issues/10)), in-vault code editor ([#11](https://github.com/felixleopold/obsidian-code-suite/issues/11)), import-as-alias command ([#14](https://github.com/felixleopold/obsidian-code-suite/issues/14)).
 
 ---
 

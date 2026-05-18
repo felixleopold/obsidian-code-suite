@@ -79,6 +79,14 @@ OPENAI_API_KEY=sk-...
 MY_CONFIG=production
 ```
 
+### .env file path
+Absolute path to a `.env` file on disk. Variables from this file are loaded into the process environment of every executed block. Useful for sharing the same credentials across many notes without pasting them into the settings UI.
+
+- Empty/blank lines and lines starting with `#` are ignored.
+- Both `KEY=value` and `export KEY=value` are accepted.
+- The first `=` separates key and value; values may contain `=` characters.
+- Values defined in **Extra environment variables** take precedence over `.env`, so per-vault overrides keep working.
+
 ---
 
 ## Embedded Code Files
@@ -87,3 +95,45 @@ MY_CONFIG=production
 |---|---|
 | **Render embedded code files** | Replace Obsidian's default plain-text rendering of `![[file.py]]` embeds with fully syntax-highlighted, interactive CodeSuite blocks. |
 | **Collapse embedded files** | Start all embedded file blocks in the collapsed state. The header shows filename and line count; click to expand. |
+| **Collapsible inline code blocks** | Adds a collapse toggle to inline code blocks in Reading view. Useful for hiding long preludes. |
+| **Collapse inline blocks by default** | When the above is enabled, start every inline block collapsed. |
+
+---
+
+## Vault Code Files
+
+| Setting | Description |
+|---|---|
+| **Show code files in the file explorer** | Register code extensions (`.py`, `.js`, `.sh`, `.go`, …) with Obsidian so the files appear in the sidebar and open in CodeSuite's lightweight editor. Restart Obsidian after toggling. Extensions already claimed by Obsidian or another plugin (e.g. `.md`, `.json`, `.css`, `.html`, `.xml`) are skipped automatically. |
+| **Imports folder** | Vault-relative folder used by **Import code file as alias…**. Created on demand. Default: `CodeSuiteImports`. |
+
+The companion command **Import code file as alias…** (command palette) opens a native file picker and symlinks the chosen file into the Imports folder. The new alias appears in the file explorer; opening it edits the original file on disk.
+
+---
+
+## Run All Skip Marker
+
+Add a comment to the **first line** of a code block to opt that block out of **Run All**:
+
+```python
+# codesuite:skip
+print("Never executed by Run All")
+```
+
+Any common comment style works: `# …`, `// …`, `-- …`, `% …`, `/* … */`. Skipped blocks display a small `skip` badge in their toolbar but can still be run individually.
+
+---
+
+## Frontmatter `code_vars:`
+
+Declare shared variables in YAML frontmatter alongside (or instead of) a `vars` block:
+
+```yaml
+---
+code_vars:
+  threshold: 0.85
+  dataset: sales_q4.csv
+---
+```
+
+The values are available in inline `` `$threshold` `` substitutions and inside executable blocks (Python and Bash). A `vars` block in the note body takes precedence when the same key is defined in both places.
