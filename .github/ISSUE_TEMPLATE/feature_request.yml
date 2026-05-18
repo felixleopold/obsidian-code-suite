@@ -1,0 +1,56 @@
+name: Feature Request
+description: Suggest a new feature or improvement for CodeSuite.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement! Describe your idea as clearly as possible.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the pain point or workflow gap this feature would address.
+      placeholder: I find it frustrating when…
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: Describe the feature you'd like to see, including any UX ideas.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other approaches or workarounds you've tried or thought about.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Feature area
+      options:
+        - Syntax Highlighting
+        - Code Execution
+        - Shared Variables / Session
+        - Embedded Code Files
+        - Plot / Graph Support
+        - Import / Export
+        - Settings / Configuration
+        - File Explorer Integration
+        - Editor Experience
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Screenshots, mockups, links to similar implementations in other tools, or anything else that helps illustrate the idea.

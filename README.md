@@ -214,6 +214,24 @@ When the cursor is on a line inside a code block in live preview or source mode,
 
 ---
 
+## Planned Upgrades
+
+The following features are on the roadmap. Track progress or add your vote on the linked GitHub issues.
+
+| # | Feature | Issue |
+|---|---------|-------|
+| 1 | **Code files in the file explorer** — register code extensions so `.py`, `.js`, etc. appear in the Obsidian sidebar | [#4](https://github.com/felixleopold/obsidian-code-suite/issues/4) |
+| 2 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
+| 3 | **Copy button for output** — one-click copy of the full output panel text | [#6](https://github.com/felixleopold/obsidian-code-suite/issues/6) |
+| 4 | **Collapsible inline code blocks** — collapse/expand toggle in reading view; expanded by default (opposite of embedded files) | [#7](https://github.com/felixleopold/obsidian-code-suite/issues/7) |
+| 5 | **`.env` file support** — point to a `.env` file instead of (or in addition to) defining environment variables in settings | [#8](https://github.com/felixleopold/obsidian-code-suite/issues/8) |
+| 6 | **Skip blocks in Run All** — mark individual blocks to be ignored when running the whole note | [#9](https://github.com/felixleopold/obsidian-code-suite/issues/9) |
+| 7 | **Variables in YAML frontmatter** — declare shared variables under a `code_vars:` key in the note's frontmatter, alongside the existing `vars` block syntax | [#10](https://github.com/felixleopold/obsidian-code-suite/issues/10) |
+| 8 | **Lite code editor for vault files** — open and edit code files directly in Obsidian with syntax highlighting, a Run button, and output display; integrated terminal as a stretch goal | [#11](https://github.com/felixleopold/obsidian-code-suite/issues/11) |
+| 9 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
+
+---
+
 ## Contributing
 
 Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/felixleopold/obsidian-code-suite/issues).
