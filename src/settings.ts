@@ -159,7 +159,14 @@ export function parseExtraEnv(envStr: string): Record<string, string> {
     if (!trimmed || trimmed.startsWith("#")) continue;
     const eqIdx = trimmed.indexOf("=");
     if (eqIdx > 0) {
-      result[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      // Strip surrounding single or double quotes (common when copy-pasting shell assignments)
+      if (val.length >= 2 &&
+          ((val.startsWith('"') && val.endsWith('"')) ||
+           (val.startsWith("'") && val.endsWith("'")))) {
+        val = val.slice(1, -1);
+      }
+      result[trimmed.slice(0, eqIdx).trim()] = val;
     }
   }
   return result;

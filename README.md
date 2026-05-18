@@ -2,8 +2,6 @@
 
 **Think Jupyter Notebook, but inside your Obsidian vault. VS Code–quality syntax highlighting, live code execution with streaming I/O, shared variables across blocks, and inline graph rendering — with zero extra infrastructure.**
 
-![CodeSuite theme showcase](assets/ThemeShowcase.png)
-
 ---
 
 ## Features
@@ -18,7 +16,7 @@
 
 ## Syntax Highlighting
 
-<!-- GIF: Switch between several themes (Catppuccin, Gruvbox, Nord, Tokyo Night) in the theme picker — show code updating in reading view in real time. ~8 s. Save as assets/demo-highlighting.gif -->
+<!-- PLAN: Switch between several themes (Catppuccin, Gruvbox, Nord, Tokyo Night) in the theme picker — show code updating in reading view in real time. ~8 s. -->
 <!-- ![Theme switching](assets/demo-highlighting.gif) -->
 
 Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses internally.
@@ -33,7 +31,7 @@ Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses 
 
 ## Code Execution
 
-<!-- GIF: Run a short Python script; show output streaming live line-by-line, then a second block reading a variable defined in the first. ~12 s. Save as assets/demo-execution.gif -->
+<!-- PLAN: Run a short Python script; show output streaming live line-by-line, then a second block reading a variable defined in the first. ~12 s. -->
 <!-- ![Live code execution](assets/demo-execution.gif) -->
 
 Run code directly from a code block — no terminal, no switching apps.
@@ -66,7 +64,7 @@ Run code directly from a code block — no terminal, no switching apps.
 
 ## Notebook Mode: Shared Variables & Run All
 
-<!-- GIF: Define a variable in a vars block, run two Python blocks that reference it, show `$varname` updating inline in the note text, then click Run All. ~15 s. Save as assets/demo-notebook.gif -->
+<!-- PLAN: Define a variable in a vars block, run two Python blocks that reference it, show `$varname` updating inline in the note text, then click Run All. ~15 s. -->
 <!-- ![Shared variables and Run All](assets/demo-notebook.gif) -->
 
 Each note maintains an in-memory execution session — the closest thing to a Jupyter notebook inside Obsidian, without a kernel daemon or `.ipynb` file.
@@ -89,7 +87,7 @@ State is per-note, lives only in memory, and resets when Obsidian is closed.
 
 ## Embedded Code Files
 
-<!-- GIF: Type ![[script.py]] in a note, switch to Reading view, show the collapsible block appearing with filename + line count, then expand it. ~8 s. Save as assets/demo-embedded.gif -->
+<!-- PLAN: Type ![[script.py]] in a note, switch to Reading view, show the collapsible block appearing with filename + line count, then expand it. ~8 s. -->
 <!-- ![Embedded code files](assets/demo-embedded.gif) -->
 
 Embed any code file from your vault with `![[file.py]]` and get a full syntax-highlighted, interactive block instead of plain text.
@@ -147,6 +145,7 @@ The following features are on the roadmap. Track progress or vote on the linked 
 | 7 | **Variables in YAML frontmatter** — declare shared variables under `code_vars:` in frontmatter, alongside the existing `vars` block syntax | [#10](https://github.com/felixleopold/obsidian-code-suite/issues/10) |
 | 8 | **Lite code editor for vault files** — open and edit code files in Obsidian with syntax highlighting, a Run button, and output display | [#11](https://github.com/felixleopold/obsidian-code-suite/issues/11) |
 | 9 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
+| 10 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
 
 ---
 

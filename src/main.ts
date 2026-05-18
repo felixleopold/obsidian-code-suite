@@ -483,6 +483,9 @@ export default class CodePlugin extends Plugin {
           return;
         }
       }
+      // Brief pause so the shared-context store is fully committed and any
+      // rapid-fire OS process startup races are avoided before the next block.
+      await new Promise<void>((resolve) => activeWindow.setTimeout(resolve, 500));
     }
     if (ran === 0) new Notice("All code blocks are currently running.");
   }
@@ -554,9 +557,17 @@ export default class CodePlugin extends Plugin {
     if (lang === "bash" || lang === "zsh" || lang === "shell") {
       // Fast path: only seed vars, no accumulated blocks
       if (!accum.trim()) return bashSeed + currentBlock;
-      // Group-command redirect: variables set inside { } are still exported to
-      // the outer shell because { } is a grouping construct, not a subshell.
-      return `${bashSeed}{\n${accum}\n} > /dev/null 2>&1\n\n${currentBlock}`;
+      // Use exec-based fd swapping to run the preamble silently. This is more
+      // reliable than { } > /dev/null 2>&1 because it avoids nested-brace
+      // parser edge cases (e.g. functions with complex bodies or heredocs) and
+      // guarantees function definitions are available in the current shell scope.
+      return (
+        `${bashSeed}` +
+        `exec 3>&1 4>&2 1>/dev/null 2>&1\n` +
+        `${accum}\n` +
+        `exec 1>&3 2>&4 3>&- 4>&-\n\n` +
+        `${currentBlock}`
+      );
     }
 
     return currentBlock;
@@ -1240,11 +1251,11 @@ __ocode_emit_vars
       const file = this.app.metadataCache.getFirstLinkpathDest(src, ctx.sourcePath);
       if (!file || !(file instanceof TFile)) continue;
 
-      void this.renderEmbeddedFile(embed as HTMLElement, file, ext);
+      void this.renderEmbeddedFile(embed as HTMLElement, file, ext, ctx.sourcePath);
     }
   }
 
-  private async renderEmbeddedFile(embedEl: HTMLElement, file: TFile, ext: string) {
+  private async renderEmbeddedFile(embedEl: HTMLElement, file: TFile, ext: string, sourcePath?: string) {
     const code = await this.app.vault.read(file);
     const lang = this.highlighter.resolveExtension(ext);
     const lineCount = code.split("\n").length;
@@ -1259,7 +1270,7 @@ __ocode_emit_vars
     const tempPre = createEl("pre");
     container.appendChild(tempPre);
 
-    this.renderCodeBlock(tempPre, code, lang, lang, file.name);
+    this.renderCodeBlock(tempPre, code, lang, lang, file.name, sourcePath);
 
     // Mark as embedded
     const wrapper = container.querySelector(".ocode-wrapper");
