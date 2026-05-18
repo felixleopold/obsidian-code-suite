@@ -1,26 +1,42 @@
 # [CodeSuite](https://community.obsidian.md/plugins/code-suite)
 
-**Shiki syntax highlighting, live code execution with stdin/stdout streaming, shared variables across blocks, inline `$var` substitution, Matplotlib/Plotly inline graphs, and embedded file rendering: all inside your Obsidian notes.**
+**Think Jupyter Notebook, but inside your Obsidian vault. VS Code–quality syntax highlighting, live code execution with streaming I/O, shared variables across blocks, and inline graph rendering — with zero extra infrastructure.**
 
-Render VS Code–quality syntax highlighting in all render modes (Reading, Source mode, Live Preview) using Shiki, with 65+ built-in themes, importable VS Code `.json` themes, and support for 36+ languages. Execute code directly from your notes *Python, JS/TS, Bash, Go, Ruby, and more* with live stdout/stderr streaming, smart stdin detection, Matplotlib/Plotly inline graphs, and Copy & Run controls. Define shared variables once, reference them across every block in the note; write `` `$varname` `` anywhere and the value updates live after each run. Embedded files (e.g. `![[script.py]]`) render as collapsible, fully highlighted blocks. Think Jupyter Notebook, but inside your vault, with zero other infrastructure required.
+![CodeSuite theme showcase](assets/ThemeShowcase.png)
+
+---
+
+## Features
+
+- **Shiki syntax highlighting** — 65+ built-in themes, import any VS Code `.json` theme, auto light/dark switching, full color in Reading view *and* the editor
+- **Live code execution** — Python, JS/TS, Bash, Go, Ruby, and more; output streams character-by-character; interactive stdin, password masking, cancel mid-run
+- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; Matplotlib and Plotly render below the block without a display server
+- **Notebook mode** — shared execution context across blocks, `vars` blocks, inline `` `$varname` `` substitution, **Run All** and **Clear Session**
+- **Embedded code files** — `![[script.py]]` renders as a collapsible, syntax-highlighted, executable block
 
 ---
 
 ## Syntax Highlighting
 
-Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses internally. Every token, every color, pixel-perfect.
+<!-- GIF: Switch between several themes (Catppuccin, Gruvbox, Nord, Tokyo Night) in the theme picker — show code updating in reading view in real time. ~8 s. Save as assets/demo-highlighting.gif -->
+<!-- ![Theme switching](assets/demo-highlighting.gif) -->
 
-- **65+ built-in themes** — Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, GitHub, Material, Rosé Pine, Kanagawa, Everforest, Solarized, Night Owl, Vitesse, Ayu, Monokai, Synthwave '84, and many more
-- **Import any VS Code theme** — load any `.json` color theme file directly from [vscodethemes.com](https://vscodethemes.com) or exported from your own VS Code install
-- **Auto light/dark switching** — set a separate dark and light theme; [CodeSuite](https://community.obsidian.md/plugins/code-suite) switches automatically when Obsidian's appearance changes
+Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses internally.
+
+- **65+ built-in themes** — Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, Rosé Pine, Kanagawa, Everforest, Solarized, Night Owl, Synthwave '84, and many more
+- **Import any VS Code theme** — load a `.json` file from [vscodethemes.com](https://vscodethemes.com) or exported directly from VS Code
+- **Auto light/dark switching** — set a separate theme for each mode; CodeSuite switches when Obsidian's appearance changes
 - **36+ languages** with common aliases (`py`, `js`, `ts`, `sh`, `rb`, …)
-- **Editor highlighting** — full Shiki token colors applied in live preview and source mode via a CodeMirror 6 ViewPlugin, not just in reading view
+- **Editor highlighting** — full token colors in Live Preview and Source mode via a CodeMirror 6 ViewPlugin, not just in Reading view
 
 ---
 
 ## Code Execution
 
-Run code directly from a code block: no terminal, no external notebook, no switching apps. Output streams live into a panel below the block, the moment it appears.
+<!-- GIF: Run a short Python script; show output streaming live line-by-line, then a second block reading a variable defined in the first. ~12 s. Save as assets/demo-execution.gif -->
+<!-- ![Live code execution](assets/demo-execution.gif) -->
+
+Run code directly from a code block — no terminal, no switching apps.
 
 **Supported runtimes:**
 
@@ -40,167 +56,69 @@ Run code directly from a code block: no terminal, no external notebook, no switc
 | PHP | `php` | |
 | Swift | `swift` | |
 
-**What makes it smooth:**
-
-- **Live streaming** — stdout and stderr appear character-by-character as the process runs, not after it finishes
-- **Interactive stdin** — when your code calls `input()`, `readline()`, or reads from stdin, an input bar appears automatically; type and press Enter to send
-- **Password masking** — `sudo` is detected and piped through `-S`; the input bar masks characters automatically for sensitive prompts
-- **Cancel mid-run** — kill any running block instantly with the Cancel button
-- **Matplotlib & Plotly inline** — `plt.show()` and `fig.show()` are intercepted; graphs render as inline images below the output without needing a display server
-- **Configurable timeout** — auto-kill runaway processes after a set number of seconds (5–300 s)
-- **Virtual environment support** — point Python path to a venv binary; [CodeSuite](https://community.obsidian.md/plugins/code-suite) sets `VIRTUAL_ENV` and prepends the bin directory to `PATH` so all venv packages and tools (pip, playwright, etc.) are available across every language block
-- **Extra environment variables** — inject `KEY=VALUE` pairs into every execution; useful for `PYTHONPATH`, API keys, and similar secrets
+- **Live streaming** — stdout and stderr appear as the process runs, not after it finishes
+- **Interactive stdin** — an input bar appears automatically when your code calls `input()` or reads from stdin
+- **Password masking** — `sudo` is detected automatically; the input bar masks characters for sensitive prompts
+- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; graphs render as inline images without a display server
+- **Virtual environment support** — point the Python path to a venv binary; CodeSuite sets `VIRTUAL_ENV` and prepends `bin/` to `PATH` so all venv packages are available across every language block
 
 ---
 
-## Shared Execution Context & Live Variables
+## Notebook Mode: Shared Variables & Run All
 
-The closest thing to a Jupyter Notebook inside Obsidian, all without a kernel daemon, without a `.ipynb` file, and without any setup.
+<!-- GIF: Define a variable in a vars block, run two Python blocks that reference it, show `$varname` updating inline in the note text, then click Run All. ~15 s. Save as assets/demo-notebook.gif -->
+<!-- ![Shared variables and Run All](assets/demo-notebook.gif) -->
 
-Each note maintains an in-memory execution session. When **Shared execution context** is enabled:
+Each note maintains an in-memory execution session — the closest thing to a Jupyter notebook inside Obsidian, without a kernel daemon or `.ipynb` file.
 
-- **Shared state across blocks** — run a Python block that defines `result = 42`, then reference `result` in the next Python block. Same for Bash. Variables, imports, and function definitions all carry over.
-- **`vars` blocks** — declare note-scoped variables once in a dedicated `vars` block; they are injected into every code run automatically:
+- **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python and Bash)
+- **`vars` blocks** — declare note-scoped variables once; they are injected into every run:
   ````
   ```vars
   threshold = 0.85
   dataset = "sales_q4.csv"
   ```
   ````
-- **Inline `$varname` substitution** — write `` `$result` `` anywhere in your note text; after a run, the rendered value updates live in reading view. Useful for surfacing key outputs directly in prose.
-- **Run All** — a single button runs every executable block in the note top-to-bottom in sequence, stopping on the first error so session state stays consistent
-- **Clear Session** — reset accumulated state at any time from the note header button
+- **Inline `$varname` substitution** — write `` `$result` `` anywhere in your note; it updates live in Reading view after each run
+- **Run All** — runs every executable block top-to-bottom in sequence, stopping on the first error
+- **Clear Session** — reset all accumulated state from the note header button
 
-State is per-note, lives only in memory, and resets when Obsidian is closed. No files are written to disk.
+State is per-note, lives only in memory, and resets when Obsidian is closed.
 
 ---
 
 ## Embedded Code Files
 
-Embed any code file from your vault with the standard `![[file.py]]` syntax and get a full syntax-highlighted, interactive block instead of Obsidian simply telling you its a code file.
+<!-- GIF: Type ![[script.py]] in a note, switch to Reading view, show the collapsible block appearing with filename + line count, then expand it. ~8 s. Save as assets/demo-embedded.gif -->
+<!-- ![Embedded code files](assets/demo-embedded.gif) -->
 
-- **Collapsible** by default — header shows filename and line count; click to expand
-- The rest works exactly as on inline blocks
+Embed any code file from your vault with `![[file.py]]` and get a full syntax-highlighted, interactive block instead of plain text.
+
+- **Collapsible by default** — header shows the filename and line count; click to expand
+- Supports Run, Copy, and all execution features just like inline blocks
 
 ---
 
 ## Installation
 
-### Community Plugins (recommended)
+### Community Plugins *(recommended)*
 
-1. Open **Settings → [Community Plugins](https://community.obsidian.md/plugins/code-suite) → Browse**
-2. Search for **[CodeSuite](https://community.obsidian.md/plugins/code-suite)**
+1. Open **Settings → Community Plugins → Browse**
+2. Search for **CodeSuite**
 3. Click **Install**, then **Enable**
 
 ### Manual
 
 1. Download `main.js`, `manifest.json`, and `styles.css` from the [latest release](https://github.com/felixleopold/obsidian-code-suite/releases)
-2. Create the folder `<vault>/.obsidian/plugins/code-suite/`
+2. Create `<vault>/.obsidian/plugins/code-suite/`
 3. Place the three files inside it
-4. Reload Obsidian and enable **[CodeSuite](https://community.obsidian.md/plugins/code-suite)** in **Settings → Community Plugins**
+4. Reload Obsidian and enable **CodeSuite** in **Settings → Community Plugins**
 
 ---
 
-## Setup & Configuration
+## Configuration
 
-Open **Settings → [CodeSuite](https://community.obsidian.md/plugins/code-suite)** to configure the plugin. Settings are grouped into four sections.
-
-### Theme
-
-**Auto-switch theme** *(toggle)*
-Automatically swap between a dark and a light theme when Obsidian's appearance changes. When enabled, two separate theme pickers appear — one for dark mode, one for light mode.
-
-**Syntax theme** *(dropdown)*
-Shown when auto-switch is off. Choose from 65+ built-in themes. Dark themes are marked ☾, light themes ☀. Any custom imported themes appear at the bottom of the list.
-
-**Import VS Code theme** *(button)*
-Click **Import JSON file** to load a `.json` color theme. Sources:
-- [vscodethemes.com](https://vscodethemes.com) — browse and download any published VS Code theme
-- VS Code itself — open the Command Palette → *Generate Color Theme From Current Settings*
-
-Imported themes are saved in plugin settings and appear in the theme picker immediately. Remove them at any time from the list that appears below the import button.
-
----
-
-### Appearance
-
-**Line numbers** *(toggle)*
-Show or hide line numbers in reading view. Does not affect editor mode.
-
-**Language label** *(toggle)*
-Show or hide the language name in the header bar of each code block.
-
-**Wide code blocks** *(toggle)*
-Allow code blocks to extend beyond the normal note content width. Useful for wide tables, long output lines, or side-by-side comparisons.
-
----
-
-### Code Execution
-
-**Enable code execution** *(toggle)*
-Show the Run button on supported language blocks. Disable to use [CodeSuite](https://community.obsidian.md/plugins/code-suite) as a syntax-highlighting-only plugin. Desktop only — the setting has no effect on mobile.
-
-**Shared execution context** *(toggle, on by default)*
-When enabled, each block run in a note accumulates into a per-note session. Later blocks can reference variables, functions, and imports from earlier blocks (Python and Bash). Also enables inline `` `$varname` `` substitution in note text. Disable this if you want each block to run in a completely fresh environment.
-
-> **Tip:** blocks run in the order you click them. Run blocks top-to-bottom to build up state correctly. Use **Run All** to execute the entire note in sequence automatically.
-
-**Execution timeout** *(slider, 5–300 s)*
-Maximum time a single block can run before the process is automatically killed. Set higher for long-running scripts (data processing, ML training). Default is 30 s.
-
-**Working directory** *(dropdown)*
-Sets the current directory for the spawned process. Options:
-- **Vault root** *(default)* — scripts can reference vault files with relative paths (`open("data.csv")` just works)
-- **Home directory** — uses `~`
-- **Custom path** — enter an absolute path in the field that appears below
-
----
-
-### Environment
-
-**Python path**
-Absolute path to a Python binary or virtualenv. Examples:
-
-```
-/Users/you/.venv/bin/python3          # project venv
-/opt/homebrew/bin/python3             # Homebrew Python
-/usr/bin/python3                      # system Python
-```
-
-When pointing to a venv binary, [CodeSuite](https://community.obsidian.md/plugins/code-suite) automatically activates the environment (`VIRTUAL_ENV` is set, `bin/` is prepended to `PATH`) — so all venv packages are available not just in Python blocks but in Bash blocks too.
-
-Leave empty to use the system default `python3`.
-
-**Node.js path**
-Absolute path to a Node.js binary. Leave empty to use the system `node`.
-
-**Extra environment variables**
-Additional `KEY=VALUE` pairs injected into every code execution, one per line. Lines starting with `#` are ignored. Useful for:
-
-```
-PYTHONPATH=/path/to/extra/libs
-OPENAI_API_KEY=sk-...
-MY_CONFIG=production
-```
-
----
-
-### Embedded Code Files
-
-**Render embedded code files** *(toggle)*
-Replace Obsidian's default plain-text rendering of `![[file.py]]` embeds with fully syntax-highlighted, interactive [CodeSuite](https://community.obsidian.md/plugins/code-suite) blocks.
-
-**Collapse embedded files** *(toggle)*
-Start all embedded file blocks in the collapsed state. The header shows the filename and line count; click it to expand. Useful when embedding large files that you only need to reference occasionally.
-
----
-
-## How It Works
-
-- **Reading view:** A Markdown post-processor replaces `<pre><code>` blocks with Shiki-highlighted HTML, wrapped in a styled container with a header bar and action buttons.
-- **Editor (live preview / source):** A CodeMirror 6 ViewPlugin scans the document for code fences, tokenizes them with Shiki, and applies inline `Decoration.mark` styles per token — giving you full color in the editor without leaving it.
-- **Code execution:** Spawns a child process via Node's `child_process.spawn`. No code is sent to any server — everything runs locally on your machine. Output streams over stdout/stderr pipes in real time.
-- **Shared context:** For Python, accumulated session code is prepended to each run. For Bash, an `export` dump of the previous session's environment is sourced before each new block.
+Open **Settings → CodeSuite** to configure themes, code execution, environment variables, and embedded file behaviour. See the full [configuration reference](docs/configuration.md) for all options.
 
 ---
 
@@ -208,26 +126,26 @@ Start all embedded file blocks in the collapsed state. The header shows the file
 
 ### Active-line highlight bleeds into code blocks (editor mode)
 
-When the cursor is on a line inside a code block in live preview or source mode, Obsidian's active-line highlight color shows through the code block background. This is inherent to how Obsidian's active-line extension works.
+When the cursor is inside a code block in Live Preview or Source mode, Obsidian's active-line highlight shows through the block background. This is inherent to how Obsidian's active-line extension works.
 
-**Workaround:** Enable **Auto-switch theme** and choose a theme whose background color is close to Obsidian's active-line color — the bleed becomes invisible.
+**Workaround:** Enable **Auto-switch theme** and choose a theme whose background matches Obsidian's active-line color — the bleed becomes invisible.
 
 ---
 
 ## Planned Upgrades
 
-The following features are on the roadmap. Track progress or add your vote on the linked GitHub issues.
+The following features are on the roadmap. Track progress or vote on the linked GitHub issues.
 
 | # | Feature | Issue |
 |---|---------|-------|
 | 1 | **Code files in the file explorer** — register code extensions so `.py`, `.js`, etc. appear in the Obsidian sidebar | [#4](https://github.com/felixleopold/obsidian-code-suite/issues/4) |
 | 2 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
 | 3 | **Copy button for output** — one-click copy of the full output panel text | [#6](https://github.com/felixleopold/obsidian-code-suite/issues/6) |
-| 4 | **Collapsible inline code blocks** — collapse/expand toggle in reading view; expanded by default (opposite of embedded files) | [#7](https://github.com/felixleopold/obsidian-code-suite/issues/7) |
-| 5 | **`.env` file support** — point to a `.env` file instead of (or in addition to) defining environment variables in settings | [#8](https://github.com/felixleopold/obsidian-code-suite/issues/8) |
+| 4 | **Collapsible inline code blocks** — collapse/expand toggle in reading view; expanded by default | [#7](https://github.com/felixleopold/obsidian-code-suite/issues/7) |
+| 5 | **`.env` file support** — point to a `.env` file instead of defining environment variables in settings | [#8](https://github.com/felixleopold/obsidian-code-suite/issues/8) |
 | 6 | **Skip blocks in Run All** — mark individual blocks to be ignored when running the whole note | [#9](https://github.com/felixleopold/obsidian-code-suite/issues/9) |
-| 7 | **Variables in YAML frontmatter** — declare shared variables under a `code_vars:` key in the note's frontmatter, alongside the existing `vars` block syntax | [#10](https://github.com/felixleopold/obsidian-code-suite/issues/10) |
-| 8 | **Lite code editor for vault files** — open and edit code files directly in Obsidian with syntax highlighting, a Run button, and output display; integrated terminal as a stretch goal | [#11](https://github.com/felixleopold/obsidian-code-suite/issues/11) |
+| 7 | **Variables in YAML frontmatter** — declare shared variables under `code_vars:` in frontmatter, alongside the existing `vars` block syntax | [#10](https://github.com/felixleopold/obsidian-code-suite/issues/10) |
+| 8 | **Lite code editor for vault files** — open and edit code files in Obsidian with syntax highlighting, a Run button, and output display | [#11](https://github.com/felixleopold/obsidian-code-suite/issues/11) |
 | 9 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
 
 ---
@@ -235,6 +153,8 @@ The following features are on the roadmap. Track progress or add your vote on th
 ## Contributing
 
 Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/felixleopold/obsidian-code-suite/issues).
+
+Want to contribute code? See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and conventions.
 
 ---
 

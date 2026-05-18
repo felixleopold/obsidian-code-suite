@@ -81,3 +81,25 @@ Open a [GitHub issue](https://github.com/felixleopold/obsidian-code-suite/issues
 - `const` / `let` only, never `var`
 - `async`/`await` over raw Promises
 - CSS classes must use the `ocode-` prefix
+
+---
+
+## How it works (internals)
+
+Understanding the pipeline helps when working on any of the three subsystems.
+
+### Syntax highlighting (reading view)
+
+A Markdown post-processor registered in `main.ts` fires after Obsidian renders a note. It finds every `<pre><code>` block, replaces it with Shiki-highlighted HTML, and wraps it in a styled container with a header bar and action buttons.
+
+### Syntax highlighting (editor)
+
+A CodeMirror 6 `ViewPlugin` in `main.ts` scans the document for code fences and tokenises them with Shiki via the `Highlighter` class in `highlighter.ts`. It applies `Decoration.mark` ranges per token, giving full syntax color in Live Preview and Source mode without leaving the editor.
+
+### Code execution
+
+`executor.ts` exports `startExecution()`, which spawns a child process via Node's `child_process.spawn`. No code is ever sent to a remote server — everything runs locally. stdout and stderr pipe to the output panel in real time. For Python, accumulated session code is prepended to each run. For Bash, an `export` dump of the previous session's environment is sourced before each new block.
+
+### Shared context
+
+The per-note session object lives in a `Map` keyed by the note's file path. It holds the accumulated source (Python) or the last `export` snapshot (Bash). The map is cleared when the note is closed or **Clear Session** is clicked. Nothing is written to disk.
