@@ -21,6 +21,7 @@ import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 
 // SVG icons as constants
 const ICON = {
+  fold: `<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 4 20 12 8 20"/></svg>`,
   copy: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
   check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>`,
   play: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
@@ -40,7 +41,7 @@ const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
  *   // codesuite:skip      (js, ts, go, swift, java, c, c++, rust, php, kotlin, scala, …)
  *   -- codesuite:skip      (lua, sql, haskell)
  *   %  codesuite:skip      (r/latex/matlab)
- *   /* codesuite:skip *​/   (any C-style)
+ *   /* codesuite:skip *\/   (any C-style)
  */
 const SKIP_MARKER_RE = /^\s*(?:#|\/\/|--|%|\/\*)\s*codesuite\s*:\s*skip(?:[\s*/]|$)/i;
 function blockHasSkipMarker(code: string): boolean {
@@ -85,7 +86,7 @@ export default class CodePlugin extends Plugin {
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
   /** Debounce timer for auto-theme switching (css-change can fire many times per mode switch) */
-  private _autoThemeTimer: ReturnType<typeof setTimeout> | null = null;
+  private _autoThemeTimer: number | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -218,7 +219,7 @@ export default class CodePlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<CodePluginSettings>);
   }
 
   async saveSettings() {
@@ -489,7 +490,7 @@ export default class CodePlugin extends Plugin {
       view.contentEl.querySelectorAll<HTMLButtonElement>(".ocode-run-pill")
     );
     if (runBtns.length === 0) {
-      new Notice("No executable code blocks found. Switch to Reading view first.");
+      new Notice("No executable code blocks found. Switch to reading view first.");
       return;
     }
     let ran = 0;
@@ -520,7 +521,7 @@ export default class CodePlugin extends Plugin {
       if (label) {
         const t = label.textContent ?? "";
         if (t.startsWith("Output (exit:") || t === "Output (timed out)") {
-          new Notice("Run All stopped: a block exited with an error.");
+          new Notice("Run all stopped: a block exited with an error.");
           return;
         }
       }
@@ -729,29 +730,11 @@ __ocode_emit_vars
     const fs = nodeRequire("fs") as typeof import("fs");
     const path = nodeRequire("path") as typeof import("path");
 
-    // Use a hidden <input type="file"> to spawn the OS file picker. In Electron
-    // the resulting File object exposes the absolute path via `.path`.
-    const externalPath = await new Promise<string | null>((resolve) => {
-      const input = createEl("input");
-      input.type = "file";
-      input.style.display = "none";
-      input.addEventListener("change", () => {
-        const f = input.files?.[0] as (File & { path?: string }) | undefined;
-        const p = f?.path;
-        input.remove();
-        resolve(p ?? null);
-      });
-      // If the user cancels there is no change event — clean up via focus.
-      activeWindow.setTimeout(() => {
-        activeDocument.body.addEventListener("focus", function once() {
-          activeDocument.body.removeEventListener("focus", once, true);
-          activeWindow.setTimeout(() => { if (input.isConnected) { input.remove(); resolve(null); } }, 300);
-        }, true);
-      }, 0);
-      activeDocument.body.appendChild(input);
-      input.click();
-    });
-
+    // Prefer Electron's native open-file dialog — it always returns a real
+    // absolute path. (Newer Electron strips `File.path` from <input type=file>
+    // for sandboxing reasons, which is why the old DOM-input approach was
+    // silently failing for some users.)
+    const externalPath = await this.pickExternalCodeFile();
     if (!externalPath) return;
 
     const ext = path.extname(externalPath).toLowerCase();
@@ -762,12 +745,22 @@ __ocode_emit_vars
 
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
     const folderRel = (this.settings.codeImportsFolder || "CodeSuiteImports").replace(/^\/+|\/+$/g, "");
+    const folderAbs = path.join(vaultPath, folderRel);
 
-    // Make sure the destination folder exists both on disk and as a TFolder.
-    const folder = this.app.vault.getAbstractFileByPath(folderRel);
-    if (!folder) {
-      try { await this.app.vault.createFolder(folderRel); } catch (_e) { /* race-safe: folder may have appeared between checks */ }
-    } else if (!(folder instanceof TFolder)) {
+    // Guarantee the destination folder exists ON DISK first (this is what the
+    // symlink will actually need). Then make sure Obsidian's vault index knows
+    // about it. Doing it in this order avoids the case where vault.createFolder
+    // silently no-ops due to an index/disk mismatch.
+    try {
+      fs.mkdirSync(folderAbs, { recursive: true });
+    } catch (err) {
+      new Notice(`Cannot create imports folder: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    const existingFolder = this.app.vault.getAbstractFileByPath(folderRel);
+    if (!existingFolder) {
+      try { await this.app.vault.createFolder(folderRel); } catch (_e) { /* already exists */ }
+    } else if (!(existingFolder instanceof TFolder)) {
       new Notice(`Cannot import: "${folderRel}" exists and is not a folder.`);
       return;
     }
@@ -792,15 +785,88 @@ __ocode_emit_vars
       return;
     }
 
-    // Trigger a vault refresh so the symlink shows up immediately, then open it.
     new Notice(`Aliased "${baseName}" → ${targetRel}`);
-    // Give the vault a tick to pick up the new file.
-    activeWindow.setTimeout(() => {
+
+    // Ask Obsidian to re-scan the vault so the new symlink is picked up
+    // by the file index, then open it. A short delay keeps things robust
+    // across Obsidian versions where the adapter event timing differs.
+    activeWindow.setTimeout(async () => {
       const tfile = this.app.vault.getAbstractFileByPath(targetRel);
       if (tfile instanceof TFile) {
-        void this.app.workspace.getLeaf().openFile(tfile);
+        await this.app.workspace.getLeaf().openFile(tfile);
+      } else {
+        // Index hasn't caught up yet — give it one more tick.
+        activeWindow.setTimeout(async () => {
+          const f = this.app.vault.getAbstractFileByPath(targetRel);
+          if (f instanceof TFile) await this.app.workspace.getLeaf().openFile(f);
+        }, 500);
       }
-    }, 200);
+    }, 250);
+  }
+
+  /**
+   * Show an OS-native open dialog and return the selected absolute path
+   * (or null if the user cancelled). Tries Electron's `dialog.showOpenDialog`
+   * via every API path it might be exposed on, then falls back to a hidden
+   * `<input type="file">` for environments where Electron is unreachable.
+   */
+  private async pickExternalCodeFile(): Promise<string | null> {
+    const nodeRequire = (globalThis as unknown as { require?: (id: string) => unknown }).require;
+    interface ShowOpenDialog {
+      (opts: { properties?: string[]; filters?: { name: string; extensions: string[] }[] }):
+        Promise<{ canceled: boolean; filePaths: string[] }>;
+    }
+    let showOpenDialog: ShowOpenDialog | null = null;
+
+    if (nodeRequire) {
+      try {
+        const electron = nodeRequire("electron") as {
+          remote?: { dialog?: { showOpenDialog?: ShowOpenDialog } };
+          dialog?: { showOpenDialog?: ShowOpenDialog };
+        };
+        showOpenDialog =
+          electron?.remote?.dialog?.showOpenDialog ??
+          electron?.dialog?.showOpenDialog ??
+          null;
+      } catch (_e) { /* electron not available — fall through */ }
+
+      if (!showOpenDialog) {
+        try {
+          const remote = nodeRequire("@electron/remote") as {
+            dialog?: { showOpenDialog?: ShowOpenDialog };
+          };
+          showOpenDialog = remote?.dialog?.showOpenDialog ?? null;
+        } catch (_e) { /* @electron/remote not available — fall through */ }
+      }
+    }
+
+    const extList = Array.from(CODE_FILE_EXTENSIONS, (e) => e.replace(/^\./, ""));
+
+    if (showOpenDialog) {
+      const result = await showOpenDialog({
+        properties: ["openFile"],
+        filters: [{ name: "Code files", extensions: extList }],
+      });
+      if (result.canceled || !result.filePaths.length) return null;
+      return result.filePaths[0];
+    }
+
+    // Fallback: hidden file input (may not work on Electron ≥ 32 where File.path is stripped).
+    return new Promise<string | null>((resolve) => {
+      const input = createEl("input");
+      input.type = "file";
+      input.addClass("ocode-hidden-input");
+      input.addEventListener("change", () => {
+        const f = input.files?.[0] as (File & { path?: string }) | undefined;
+        const p = f?.path;
+        input.remove();
+        if (!p) new Notice("Could not read file path from picker. Try again, or report this issue.");
+        resolve(p ?? null);
+      });
+      input.addEventListener("cancel", () => { input.remove(); resolve(null); });
+      activeDocument.body.appendChild(input);
+      input.click();
+    });
   }
 
   // ─── Code Block Processing ────────────────────────────────────
@@ -815,7 +881,35 @@ __ocode_emit_vars
     // *after* this in renderVarsBlock and therefore override frontmatter vars.
     this.applyFrontmatterVars(ctx);
 
-    for (const codeEl of Array.from(codeBlocks)) {
+    // Extract OPENING fence info strings from the raw section source so we can
+    // read space-separated attributes next to the language, e.g.
+    //     ```python skip collapsed
+    // Important: a code fence is a *pair* of fence lines. We must skip the
+    // closing fence; otherwise `fenceInfoStrings[bi]` becomes off-by-one as
+    // soon as the section contains more than one code block.
+    const fenceInfoStrings: string[] = [];
+    const sectionInfo = ctx.getSectionInfo(el);
+    if (sectionInfo) {
+      const lines = sectionInfo.text.split("\n");
+      let openFence: string | null = null;  // current open fence chars (``` or ~~~), or null when outside
+      for (let i = sectionInfo.lineStart; i <= sectionInfo.lineEnd; i++) {
+        const line = lines[i] ?? "";
+        const m = line.match(/^([`~]{3,})(.*)$/);
+        if (!m) continue;
+        const fenceChars = m[1][0].repeat(m[1].length);
+        if (openFence === null) {
+          // Opening fence
+          fenceInfoStrings.push(m[2].trim());
+          openFence = fenceChars;
+        } else if (line.startsWith(openFence) && m[2].trim() === "") {
+          // Closing fence (same char, length ≥ opener, no info text)
+          openFence = null;
+        }
+      }
+    }
+
+    for (let bi = 0; bi < codeBlocks.length; bi++) {
+      const codeEl = codeBlocks[bi];
       const pre = codeEl.parentElement;
       if (!pre) continue;
       if (pre.parentElement?.hasClass("ocode-wrapper")) continue;
@@ -845,10 +939,28 @@ __ocode_emit_vars
         continue;
       }
 
+      // Parse space-separated attributes from the fence info string, e.g.:
+      //   ```python skip collapsed   → attrs: { "skip", "collapsed" }
+      const infoStr = fenceInfoStrings[bi] ?? "";
+      const blockAttrs = new Set(
+        infoStr.split(/\s+/).slice(1).map((w) => w.toLowerCase()).filter(Boolean)
+      );
+      // Also pick up any extra classes Obsidian might add from the info string
+      for (const cls of Array.from(codeEl.classList)) {
+        if (!cls.startsWith("language-")) blockAttrs.add(cls.toLowerCase());
+      }
+      const forceSkip = blockAttrs.has("skip");
+      // `collapsed` / `expanded` per-block overrides for the default state.
+      // `null` means "use the global setting".
+      const forceCollapsed: boolean | null =
+        blockAttrs.has("collapsed") ? true
+        : blockAttrs.has("expanded") ? false
+        : null;
+
       const lang = this.highlighter.resolveLanguage(rawLang);
       const code = codeEl.textContent || "";
 
-      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath);
+      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed);
     }
   }
 
@@ -1020,7 +1132,9 @@ __ocode_emit_vars
     lang: string,
     displayLang: string,
     fileName?: string,
-    sourcePath?: string
+    sourcePath?: string,
+    forceSkip = false,
+    forceCollapsed: boolean | null = null,
   ) {
     const html = this.highlighter.highlight(code, lang, this.settings.theme);
     if (!html) return;
@@ -1071,11 +1185,11 @@ __ocode_emit_vars
 
     // Mark blocks excluded from Run All so the header can show an indicator
     // and runAllBlocks can skip them. Individual Run still works.
-    if (blockHasSkipMarker(code)) {
+    if (forceSkip || blockHasSkipMarker(code)) {
       wrapper.classList.add("ocode-skip-run-all");
       const skipBadge = createSpan({ cls: "ocode-skip-badge", text: "skip" });
-      skipBadge.setAttribute("aria-label", "Excluded from Run All");
-      skipBadge.setAttribute("title", "Excluded from Run All");
+      skipBadge.setAttribute("aria-label", "Excluded from run all");
+      skipBadge.setAttribute("title", "Excluded from run all");
       btnGroup.insertBefore(skipBadge, btnGroup.firstChild);
     }
 
@@ -1101,8 +1215,13 @@ __ocode_emit_vars
     // ─── Inline collapsible (reading view) ───
     // `fileName` is only set for embedded files — they already get the embed
     // collapse handler in renderEmbeddedFile, so we don't duplicate it here.
-    if (this.settings.inlineCollapsible && !fileName) {
-      this.makeCollapsible(wrapper, this.settings.inlineCollapsedByDefault, code);
+    // Per-block `collapsed` / `expanded` attributes override the global default.
+    if (!fileName) {
+      const enabled = this.settings.inlineCollapsible || forceCollapsed !== null;
+      if (enabled) {
+        const initiallyCollapsed = forceCollapsed ?? this.settings.inlineCollapsedByDefault;
+        this.makeCollapsible(wrapper, initiallyCollapsed, code);
+      }
     }
 
     originalPre.replaceWith(wrapper);
@@ -1110,39 +1229,56 @@ __ocode_emit_vars
 
   /**
    * Add a collapse toggle to a code block wrapper.
+   *
+   * The arrow is rendered as a sibling of the wrapper inside a parent grid
+   * container (`.ocode-collapsible`) so it sits in the left gutter, OUTSIDE
+   * the code block's border — matching Obsidian's native heading-fold UI.
+   *
    * Shared by inline code blocks (this method) and embedded files
    * (which call it with `defaultCollapsed=true`).
    */
   private makeCollapsible(wrapper: HTMLElement, defaultCollapsed: boolean, sourceCode: string): void {
-    const codeArea = wrapper.querySelector("pre.shiki") as HTMLElement | null;
+    const codeArea = wrapper.querySelector<HTMLElement>("pre.shiki");
     const header = wrapper.querySelector(".ocode-header");
     if (!codeArea || !header) return;
-    if (header.querySelector(".ocode-collapse-arrow")) return; // already added
+    // Idempotency guard: if this wrapper is already wrapped in a collapsible, bail.
+    if (wrapper.parentElement?.classList.contains("ocode-collapsible")) return;
 
-    const arrow = createSpan({ cls: "ocode-collapse-arrow" });
-    arrow.textContent = defaultCollapsed ? "\u25B6" : "\u25BC"; // ▶ / ▼
-    header.prepend(arrow);
+    // Replace `wrapper` in the DOM with: <div class="ocode-collapsible">[arrow][wrapper]</div>
+    const parent = wrapper.parentElement;
+    const collapsible = createDiv({ cls: "ocode-collapsible" });
+    const arrow = collapsible.createSpan({ cls: "ocode-collapse-arrow" });
+    arrow.appendChild(parseSvg(ICON.fold));
+    arrow.setAttribute("aria-label", "Toggle code block");
+    if (parent) parent.insertBefore(collapsible, wrapper);
+    collapsible.appendChild(wrapper);
 
+    // Line-count hint goes in the header next to the label.
     const lineCount = sourceCode.split("\n").length;
     const hint = createSpan({ cls: "ocode-collapse-hint", text: `${lineCount} lines` });
     const spacer = header.querySelector(".ocode-spacer");
     if (spacer) spacer.before(hint); else header.appendChild(hint);
 
     if (defaultCollapsed) {
-      wrapper.classList.add("ocode-collapsed");
+      collapsible.classList.add("ocode-collapsed");
       codeArea.classList.add("ocode-hidden");
     }
 
+    const toggle = (e: Event) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const collapsed = collapsible.classList.toggle("ocode-collapsed");
+      codeArea.classList.toggle("ocode-hidden", collapsed);
+    };
+
+    arrow.addEventListener("click", toggle);
+    // Clicking anywhere on the header (except buttons / links) also toggles.
     header.classList.add("ocode-collapse-toggle");
     header.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest(".ocode-pill")) return;
       if (target.closest(".ocode-label-link")) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const collapsed = wrapper.classList.toggle("ocode-collapsed");
-      codeArea.classList.toggle("ocode-hidden", collapsed);
-      arrow.textContent = collapsed ? "\u25B6" : "\u25BC";
+      toggle(e);
     });
   }
 
@@ -1387,14 +1523,12 @@ __ocode_emit_vars
       // Copy-output button — copies the rendered stdout/stderr text from the panel.
       // Reads from the DOM so we always include exactly what the user sees
       // (with the __OCODE_VARS__ snapshot line already stripped).
-      const copyOutBtn = this.createPillButton("Copy output", ICON.copy, () => {
+      const copyOutBtn = this.createPillButton("", ICON.copy, () => {
         const text = outContent.textContent || "";
         void navigator.clipboard.writeText(text).then(() => {
           setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.check);
-          copyOutBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
           activeWindow.setTimeout(() => {
             setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
-            copyOutBtn.querySelector(".ocode-pill-text")!.textContent = "Copy output";
           }, 2000);
         });
       });
@@ -1405,13 +1539,11 @@ __ocode_emit_vars
       // Strip the sudo password prompt line — it's not an error
       const errorText = stderrText.replace(/^Password:\s*/m, "").trim();
       if (errorText) {
-        const copyErrBtn = this.createPillButton("Copy error", ICON.copy, () => {
+        const copyErrBtn = this.createPillButton("", ICON.copy, () => {
           void navigator.clipboard.writeText(errorText).then(() => {
             setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.check);
-            copyErrBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
             activeWindow.setTimeout(() => {
               setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
-              copyErrBtn.querySelector(".ocode-pill-text")!.textContent = "Copy error";
             }, 2000);
           });
         });

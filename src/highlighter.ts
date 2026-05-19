@@ -203,10 +203,10 @@ export class Highlighter {
   loadCustomTheme(customTheme: CustomTheme): string | null {
     if (!this.core) return null;
     try {
-      const themeData = JSON.parse(customTheme.json);
+      const themeData = JSON.parse(customTheme.json) as { name?: string } & Record<string, unknown>;
       // Ensure the theme has a name
       if (!themeData.name) themeData.name = customTheme.name;
-      this.core.loadTheme(themeData);
+      void this.core.loadTheme(themeData as unknown as Parameters<typeof this.core.loadTheme>[0]);
       const id = themeData.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
       this.loadedThemes.add(id);
       return id;

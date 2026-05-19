@@ -145,8 +145,8 @@ export class CodeSettingTab extends PluginSettingTab {
               if (!file) return;
               try {
                 const text = await file.text();
-                const json = JSON.parse(text);
-                const name: string = json.name || file.name.replace(/\.json$/, "");
+                const json = JSON.parse(text) as { name?: string };
+                const name: string = (typeof json.name === "string" && json.name) || file.name.replace(/\.json$/, "");
                 const customTheme: CustomTheme = { name, json: text };
                 // Load into highlighter
                 const id = this.plugin.highlighter.loadCustomTheme(customTheme);

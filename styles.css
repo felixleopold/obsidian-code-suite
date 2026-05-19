@@ -24,6 +24,7 @@
   border-bottom: 1px solid var(--ocode-border, #3c3836);
   min-height: 28px;
   gap: 8px;
+  position: relative; /* anchor for absolutely-positioned collapse arrow */
 }
 
 /* ─── Language label ──────────────────────────── */
@@ -291,6 +292,7 @@
 
 /* ─── Utility classes ─────────────────────────── */
 .ocode-hidden { display: none; }
+.ocode-hidden-input { display: none; }
 .ocode-exec-desc { margin-bottom: 12px; }
 
 /* ─── Inline $varname substitution ───────────── */
@@ -371,17 +373,55 @@ body.ocode-wide-blocks .ocode-wrapper {
   text-decoration: underline;
 }
 
-/* ─── Collapsible embeds ──────────────────────── */
+/* ─── Collapsible code blocks ─────────────────── */
+
+/* The collapsible container holds the arrow (in a left gutter) and the
+   wrapper as a sibling, so the arrow sits OUTSIDE the code-block border —
+   matching Obsidian's native heading-fold UI. */
+.ocode-collapsible {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  align-items: start;
+  gap: 2px;
+  margin: 0.8em 0;
+}
+
+/* When the wrapper is a child of a collapsible, neutralise its own margin so
+   spacing comes from the collapsible parent only. */
+.ocode-collapsible > .ocode-wrapper {
+  margin: 0;
+  min-width: 0; /* allow the grid cell to shrink without overflowing */
+}
+
 .ocode-collapse-arrow {
-  font-size: 10px;
-  color: var(--ocode-muted, #928374);
-  transition: transform 0.15s;
+  width: 16px;
+  height: 16px;
+  margin-top: 8px;        /* aligns roughly with the header text baseline */
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: transform 0.12s ease;
   user-select: none;
-  width: 14px;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  flex-shrink: 0;
+  border-radius: 3px;
+}
+.ocode-collapse-arrow:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.ocode-collapse-arrow svg {
+  width: 10px;
+  height: 10px;
+}
+
+/* Expanded: arrow points down */
+.ocode-collapsible:not(.ocode-collapsed) .ocode-collapse-arrow {
+  transform: rotate(90deg);
+}
+/* Collapsed: arrow points right (no rotation) */
+.ocode-collapsible.ocode-collapsed .ocode-collapse-arrow {
+  transform: rotate(0deg);
 }
 
 .ocode-collapse-hint {
@@ -655,71 +695,171 @@ body.ocode-wide-blocks .ocode-wrapper {
   /* Inherits .ocode-pill styling via class on element */
 }
 
-/* ─── Code file view (v1.3.0) ───────────────── */
-.ocode-file-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  width: 100%;
-  background: var(--background-primary);
-}
-.ocode-file-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  flex-wrap: wrap;
-}
-.ocode-file-lang {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-right: auto;
-  font-family: var(--font-monospace);
-}
-.ocode-mode-pill {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  border: 1px solid var(--background-modifier-border);
-  cursor: pointer;
-}
-.ocode-mode-pill.is-active {
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  border-color: var(--interactive-accent);
-}
-.ocode-file-body {
-  flex: 1 1 auto;
+/* ─── Code file view — full-page block (v1.3.0) ─ */
+
+/* Scrollable outer shell for the file pane */
+.ocode-file-page {
+  padding: 16px 20px;
   overflow: auto;
-  min-height: 0;
-}
-.ocode-file-editor {
-  width: 100%;
   height: 100%;
-  min-height: 300px;
+  box-sizing: border-box;
+}
+
+/* Centred file-name title in the file-view header */
+.ocode-file-title {
+  font-weight: 600;
+  font-size: 0.85em;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+/* Make the wrapper fill the available width */
+.ocode-wrapper.ocode-file-full-page {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+/* Code area: holds the preview pre.shiki or the editor overlay */
+.ocode-file-code-area { position: relative; }
+
+/* In preview mode: let the pre grow to show all lines without capping */
+.ocode-file-full-page .ocode-file-code-area > pre.shiki {
+  max-height: none;
+  overflow: visible;
+}
+
+/* ─── Editor overlay (edit mode) ──────────────── */
+/*
+ * Both the Shiki background layer and the transparent textarea are
+ * stacked in the same CSS grid cell so they share identical dimensions.
+ * The textarea is on top; its text is transparent so only the Shiki
+ * colours are visible.  The caret remains visible via caret-color.
+ */
+
+/* Pixel metrics shared by bg and textarea — must match pre.shiki exactly */
+:root {
+  --ocode-editor-pad-v: 12px;
+  --ocode-editor-pad-h: 16px;
+  --ocode-editor-font-size: 13.5px;
+  --ocode-editor-line-height: 1.6;
+  --ocode-editor-tab-size: 4;
+}
+
+.ocode-file-editor-wrap {
+  display: grid;       /* stack children in the same cell */
+  position: relative;
+  font-size: var(--ocode-editor-font-size);
+  line-height: var(--ocode-editor-line-height);
+  min-height: 200px;   /* minimum for empty files */
+}
+
+/* Both children occupy grid cell 1/1 (stacked) */
+.ocode-file-editor-bg,
+.ocode-file-editor-ta {
+  grid-area: 1 / 1;
+  font-family: var(--font-monospace);
+  font-size: inherit;
+  line-height: inherit;
+  padding: var(--ocode-editor-pad-v) var(--ocode-editor-pad-h);
+  margin: 0;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  tab-size: var(--ocode-editor-tab-size);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+/* Highlight background: rendered Shiki HTML, no pointer events */
+.ocode-file-editor-bg {
+  pointer-events: none;
+  user-select: none;
+  /* No overflow restriction — content height drives the CSS grid row size */
+}
+
+/* The shiki pre inside the bg inherits size from the wrap, no own scroll */
+.ocode-file-editor-bg pre.shiki {
+  margin: 0;
+  padding: 0;            /* wrap already adds padding */
+  max-height: none !important;
+  overflow: visible !important;
+  font-size: inherit;
+  line-height: inherit;
+  background-color: transparent; /* bg comes from ocode-wrapper */
+}
+
+/* Reset the <code> element — Obsidian themes often add padding (e.g.
+   padding: 0.2em 0.4em) which accumulates per line and drifts the cursor.
+   Do NOT set display:block here — the \n text nodes between inline .line
+   spans are preserved by white-space:pre and would render as blank lines. */
+.ocode-file-editor-bg pre.shiki code {
+  padding: 0 !important;
+  margin: 0 !important;
+  background: transparent !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  line-height: inherit !important;
+}
+
+/* Keep .line as inline (default for span) — display:block would cause the
+   \n separators between spans to render as extra blank lines in white-space:pre */
+.ocode-file-editor-bg pre.shiki code .line {
+  line-height: inherit !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* When line numbers are enabled, shift the textarea right to match the gutter */
+.ocode-file-editor-wrap--lnum .ocode-file-editor-ta {
+  padding-left: calc(var(--ocode-editor-pad-h) + 3em + 16px) !important;
+}
+
+/* Fallback plain pre when Shiki hasn't loaded yet */
+.ocode-file-editor-fallback-pre {
+  margin: 0;
+  padding: 0;
+}
+
+/* Foreground: transparent typing surface exactly on top of the highlight */
+.ocode-file-editor-ta {
+  /* Disable macOS/system native textarea appearance so it doesn't paint its
+     own background on hover/focus (which would cover the Shiki layer). */
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: transparent !important;
+  caret-color: var(--text-normal);
+  resize: none;
   border: none;
   outline: none;
-  resize: none;
-  padding: 12px 16px;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  font-family: var(--font-monospace);
-  font-size: var(--font-text-size);
-  line-height: 1.55;
-  tab-size: 2;
-  white-space: pre;
-}
-.ocode-file-view .ocode-output {
-  border-top: 1px solid var(--background-modifier-border);
-  max-height: 40%;
-  overflow: auto;
+  overflow: hidden;      /* outer ocode-file-page handles scrolling */
+  z-index: 1;
 }
 
+/* Keep all interactive states transparent — prevents theme/OS overrides */
+.ocode-file-editor-ta:hover,
+.ocode-file-editor-ta:focus,
+.ocode-file-editor-ta:focus-visible,
+.ocode-file-editor-ta:active {
+  background: transparent !important;
+  background-color: transparent !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
 
-/* spacer used in code-file-view toolbar */
-.ocode-spacer-flex { flex: 1; }
+/* Selection tint so multi-line selection is visible */
+.ocode-file-editor-ta::selection {
+  background: color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+  color: transparent;
+}
+
+/* Prevent line hover highlight firing on the (pointer-events:none) bg layer */
+.ocode-file-editor-bg .line:hover {
+  background: none !important;
+}
 
