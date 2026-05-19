@@ -375,55 +375,6 @@ body.ocode-wide-blocks .ocode-wrapper {
 
 /* ─── Collapsible code blocks ─────────────────── */
 
-/* The collapsible container holds the arrow (in a left gutter) and the
-   wrapper as a sibling, so the arrow sits OUTSIDE the code-block border —
-   matching Obsidian's native heading-fold UI. */
-.ocode-collapsible {
-  display: grid;
-  grid-template-columns: 18px 1fr;
-  align-items: start;
-  gap: 2px;
-  margin: 0.8em 0;
-}
-
-/* When the wrapper is a child of a collapsible, neutralise its own margin so
-   spacing comes from the collapsible parent only. */
-.ocode-collapsible > .ocode-wrapper {
-  margin: 0;
-  min-width: 0; /* allow the grid cell to shrink without overflowing */
-}
-
-.ocode-collapse-arrow {
-  width: 16px;
-  height: 16px;
-  margin-top: 8px;        /* aligns roughly with the header text baseline */
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: transform 0.12s ease;
-  user-select: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 3px;
-}
-.ocode-collapse-arrow:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
-}
-.ocode-collapse-arrow svg {
-  width: 10px;
-  height: 10px;
-}
-
-/* Expanded: arrow points down */
-.ocode-collapsible:not(.ocode-collapsed) .ocode-collapse-arrow {
-  transform: rotate(90deg);
-}
-/* Collapsed: arrow points right (no rotation) */
-.ocode-collapsible.ocode-collapsed .ocode-collapse-arrow {
-  transform: rotate(0deg);
-}
-
 .ocode-collapse-hint {
   font-size: 11px;
   color: var(--ocode-line-num, #504945);
@@ -690,11 +641,6 @@ body.ocode-wide-blocks .ocode-wrapper {
   user-select: none;
 }
 
-/* ─── Copy-output pill ───────────────────────── */
-.ocode-copy-out-pill {
-  /* Inherits .ocode-pill styling via class on element */
-}
-
 /* ─── Code file view — full-page block (v1.3.0) ─ */
 
 /* Scrollable outer shell for the file pane */
@@ -782,11 +728,11 @@ body.ocode-wide-blocks .ocode-wrapper {
 }
 
 /* The shiki pre inside the bg inherits size from the wrap, no own scroll */
-.ocode-file-editor-bg pre.shiki {
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-wrap .ocode-file-editor-bg pre.shiki {
   margin: 0;
   padding: 0;            /* wrap already adds padding */
-  max-height: none !important;
-  overflow: visible !important;
+  max-height: none;
+  overflow: visible;
   font-size: inherit;
   line-height: inherit;
   background-color: transparent; /* bg comes from ocode-wrapper */
@@ -796,26 +742,26 @@ body.ocode-wide-blocks .ocode-wrapper {
    padding: 0.2em 0.4em) which accumulates per line and drifts the cursor.
    Do NOT set display:block here — the \n text nodes between inline .line
    spans are preserved by white-space:pre and would render as blank lines. */
-.ocode-file-editor-bg pre.shiki code {
-  padding: 0 !important;
-  margin: 0 !important;
-  background: transparent !important;
-  font-family: inherit !important;
-  font-size: inherit !important;
-  line-height: inherit !important;
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-wrap .ocode-file-editor-bg pre.shiki code {
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
 }
 
 /* Keep .line as inline (default for span) — display:block would cause the
    \n separators between spans to render as extra blank lines in white-space:pre */
-.ocode-file-editor-bg pre.shiki code .line {
-  line-height: inherit !important;
-  padding: 0 !important;
-  margin: 0 !important;
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-bg pre.shiki code .line {
+  line-height: inherit;
+  padding: 0;
+  margin: 0;
 }
 
 /* When line numbers are enabled, shift the textarea right to match the gutter */
-.ocode-file-editor-wrap--lnum .ocode-file-editor-ta {
-  padding-left: calc(var(--ocode-editor-pad-h) + 3em + 16px) !important;
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-wrap.ocode-file-editor-wrap--lnum .ocode-file-editor-ta {
+  padding-left: calc(var(--ocode-editor-pad-h) + 3em + 16px);
 }
 
 /* Fallback plain pre when Shiki hasn't loaded yet */
@@ -825,14 +771,14 @@ body.ocode-wide-blocks .ocode-wrapper {
 }
 
 /* Foreground: transparent typing surface exactly on top of the highlight */
-.ocode-file-editor-ta {
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-wrap .ocode-file-editor-ta {
   /* Disable macOS/system native textarea appearance so it doesn't paint its
      own background on hover/focus (which would cover the Shiki layer). */
   -webkit-appearance: none;
   appearance: none;
-  background: transparent !important;
-  background-color: transparent !important;
-  color: transparent !important;
+  background: transparent;
+  background-color: transparent;
+  color: transparent;
   caret-color: var(--text-normal);
   resize: none;
   border: none;
@@ -842,14 +788,14 @@ body.ocode-wide-blocks .ocode-wrapper {
 }
 
 /* Keep all interactive states transparent — prevents theme/OS overrides */
-.ocode-file-editor-ta:hover,
-.ocode-file-editor-ta:focus,
-.ocode-file-editor-ta:focus-visible,
-.ocode-file-editor-ta:active {
-  background: transparent !important;
-  background-color: transparent !important;
-  outline: none !important;
-  box-shadow: none !important;
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-wrap .ocode-file-editor-ta:hover,
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-wrap .ocode-file-editor-ta:focus,
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-wrap .ocode-file-editor-ta:focus-visible,
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-wrap .ocode-file-editor-ta:active {
+  background: transparent;
+  background-color: transparent;
+  outline: none;
+  box-shadow: none;
 }
 
 /* Selection tint so multi-line selection is visible */
@@ -859,7 +805,7 @@ body.ocode-wide-blocks .ocode-wrapper {
 }
 
 /* Prevent line hover highlight firing on the (pointer-events:none) bg layer */
-.ocode-file-editor-bg .line:hover {
-  background: none !important;
+.ocode-file-page .ocode-file-full-page .ocode-file-editor-bg .line:hover {
+  background: none;
 }
 

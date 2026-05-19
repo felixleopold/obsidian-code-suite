@@ -6,7 +6,9 @@
   "scripts": {
     "build": "node esbuild.config.js production",
     "dev": "node esbuild.config.js",
-    "install-plugin": "node esbuild.config.js"
+    "install-plugin": "node esbuild.config.js",
+    "lint": "eslint src/",
+    "release": "bash scripts/release.sh"
   },
   "repository": {
     "type": "git",

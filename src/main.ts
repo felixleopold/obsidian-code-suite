@@ -21,7 +21,6 @@ import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 
 // SVG icons as constants
 const ICON = {
-  fold: `<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><polygon points="8 4 20 12 8 20"/></svg>`,
   copy: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
   check: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>`,
   play: `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>`,
@@ -1230,10 +1229,6 @@ __ocode_emit_vars
   /**
    * Add a collapse toggle to a code block wrapper.
    *
-   * The arrow is rendered as a sibling of the wrapper inside a parent grid
-   * container (`.ocode-collapsible`) so it sits in the left gutter, OUTSIDE
-   * the code block's border — matching Obsidian's native heading-fold UI.
-   *
    * Shared by inline code blocks (this method) and embedded files
    * (which call it with `defaultCollapsed=true`).
    */
@@ -1241,17 +1236,7 @@ __ocode_emit_vars
     const codeArea = wrapper.querySelector<HTMLElement>("pre.shiki");
     const header = wrapper.querySelector(".ocode-header");
     if (!codeArea || !header) return;
-    // Idempotency guard: if this wrapper is already wrapped in a collapsible, bail.
-    if (wrapper.parentElement?.classList.contains("ocode-collapsible")) return;
-
-    // Replace `wrapper` in the DOM with: <div class="ocode-collapsible">[arrow][wrapper]</div>
-    const parent = wrapper.parentElement;
-    const collapsible = createDiv({ cls: "ocode-collapsible" });
-    const arrow = collapsible.createSpan({ cls: "ocode-collapse-arrow" });
-    arrow.appendChild(parseSvg(ICON.fold));
-    arrow.setAttribute("aria-label", "Toggle code block");
-    if (parent) parent.insertBefore(collapsible, wrapper);
-    collapsible.appendChild(wrapper);
+    if (header.classList.contains("ocode-collapse-toggle")) return;
 
     // Line-count hint goes in the header next to the label.
     const lineCount = sourceCode.split("\n").length;
@@ -1260,18 +1245,17 @@ __ocode_emit_vars
     if (spacer) spacer.before(hint); else header.appendChild(hint);
 
     if (defaultCollapsed) {
-      collapsible.classList.add("ocode-collapsed");
+      wrapper.classList.add("ocode-collapsed");
       codeArea.classList.add("ocode-hidden");
     }
 
     const toggle = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
-      const collapsed = collapsible.classList.toggle("ocode-collapsed");
+      const collapsed = wrapper.classList.toggle("ocode-collapsed");
       codeArea.classList.toggle("ocode-hidden", collapsed);
     };
 
-    arrow.addEventListener("click", toggle);
     // Clicking anywhere on the header (except buttons / links) also toggles.
     header.classList.add("ocode-collapse-toggle");
     header.addEventListener("click", (e) => {
