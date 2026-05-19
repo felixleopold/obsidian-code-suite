@@ -104,7 +104,8 @@ npm run lint
 echo "Running build"
 npm run build
 
-git add package.json package-lock.json manifest.json "$notes_file"
+git add package.json package-lock.json manifest.json
+git add -f "$notes_file"
 git commit -m "Release $version"
 git tag -a "$version" -m "$version"
 
