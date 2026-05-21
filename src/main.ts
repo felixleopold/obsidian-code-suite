@@ -481,6 +481,49 @@ export default class CodePlugin extends Plugin {
   }
 
   /**
+   * Parse the current note source and return a skip-state boolean for each
+   * executable fenced code block (in source order). Used by runAllBlocks so
+   * that skip markers added/removed since the last reading-view render are
+   * honoured without requiring a note reopen (fixes GitHub issue #15).
+   */
+  private parseSkipStatesFromSource(source: string): boolean[] {
+    const PASSTHROUGH = new Set(["mermaid", "dataview", "dataviewjs", "query"]);
+    const states: boolean[] = [];
+    const lines = source.split("\n");
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i];
+      const fenceMatch = line.match(/^([`~]{3,})(.*)/);
+      if (!fenceMatch) { i++; continue; }
+      const fenceChar = fenceMatch[1][0];
+      const fenceLen  = fenceMatch[1].length;
+      const infoStr   = fenceMatch[2].trim();
+      const parts     = infoStr.split(/\s+/);
+      const rawLang   = (parts[0] ?? "").toLowerCase();
+      const forceSkip = parts.slice(1).map((w) => w.toLowerCase()).includes("skip");
+      // Collect block content
+      const contentLines: string[] = [];
+      i++;
+      while (i < lines.length) {
+        const l = lines[i];
+        const cm = l.match(/^([`~]{3,})(.*)/);
+        if (cm && cm[1][0] === fenceChar && cm[1].length >= fenceLen && cm[2].trim() === "") {
+          i++; break; // consume closing fence
+        }
+        contentLines.push(l);
+        i++;
+      }
+      // Apply the same filters as processCodeBlocks: skip passthrough langs,
+      // vars blocks, and non-executable languages (those don't get Run buttons).
+      if (PASSTHROUGH.has(rawLang) || rawLang === "vars") continue;
+      const resolvedLang = this.highlighter.resolveLanguage(rawLang);
+      if (!isExecutable(resolvedLang)) continue;
+      states.push(forceSkip || blockHasSkipMarker(contentLines.join("\n")));
+    }
+    return states;
+  }
+
+  /**
    * Run every executable code block in the view sequentially, waiting for each
    * to finish before starting the next (so shared context accumulates in order).
    */
@@ -492,13 +535,31 @@ export default class CodePlugin extends Plugin {
       new Notice("No executable code blocks found. Switch to reading view first.");
       return;
     }
+    // Freshly parse skip states from the current source so skip markers
+    // added/removed since the last reading-view render are honoured
+    // immediately, without requiring a note reopen (fixes GitHub issue #15).
+    const skipStates = view.file
+      ? this.parseSkipStatesFromSource(await this.app.vault.cachedRead(view.file))
+      : [];
     let ran = 0;
+    let fencedIdx = 0;
     for (const btn of runBtns) {
       if (btn.classList.contains("ocode-cancel-pill")) continue; // already running
       const wrapper = btn.closest<HTMLElement>(".ocode-wrapper");
       if (!wrapper) continue;
-      // Skip blocks marked with the "codesuite:skip" comment marker
-      if (wrapper.classList.contains("ocode-skip-run-all")) continue;
+      // For fenced blocks: use live-parsed skip state so recently-toggled
+      // markers are honoured without re-opening the note (fixes #15).
+      // Embedded file blocks fall back to the DOM class set at render time.
+      let shouldSkip: boolean;
+      if (wrapper.getAttribute("data-ocode-fenced") === "1") {
+        shouldSkip = fencedIdx < skipStates.length
+          ? skipStates[fencedIdx]
+          : wrapper.classList.contains("ocode-skip-run-all");
+        fencedIdx++;
+      } else {
+        shouldSkip = wrapper.classList.contains("ocode-skip-run-all");
+      }
+      if (shouldSkip) continue;
       btn.click();
       ran++;
       // runCode runs synchronously up to its first await, so runningProcs.set()
@@ -786,21 +847,40 @@ __ocode_emit_vars
 
     new Notice(`Aliased "${baseName}" → ${targetRel}`);
 
-    // Ask Obsidian to re-scan the vault so the new symlink is picked up
-    // by the file index, then open it. A short delay keeps things robust
-    // across Obsidian versions where the adapter event timing differs.
-    activeWindow.setTimeout(async () => {
-      const tfile = this.app.vault.getAbstractFileByPath(targetRel);
-      if (tfile instanceof TFile) {
-        await this.app.workspace.getLeaf().openFile(tfile);
-      } else {
-        // Index hasn't caught up yet — give it one more tick.
-        activeWindow.setTimeout(async () => {
-          const f = this.app.vault.getAbstractFileByPath(targetRel);
-          if (f instanceof TFile) await this.app.workspace.getLeaf().openFile(f);
-        }, 500);
+    // Open the alias in a new tab as soon as the vault indexes the symlink.
+    // The "create" event fires at the same moment the file-explorer sidebar
+    // updates, so both happen in sync. A polling fallback with exponential
+    // back-off handles slow/NFS filesystems where the watcher is delayed.
+    let done = false;
+    const openInNewTab = async (file: TFile) => {
+      if (done) return;
+      done = true;
+      await this.app.workspace.getLeaf("tab").openFile(file);
+    };
+
+    const ref = this.app.vault.on("create", (file) => {
+      if (file instanceof TFile && file.path === targetRel) {
+        this.app.vault.offref(ref);
+        void openInNewTab(file);
       }
-    }, 250);
+    });
+
+    // Fallback: poll with exponential back-off for up to ~5 s.
+    let delay = 300;
+    const poll = () => {
+      if (done) { this.app.vault.offref(ref); return; }
+      const f = this.app.vault.getAbstractFileByPath(targetRel);
+      if (f instanceof TFile) {
+        this.app.vault.offref(ref);
+        void openInNewTab(f);
+      } else if (delay < 5000) {
+        delay = Math.min(delay * 2, 5000);
+        activeWindow.setTimeout(poll, delay);
+      } else {
+        this.app.vault.offref(ref);
+      }
+    };
+    activeWindow.setTimeout(poll, delay);
   }
 
   /**
@@ -1223,6 +1303,7 @@ __ocode_emit_vars
       }
     }
 
+    wrapper.setAttribute("data-ocode-fenced", "1");
     originalPre.replaceWith(wrapper);
   }
 
