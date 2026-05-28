@@ -1,15 +1,14 @@
-This release replaces the clunky preview-rerender skip badge fix with a simpler render-time solution that behaves like normal code block language updates.
+This release fixes one remaining skip-badge alignment bug when notes include a `vars` block.
 
 ## What's New
 
-- Skip badges now rely on Obsidian's normal markdown post-processing during reading-mode render, matching how language changes appear without forcing a preview rerender (#15).
+- Skip badges now stay attached to the correct executable block even when a note also contains a `vars` block.
 
 ## Bug Fixes
 
-- Removed the forced `previewMode.rerender(true)` call on layout changes, which could make reading mode jump or feel unstable.
-- Keep the lightweight save/edit DOM sync for already-rendered views without rebuilding the markdown preview.
-- Keep the corrected fence-attribute parser so initial reading-mode renders pick up `skip`, `collapsed`, and `expanded` attributes reliably (#15).
+- Exclude `vars` blocks from the live skip-badge indexing pass so badges line up with the same executable block order used by Run All.
+- Mark only inline executable code blocks as source-aligned skip targets, preventing helper blocks from shifting badge placement.
 
 ## Upgrade Notes
 
-- No breaking changes. Reload Obsidian or toggle the plugin after updating to remove the old layout-change rerender listener.
+- No breaking changes. Reload Obsidian or toggle the plugin after updating.

@@ -577,8 +577,8 @@ export default class CodePlugin extends Plugin {
     if (!source) return;
     const skipStates = this.parseSkipStatesFromSource(source);
     const wrappers = Array.from(
-      view.contentEl.querySelectorAll<HTMLElement>(".ocode-wrapper")
-    ).filter((w) => !w.classList.contains("ocode-embedded"));
+      view.contentEl.querySelectorAll<HTMLElement>('.ocode-wrapper[data-ocode-fenced="1"]')
+    );
     let idx = 0;
     for (const wrapper of wrappers) {
       const shouldSkip = idx < skipStates.length
@@ -1385,11 +1385,11 @@ __ocode_emit_vars
       }
     }
 
-    // Mark as a fenced (inline) code block so runAllBlocks can align it with
-    // the source-parsed skip-state array. Embedded file blocks do NOT get this
-    // attribute — they are not present in the note's source and would throw the
-    // index counter off if included.
-    if (!fileName) {
+    // Mark inline executable blocks so badge-sync logic can align them with the
+    // source-parsed skip-state array. Embedded files, vars blocks, and other
+    // non-runnable code blocks are excluded because parseSkipStatesFromSource()
+    // does not count them.
+    if (!fileName && isExecutable(lang)) {
       wrapper.setAttribute("data-ocode-fenced", "1");
     }
     originalPre.replaceWith(wrapper);
