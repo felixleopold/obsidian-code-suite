@@ -148,7 +148,7 @@ export default class CodePlugin extends Plugin {
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (!(file instanceof TFile)) return;
-        this.queueSkipBadgeSync(file.path, 0, true);
+        this.queueSkipBadgeSync(file.path);
       })
     );
 
@@ -158,17 +158,6 @@ export default class CodePlugin extends Plugin {
       this.app.workspace.on("editor-change", (_editor, info) => {
         if (!(info instanceof MarkdownView)) return;
         this.queueSkipBadgeSync(info.file?.path, 400);
-      })
-    );
-
-    // Reading mode rebuilds the preview DOM on mode switches. Queue a sync for
-    // the active note after layout settles so freshly-rendered headers pick up
-    // the current skip state immediately.
-    this.registerEvent(
-      this.app.workspace.on("layout-change", () => {
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!view?.file) return;
-        this.queueSkipBadgeSync(view.file.path, 50, true);
       })
     );
 
@@ -558,12 +547,8 @@ export default class CodePlugin extends Plugin {
     return states;
   }
 
-  /**
-   * Queue a skip-badge sync pass for all open views of a note. When requested,
-   * preview views are re-rendered first so the sync runs against the latest
-   * reading-mode DOM after an edit→preview transition.
-   */
-  private queueSkipBadgeSync(notePath?: string, delay = 0, rerenderPreview = false): void {
+  /** Queue a lightweight skip-badge DOM sync for already-rendered views. */
+  private queueSkipBadgeSync(notePath?: string, delay = 0): void {
     if (this._skipSyncTimer !== null) {
       activeWindow.clearTimeout(this._skipSyncTimer);
     }
@@ -577,17 +562,6 @@ export default class CodePlugin extends Plugin {
         views.push(view);
       });
       if (views.length === 0) return;
-      if (rerenderPreview) {
-        for (const view of views) {
-          if (view.getMode() === "preview") {
-            view.previewMode.rerender(true);
-          }
-        }
-        activeWindow.setTimeout(() => {
-          for (const view of views) this.syncSkipBadges(view);
-        }, 0);
-        return;
-      }
       for (const view of views) this.syncSkipBadges(view);
     }, delay) as unknown as number;
   }
@@ -595,8 +569,8 @@ export default class CodePlugin extends Plugin {
   /**
    * Sync the skip-badge and ocode-skip-run-all class for every inline fenced
    * code block in the view against the current source state. Called on every
-   * file save and (debounced) on every editor change so the badge stays live
-   * without requiring Run All or a note reopen.
+    * file save and (debounced) on every editor change so already-rendered badges
+    * stay live without forcing a markdown preview rerender.
    */
   private syncSkipBadges(view: MarkdownView): void {
     const source = view.getViewData();
