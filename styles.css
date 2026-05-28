@@ -211,7 +211,11 @@
 }
 
 .ocode-stdout { color: var(--ocode-fg, #ebdbb2); }
-.ocode-stderr { color: #fb4934; }
+/* Stderr is orange by default — many programs (brew, npm, etc.) write
+   informational/progress text to stderr even on success. It only turns red
+   when the process actually exits with a non-zero code. */
+.ocode-stderr { color: #fe8019; }
+.ocode-output-content.ocode-has-error .ocode-stderr { color: #fb4934; }
 .ocode-no-output { color: var(--ocode-line-num, #504945); font-style: italic; }
 
 .ocode-stdin-echo {

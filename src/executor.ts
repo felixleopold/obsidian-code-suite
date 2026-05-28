@@ -210,6 +210,18 @@ export function startExecution(
   const extraEnv = parseExtraEnv(settings.extraEnv);
   const env = { ...process.env, ...dotEnv, ...extraEnv };
 
+  // On macOS, GUI apps (like Obsidian) don't inherit the user's shell PATH,
+  // so Homebrew tools (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel)
+  // are not found. Prepend the common locations so brew/node/python etc. work.
+  if (os.platform() === "darwin") {
+    const brewPaths = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/local/sbin"];
+    const existing = new Set((env["PATH"] || "").split(path.delimiter));
+    const missing = brewPaths.filter((p) => !existing.has(p));
+    if (missing.length > 0) {
+      env["PATH"] = missing.join(path.delimiter) + path.delimiter + (env["PATH"] || "");
+    }
+  }
+
   // If pythonPath is a venv python, set VIRTUAL_ENV and prepend bin to PATH
   // (applies to all languages so bash/shell blocks can call pip, etc.)
   if (settings.pythonPath) {

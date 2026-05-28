@@ -86,6 +86,8 @@ export default class CodePlugin extends Plugin {
   private _refreshSeq = 0;
   /** Debounce timer for auto-theme switching (css-change can fire many times per mode switch) */
   private _autoThemeTimer: number | null = null;
+  /** Debounce timer for queued skip-badge sync passes. */
+  private _skipSyncTimer: number | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -138,6 +140,35 @@ export default class CodePlugin extends Plugin {
     this.registerEvent(
       this.app.workspace.on("css-change", () => {
         void this.applyAutoTheme();
+      })
+    );
+
+    // Sync skip badges whenever the file is saved to disk (covers reading-view
+    // tabs open alongside an editing tab, and reloads after external changes).
+    this.registerEvent(
+      this.app.vault.on("modify", (file) => {
+        if (!(file instanceof TFile)) return;
+        this.queueSkipBadgeSync(file.path, 0, true);
+      })
+    );
+
+    // Sync skip badges while typing in live preview (debounced 400 ms so we
+    // don't run on every keystroke).
+    this.registerEvent(
+      this.app.workspace.on("editor-change", (_editor, info) => {
+        if (!(info instanceof MarkdownView)) return;
+        this.queueSkipBadgeSync(info.file?.path, 400);
+      })
+    );
+
+    // Reading mode rebuilds the preview DOM on mode switches. Queue a sync for
+    // the active note after layout settles so freshly-rendered headers pick up
+    // the current skip state immediately.
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => {
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view?.file) return;
+        this.queueSkipBadgeSync(view.file.path, 50, true);
       })
     );
 
@@ -204,6 +235,10 @@ export default class CodePlugin extends Plugin {
     if (this._autoThemeTimer !== null) {
       activeWindow.clearTimeout(this._autoThemeTimer);
       this._autoThemeTimer = null;
+    }
+    if (this._skipSyncTimer !== null) {
+      activeWindow.clearTimeout(this._skipSyncTimer);
+      this._skipSyncTimer = null;
     }
     // Kill all running processes
     for (const proc of this.runningProcs.values()) {
@@ -524,6 +559,77 @@ export default class CodePlugin extends Plugin {
   }
 
   /**
+   * Queue a skip-badge sync pass for all open views of a note. When requested,
+   * preview views are re-rendered first so the sync runs against the latest
+   * reading-mode DOM after an edit→preview transition.
+   */
+  private queueSkipBadgeSync(notePath?: string, delay = 0, rerenderPreview = false): void {
+    if (this._skipSyncTimer !== null) {
+      activeWindow.clearTimeout(this._skipSyncTimer);
+    }
+    this._skipSyncTimer = activeWindow.setTimeout(() => {
+      this._skipSyncTimer = null;
+      const views: MarkdownView[] = [];
+      this.app.workspace.iterateAllLeaves((leaf) => {
+        const view = leaf.view;
+        if (!(view instanceof MarkdownView)) return;
+        if (notePath && view.file?.path !== notePath) return;
+        views.push(view);
+      });
+      if (views.length === 0) return;
+      if (rerenderPreview) {
+        for (const view of views) {
+          if (view.getMode() === "preview") {
+            view.previewMode.rerender(true);
+          }
+        }
+        activeWindow.setTimeout(() => {
+          for (const view of views) this.syncSkipBadges(view);
+        }, 0);
+        return;
+      }
+      for (const view of views) this.syncSkipBadges(view);
+    }, delay) as unknown as number;
+  }
+
+  /**
+   * Sync the skip-badge and ocode-skip-run-all class for every inline fenced
+   * code block in the view against the current source state. Called on every
+   * file save and (debounced) on every editor change so the badge stays live
+   * without requiring Run All or a note reopen.
+   */
+  private syncSkipBadges(view: MarkdownView): void {
+    const source = view.getViewData();
+    if (!source) return;
+    const skipStates = this.parseSkipStatesFromSource(source);
+    const wrappers = Array.from(
+      view.contentEl.querySelectorAll<HTMLElement>(".ocode-wrapper")
+    ).filter((w) => !w.classList.contains("ocode-embedded"));
+    let idx = 0;
+    for (const wrapper of wrappers) {
+      const shouldSkip = idx < skipStates.length
+        ? skipStates[idx]
+        : wrapper.classList.contains("ocode-skip-run-all");
+      idx++;
+      const wasMarked = wrapper.classList.contains("ocode-skip-run-all");
+      if (shouldSkip === wasMarked) continue;
+      if (shouldSkip) {
+        wrapper.classList.add("ocode-skip-run-all");
+        const btnGroup = wrapper.querySelector(".ocode-btn-group");
+        if (btnGroup && !btnGroup.querySelector(".ocode-skip-badge")) {
+          const badge = createSpan({ cls: "ocode-skip-badge", text: "skip" });
+          badge.setAttribute("aria-label", "Excluded from run all");
+          badge.setAttribute("title", "Excluded from run all");
+          btnGroup.insertBefore(badge, btnGroup.firstChild);
+        }
+      } else {
+        wrapper.classList.remove("ocode-skip-run-all");
+        wrapper.querySelector(".ocode-skip-badge")?.remove();
+      }
+    }
+  }
+
+  /**
    * Run every executable code block in the view sequentially, waiting for each
    * to finish before starting the next (so shared context accumulates in order).
    */
@@ -535,30 +641,33 @@ export default class CodePlugin extends Plugin {
       new Notice("No executable code blocks found. Switch to reading view first.");
       return;
     }
-    // Freshly parse skip states from the current source so skip markers
-    // added/removed since the last reading-view render are honoured
-    // immediately, without requiring a note reopen (fixes GitHub issue #15).
-    const skipStates = view.file
-      ? this.parseSkipStatesFromSource(await this.app.vault.cachedRead(view.file))
-      : [];
+    // Sync badges first so the visual state is correct before we start running.
+    this.syncSkipBadges(view);
+    const skipStates = this.parseSkipStatesFromSource(view.getViewData());
     let ran = 0;
     let fencedIdx = 0;
     for (const btn of runBtns) {
-      if (btn.classList.contains("ocode-cancel-pill")) continue; // already running
       const wrapper = btn.closest<HTMLElement>(".ocode-wrapper");
       if (!wrapper) continue;
-      // For fenced blocks: use live-parsed skip state so recently-toggled
-      // markers are honoured without re-opening the note (fixes #15).
-      // Embedded file blocks fall back to the DOM class set at render time.
+      // Embedded file blocks are not present in the note source and are
+      // excluded from skipStates — fall back to their DOM class.
+      // All other (inline fenced) blocks use the live-parsed state. We check
+      // ocode-embedded rather than data-ocode-fenced so this works even for
+      // blocks rendered before the attribute was introduced (fixes #15).
       let shouldSkip: boolean;
-      if (wrapper.getAttribute("data-ocode-fenced") === "1") {
+      if (!wrapper.classList.contains("ocode-embedded")) {
+        // Inline fenced block — use source-parsed state.
         shouldSkip = fencedIdx < skipStates.length
           ? skipStates[fencedIdx]
           : wrapper.classList.contains("ocode-skip-run-all");
+        // Advance BEFORE the cancel-pill check so already-running blocks still
+        // consume their slot in skipStates (they exist in the source too).
         fencedIdx++;
       } else {
+        // Embedded file block — fall back to DOM class.
         shouldSkip = wrapper.classList.contains("ocode-skip-run-all");
       }
+      if (btn.classList.contains("ocode-cancel-pill")) continue; // already running
       if (shouldSkip) continue;
       btn.click();
       ran++;
@@ -971,8 +1080,7 @@ __ocode_emit_vars
     if (sectionInfo) {
       const lines = sectionInfo.text.split("\n");
       let openFence: string | null = null;  // current open fence chars (``` or ~~~), or null when outside
-      for (let i = sectionInfo.lineStart; i <= sectionInfo.lineEnd; i++) {
-        const line = lines[i] ?? "";
+      for (const line of lines) {
         const m = line.match(/^([`~]{3,})(.*)$/);
         if (!m) continue;
         const fenceChars = m[1][0].repeat(m[1].length);
@@ -1303,7 +1411,13 @@ __ocode_emit_vars
       }
     }
 
-    wrapper.setAttribute("data-ocode-fenced", "1");
+    // Mark as a fenced (inline) code block so runAllBlocks can align it with
+    // the source-parsed skip-state array. Embedded file blocks do NOT get this
+    // attribute — they are not present in the note's source and would throw the
+    // index counter off if included.
+    if (!fileName) {
+      wrapper.setAttribute("data-ocode-fenced", "1");
+    }
     originalPre.replaceWith(wrapper);
   }
 
@@ -1584,6 +1698,12 @@ __ocode_emit_vars
         : result.exitCode === 0
         ? "Output"
         : `Output (exit: ${result.exitCode})`;
+
+      // When the process failed, colour stderr red so it stands out as an error.
+      // On success, stderr stays orange (it may carry informational/progress text).
+      if (!result.killed && result.exitCode !== 0 && result.exitCode !== null) {
+        outContent.classList.add("ocode-has-error");
+      }
 
       // Copy-output button — copies the rendered stdout/stderr text from the panel.
       // Reads from the DOM so we always include exactly what the user sees

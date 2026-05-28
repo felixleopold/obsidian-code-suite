@@ -1,11 +1,18 @@
-This release fixes the `skip` tag not being picked up immediately and improves the import-as-alias workflow.
-
-## Bug Fixes
-- **Skip tag now works immediately** — `# codesuite:skip` and the fence `skip` attribute are now read from the current file source when Run All is triggered, so you no longer need to close and reopen the note for changes to take effect (#15)
-- **Import alias sidebar refresh** — the file explorer now updates as soon as Obsidian indexes the new symlink (uses the vault `create` event instead of a fixed 250 ms timeout), making the file appear instantly after import
+This release fixes macOS command lookup and finishes the skip-state refresh work so code block headers stay accurate across edits, saves, and reading-mode switches.
 
 ## What's New
-- **Import alias opens in a new tab** — after a successful *Import code file as alias…*, the file is opened in a new tab rather than replacing the current one
+
+- Skip badges now refresh after edit-to-reading-mode transitions, so preview headers reflect the current `skip` state immediately (#15).
+- Run All now reads the live in-memory note content, so unsaved `skip` changes are honored without reopening the note (#15).
+
+## Bug Fixes
+
+- Prepend common Homebrew paths on macOS so `brew`, `node`, `python`, and similar tools work from Obsidian-launched shells.
+- Re-sync skip badges on saves, debounced editor changes, and preview layout rebuilds to eliminate stale header state (#15).
+- Fix fenced-block skip indexing so already-running blocks no longer shift later skip states during Run All (#15).
+- Parse fence attributes from the current rendered section so preview-mode `skip` badges are reliable on initial render (#15).
+- Color stderr orange by default and only switch to red when the process exits with a non-zero status.
 
 ## Upgrade Notes
-- No breaking changes. Existing settings are preserved.
+
+- No breaking changes. Reload Obsidian or toggle the plugin after updating to activate the new preview-sync listeners.
