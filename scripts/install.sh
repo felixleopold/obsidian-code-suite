@@ -8,6 +8,9 @@ Usage: scripts/install.sh [version]
 
   scripts/install.sh          Build local source and install it.
   scripts/install.sh 1.4.0    Download release 1.4.0 from GitHub and install it.
+
+Requires VAULT_PLUGIN_DIR to be set. The easiest way is to run via install-plugin.sh
+(gitignored), which has the path hardcoded for your machine.
 EOF
 }
 
@@ -17,7 +20,13 @@ if [[ ${1:-} == "-h" || ${1:-} == "--help" ]]; then
 fi
 
 version="${1:-}"
-dest="/Users/leopoldmac/Documents/MyBrain/.obsidian/plugins/code-suite"
+
+if [[ -z "${VAULT_PLUGIN_DIR:-}" ]]; then
+  echo "error: VAULT_PLUGIN_DIR is not set." >&2
+  echo "Run via install-plugin.sh, or: export VAULT_PLUGIN_DIR=<vault>/.obsidian/plugins/code-suite" >&2
+  exit 1
+fi
+dest="$VAULT_PLUGIN_DIR"
 
 bold=$(tput bold 2>/dev/null || true)
 reset=$(tput sgr0 2>/dev/null || true)
