@@ -1408,6 +1408,10 @@ __ocode_emit_vars
       header.appendChild(label);
     }
 
+    const lineCount = code.replace(/\n$/, "").split("\n").length;
+    const lineHint = createSpan({ cls: "ocode-collapse-hint", text: `${lineCount} ${lineCount === 1 ? "line" : "lines"}` });
+    header.appendChild(lineHint);
+
     const spacer = createSpan();
     spacer.className = "ocode-spacer";
     header.appendChild(spacer);
@@ -1471,7 +1475,7 @@ __ocode_emit_vars
       const enabled = this.settings.inlineCollapsible || forceCollapsed !== null;
       if (enabled) {
         const initiallyCollapsed = forceCollapsed ?? this.settings.inlineCollapsedByDefault;
-        this.makeCollapsible(wrapper, initiallyCollapsed, code);
+        this.makeCollapsible(wrapper, initiallyCollapsed);
       }
     }
 
@@ -1491,18 +1495,11 @@ __ocode_emit_vars
    * Shared by inline code blocks (this method) and embedded files
    * (which call it with `defaultCollapsed=true`).
    */
-  private makeCollapsible(wrapper: HTMLElement, defaultCollapsed: boolean, sourceCode: string): void {
+  private makeCollapsible(wrapper: HTMLElement, defaultCollapsed: boolean): void {
     const codeArea = wrapper.querySelector<HTMLElement>("pre.shiki");
     const header = wrapper.querySelector(".ocode-header");
     if (!codeArea || !header) return;
     if (header.classList.contains("ocode-collapse-toggle")) return;
-
-    // Line-count hint goes in the header next to the label.
-    // Strip a single trailing newline so a one-line block reports 1, not 2.
-    const lineCount = sourceCode.replace(/\n$/, "").split("\n").length;
-    const hint = createSpan({ cls: "ocode-collapse-hint", text: `${lineCount} ${lineCount === 1 ? "line" : "lines"}` });
-    const spacer = header.querySelector(".ocode-spacer");
-    if (spacer) spacer.before(hint); else header.appendChild(hint);
 
     if (defaultCollapsed) {
       wrapper.classList.add("ocode-collapsed");
@@ -1947,7 +1944,7 @@ __ocode_emit_vars
     // already had a collapse toggle attached (via inlineCollapsible), but
     // makeCollapsible no-ops when an arrow is already present, so this is safe.
     if (this.settings.collapseEmbeds) {
-      this.makeCollapsible(wrapper as HTMLElement, true, code);
+      this.makeCollapsible(wrapper as HTMLElement, true);
     }
   }
 }
