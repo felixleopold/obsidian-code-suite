@@ -118,6 +118,12 @@ export interface CodePluginSettings {
   pythonPath: string;
   /** Custom Node.js path */
   nodePath: string;
+  /** Custom path to the bash executable (used by the `bash` language). */
+  bashPath: string;
+  /** Custom path to the zsh executable (used by the `zsh` language). */
+  zshPath: string;
+  /** Custom path used by the `shell`/`sh` languages (default POSIX `/bin/sh`). */
+  shPath: string;
   /** Automatically prepend `<?php` to PHP snippets that omit an opening tag. */
   autoPrependPhpOpenTag: boolean;
   /** Run Bash and Zsh code blocks as login shells. */
@@ -151,6 +157,12 @@ export interface CodePluginSettings {
   codeImportsFolder: string;
   /** User-imported VS Code themes */
   customThemes: CustomTheme[];
+  /**
+   * Last plugin version for which the one-time upgrade notice was shown.
+   * Empty on a fresh install. Used to surface breaking-change notices once
+   * to users upgrading across them; not user-facing.
+   */
+  lastNoticeVersion: string;
 }
 
 export const DEFAULT_SETTINGS: CodePluginSettings = {
@@ -169,6 +181,9 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   executionCwdCustom: "",
   pythonPath: "",
   nodePath: "",
+  bashPath: "",
+  zshPath: "",
+  shPath: "",
   autoPrependPhpOpenTag: true,
   shellLogin: false,
   shellSourceFiles: "",
@@ -180,6 +195,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   codeImportsFolder: "CodeSuiteImports",
   sharedContext: true,
   customThemes: [],
+  lastNoticeVersion: "",
 };
 
 /** Parse extra env string (KEY=VALUE per line) into Record */

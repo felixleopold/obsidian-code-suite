@@ -323,6 +323,33 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Bash path")
+      .setDesc("Absolute path to the bash executable, used by `bash` code blocks. Leave empty to resolve `bash` via PATH (e.g. /opt/homebrew/bin/bash on Apple Silicon).")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "bash";
+        t.setValue(this.plugin.settings.bashPath);
+        t.onChange(async (v) => { this.plugin.settings.bashPath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("Zsh path")
+      .setDesc("Absolute path to the zsh executable. Leave empty to resolve `zsh` via PATH (typically /bin/zsh on macOS). Must point at a zsh-compatible binary — variable tracking emits zsh syntax, so pointing this at bash will fail.")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "zsh";
+        t.setValue(this.plugin.settings.zshPath);
+        t.onChange(async (v) => { this.plugin.settings.zshPath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("Shell (sh) path")
+      .setDesc("Absolute path used by `shell` and `sh` code blocks. Defaults to /bin/sh (POSIX sh). Point at /opt/homebrew/bin/bash if you want these blocks to run under modern bash.")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "sh";
+        t.setValue(this.plugin.settings.shPath);
+        t.onChange(async (v) => { this.plugin.settings.shPath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
       .setName("Auto-prepend php opening tag")
       .setDesc("Run php snippets that omit an opening <?php tag by adding one at execution time. The note text is not changed.")
       .addToggle((t) => {

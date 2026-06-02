@@ -1,19 +1,21 @@
-This release adds the requested PHP, PowerShell, and shell startup execution improvements, and fixes one remaining skip-badge alignment bug when notes include a `vars` block.
+This release makes shell execution explicit and predictable: you can now pin the exact bash, zsh, and sh binaries, the `sh` fence no longer secretly runs bash, and the line counter is fixed.
 
 ## What's New
 
-- PHP snippets that omit `<?php` now run by default; CodeSuite adds the tag only to the temporary execution file.
-- PowerShell code blocks and `.ps1` files can run through `pwsh` when PowerShell 7+ is installed.
-- Bash and Zsh blocks can run in login mode, and Bash/Zsh/Shell blocks can source one or more configured startup files before execution.
-- Skip badges now stay attached to the correct executable block even when a note also contains a `vars` block.
+- New **Bash path**, **Zsh path**, and **Shell (sh) path** settings under Settings → CodeSuite → Environment. Each lets you pin the exact interpreter for that language; leave empty to keep the current PATH-resolved behavior.
+- To restore the old `obsidian-execute-code` behavior where `shell` blocks ran under modern bash, set **Shell (sh) path** to `/opt/homebrew/bin/bash` (Apple Silicon) or `/usr/local/bin/bash` (Intel).
 
 ## Bug Fixes
 
-- Exclude `vars` blocks from the live skip-badge indexing pass so badges line up with the same executable block order used by Run All.
-- Mark only inline executable code blocks as source-aligned skip targets, preventing helper blocks from shifting badge placement.
-- Add a Zsh-native shared-variable snapshotter so Zsh blocks can update inline `$varname` references without using Bash-only `compgen`.
+- Line-count hint is no longer off by one — a one-line block now reads "1 line" instead of "2 lines", with correct singular/plural wording.
+
+## Breaking Changes
+
+- `sh` code blocks now run **POSIX sh** (`/bin/sh`), matching `shell` blocks. Previously `sh` was aliased to bash. `bash`, `zsh`, and `shell` blocks are unchanged.
+- If you have `sh` blocks that rely on bash features (arrays, `[[ ]]`, etc.), either rename the fence to `bash`, or set **Shell (sh) path** to a bash binary.
+- A one-time notice explaining this appears after you update; it will not show again.
 
 ## Upgrade Notes
 
-- No breaking changes. Reload Obsidian or toggle the plugin after updating.
-- The PHP opening-tag behavior is enabled by default and can be disabled in Settings → CodeSuite → Environment.
+- Reload Obsidian or toggle the plugin after updating.
+- Pointing **Zsh path** at a non-zsh binary (e.g. bash) will fail — variable tracking emits zsh-specific syntax. Keep each path on its matching shell family.

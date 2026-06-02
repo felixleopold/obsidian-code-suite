@@ -146,7 +146,7 @@ const ALL_LANGS = [
 /** Map common aliases to Shiki language IDs */
 export const LANGUAGE_ALIASES: Record<string, string> = {
   py: "python", js: "javascript", ts: "typescript",
-  sh: "bash", zsh: "zsh", yml: "yaml", rs: "rust",
+  sh: "shell", zsh: "zsh", yml: "yaml", rs: "rust",
   rb: "ruby", cs: "csharp", "c++": "cpp", "c#": "csharp",
   kt: "kotlin", hs: "haskell", tex: "latex",
   docker: "dockerfile", make: "makefile", ps1: "powershell", pwsh: "powershell",

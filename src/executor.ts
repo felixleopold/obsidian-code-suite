@@ -244,6 +244,12 @@ export function startExecution(
     cmd = settings.pythonPath;
   } else if ((lang === "javascript" || lang === "typescript") && settings.nodePath) {
     cmd = lang === "javascript" ? settings.nodePath : runtime.cmd;
+  } else if (lang === "bash" && settings.bashPath) {
+    cmd = settings.bashPath;
+  } else if (lang === "zsh" && settings.zshPath) {
+    cmd = settings.zshPath;
+  } else if (lang === "shell" && settings.shPath) {
+    cmd = settings.shPath;
   }
 
   // Build env. Order of precedence (later overrides earlier):

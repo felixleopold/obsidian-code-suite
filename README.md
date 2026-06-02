@@ -12,7 +12,7 @@
 - **Notebook mode** — shared execution context across blocks, `vars` blocks, `code_vars:` frontmatter, inline `` `$varname` `` substitution, **Run All** (with `codesuite:skip` opt-out) and **Clear Session**
 - **Embedded code files** — `![[script.py]]` renders as a collapsible, syntax-highlighted, executable block
 - **Code files in the file explorer** — open `.py`, `.js`, `.sh`, … straight from the vault in a lightweight editor with Run + live output, or symlink an external file into your vault with **Import code file as alias…**
-- **Environment management** — combine a shared `.env` file with per-vault overrides, source shell startup files, or run Bash/Zsh as a login shell
+- **Environment management** — combine a shared `.env` file with per-vault overrides, source shell startup files, run Bash/Zsh as a login shell, or pin exact interpreter paths for bash, zsh, and sh
 
 ---
 
@@ -26,7 +26,7 @@ Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses 
 - **65+ built-in themes** — Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, Rosé Pine, Kanagawa, Everforest, Solarized, Night Owl, Synthwave '84, and many more
 - **Import any VS Code theme** — load a `.json` file from [vscodethemes.com](https://vscodethemes.com) or exported directly from VS Code
 - **Auto light/dark switching** — set a separate theme for each mode; CodeSuite switches when Obsidian's appearance changes
-- **36+ languages** with common aliases (`py`, `js`, `ts`, `sh`, `rb`, …)
+- **36+ languages** with common aliases (`py`, `js`, `ts`, `rb`, …)
 - **Editor highlighting** — full token colors in Live Preview and Source mode via a CodeMirror 6 ViewPlugin, not just in Reading view
 
 ---
@@ -47,7 +47,7 @@ Run code directly from a code block — no terminal, no switching apps.
 | TypeScript | `npx tsx` | |
 | Bash | `bash` | Shared variable state across blocks |
 | Zsh | `zsh` | Shared variable state across blocks |
-| Shell | `sh` | Source-file startup support |
+| Shell | `sh` (POSIX) | `shell` and `sh` fences both run POSIX sh; source-file startup support |
 | PowerShell | `pwsh` | macOS/Linux/Windows when PowerShell 7+ is installed |
 | Go | `go run` | |
 | Ruby | `ruby` | |
@@ -64,6 +64,7 @@ Run code directly from a code block — no terminal, no switching apps.
 - **Virtual environment support** — point the Python path to a venv binary; CodeSuite sets `VIRTUAL_ENV` and prepends `bin/` to `PATH` so all venv packages are available across every language block
 - **PHP snippet mode** — PHP blocks can omit the opening `<?php` tag; CodeSuite adds it only to the temporary execution file
 - **Shell startup support** — Bash/Zsh can run as login shells, and Bash/Zsh/Shell blocks can source one or more startup files before your snippet runs
+- **Explicit interpreter paths** — pin exact binaries for bash, zsh, and sh/shell under Settings → Environment; useful if Obsidian's PATH differs from your terminal's, or to point `shell` blocks at a modern bash
 
 ---
 
@@ -169,6 +170,10 @@ The following features are on the roadmap. Track progress or vote on the linked 
 | 1 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
 | 2 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
 | 3 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+
+> Shipped in 1.5.0: explicit interpreter paths for bash/zsh/sh ([#20](https://github.com/felixleopold/obsidian-code-suite/issues/20)), line-count off-by-one fix ([#21](https://github.com/felixleopold/obsidian-code-suite/issues/21)), `sh` fence now runs POSIX sh (matching `shell`).
+
+> Shipped in 1.4.0: PHP support, PowerShell support, shell startup files, login-shell mode, Zsh-native variable snapshotter.
 
 > Shipped in 1.3.0: code files in the file explorer ([#4](https://github.com/felixleopold/obsidian-code-suite/issues/4)), copy-output button ([#6](https://github.com/felixleopold/obsidian-code-suite/issues/6)), collapsible inline blocks ([#7](https://github.com/felixleopold/obsidian-code-suite/issues/7)), `.env` file support ([#8](https://github.com/felixleopold/obsidian-code-suite/issues/8)), `codesuite:skip` for Run All ([#9](https://github.com/felixleopold/obsidian-code-suite/issues/9)), `code_vars:` frontmatter ([#10](https://github.com/felixleopold/obsidian-code-suite/issues/10)), in-vault code editor ([#11](https://github.com/felixleopold/obsidian-code-suite/issues/11)), import-as-alias command ([#14](https://github.com/felixleopold/obsidian-code-suite/issues/14)).
 

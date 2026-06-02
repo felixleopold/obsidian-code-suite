@@ -2,6 +2,7 @@ import {
   Plugin,
   MarkdownPostProcessorContext,
   MarkdownView,
+  Modal,
   TFile,
   TFolder,
   Notice,
@@ -18,6 +19,22 @@ import {
   DEFAULT_SETTINGS,
 } from "./settings";
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
+
+/**
+ * Release that changed the `sh` fence alias from bash to POSIX sh. Users whose
+ * last-seen version predates this get a one-time heads-up on upgrade.
+ */
+const SHELL_ALIAS_BREAKING_VERSION = "1.5.0";
+
+/** Compare two `MAJOR.MINOR.PATCH` strings. Returns <0, 0, or >0. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = b.split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] ?? 0) !== (pb[i] ?? 0)) return (pa[i] ?? 0) - (pb[i] ?? 0);
+  }
+  return 0;
+}
 
 // SVG icons as constants
 const ICON = {
@@ -88,6 +105,8 @@ export default class CodePlugin extends Plugin {
   private _autoThemeTimer: number | null = null;
   /** Debounce timer for queued skip-badge sync passes. */
   private _skipSyncTimer: number | null = null;
+  /** True when no persisted data existed at load — i.e. a genuinely fresh install. */
+  private _isFreshInstall = false;
 
   async onload() {
     await this.loadSettings();
@@ -218,6 +237,38 @@ export default class CodePlugin extends Plugin {
       },
       999
     );
+
+    // One-time upgrade notices. Deferred until the workspace is ready so the
+    // modal opens over a settled UI rather than during startup.
+    this.app.workspace.onLayoutReady(() => {
+      void this.maybeShowUpgradeNotice();
+    });
+  }
+
+  /**
+   * Show a one-time modal to users upgrading *across* a breaking change, then
+   * record the current version so it never repeats. Fresh installs (empty
+   * lastNoticeVersion) are skipped — there is nothing to migrate.
+   *
+   * The SHELL_ALIAS_BREAKING_VERSION gate can be removed a couple of releases
+   * after 1.5.0; the version stamp below keeps it from firing more than once.
+   */
+  private async maybeShowUpgradeNotice(): Promise<void> {
+    const current = this.manifest.version;
+    const seen = this.settings.lastNoticeVersion;
+    // An existing user with no recorded version upgraded from a release that
+    // predates the field — treat that as "0.0.0" so the gate still catches them.
+    // A genuinely fresh install has nothing to migrate and is skipped.
+    const effectiveSeen = seen || "0.0.0";
+
+    if (!this._isFreshInstall && compareVersions(effectiveSeen, SHELL_ALIAS_BREAKING_VERSION) < 0) {
+      new ShellAliasNoticeModal(this.app).open();
+    }
+
+    if (seen !== current) {
+      this.settings.lastNoticeVersion = current;
+      await this.saveSettings();
+    }
   }
 
   onunload() {
@@ -242,7 +293,13 @@ export default class CodePlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, (await this.loadData()) as Partial<CodePluginSettings>);
+    // loadData() returns null only when no data file exists yet (fresh install).
+    // An existing user upgrading from a pre-1.5.0 version has a data file but no
+    // lastNoticeVersion key — we must still show them the upgrade notice, so the
+    // two cases have to be told apart here, before any save backfills the field.
+    const raw = (await this.loadData()) as Partial<CodePluginSettings> | null;
+    this._isFreshInstall = raw == null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, raw ?? {});
   }
 
   async saveSettings() {
@@ -1441,8 +1498,9 @@ __ocode_emit_vars
     if (header.classList.contains("ocode-collapse-toggle")) return;
 
     // Line-count hint goes in the header next to the label.
-    const lineCount = sourceCode.split("\n").length;
-    const hint = createSpan({ cls: "ocode-collapse-hint", text: `${lineCount} lines` });
+    // Strip a single trailing newline so a one-line block reports 1, not 2.
+    const lineCount = sourceCode.replace(/\n$/, "").split("\n").length;
+    const hint = createSpan({ cls: "ocode-collapse-hint", text: `${lineCount} ${lineCount === 1 ? "line" : "lines"}` });
     const spacer = header.querySelector(".ocode-spacer");
     if (spacer) spacer.before(hint); else header.appendChild(hint);
 
@@ -1891,5 +1949,46 @@ __ocode_emit_vars
     if (this.settings.collapseEmbeds) {
       this.makeCollapsible(wrapper as HTMLElement, true, code);
     }
+  }
+}
+
+/**
+ * One-time notice shown when upgrading across {@link SHELL_ALIAS_BREAKING_VERSION}.
+ * Explains that `sh` fences now run POSIX sh instead of bash and points at the
+ * two escape hatches (rename to `bash`, or set a path in settings).
+ */
+class ShellAliasNoticeModal extends Modal {
+  onOpen(): void {
+    const { contentEl, titleEl } = this;
+    titleEl.setText("CodeSuite: shell behavior changed");
+
+    contentEl.createEl("p", {
+      text: "Heads-up about a behavior change in this update to how shell code blocks are executed.",
+    });
+
+    const list = contentEl.createEl("ul");
+    list.createEl("li").appendText(
+      "`sh` code blocks now run POSIX sh (/bin/sh) — the same as `shell` blocks. Previously `sh` ran bash.",
+    );
+    list.createEl("li").appendText(
+      "`bash`, `zsh`, and `shell` blocks are unchanged.",
+    );
+
+    contentEl.createEl("p", {
+      text: "If you have `sh` blocks that rely on bash features (arrays, [[ ]], etc.), either:",
+    });
+    const fixes = contentEl.createEl("ul");
+    fixes.createEl("li").appendText("rename the fence from `sh` to `bash`, or");
+    fixes.createEl("li").appendText(
+      "set Settings → CodeSuite → Environment → Shell (sh) path to a bash binary (e.g. /opt/homebrew/bin/bash).",
+    );
+
+    const buttonRow = contentEl.createDiv({ cls: "modal-button-container" });
+    const okBtn = buttonRow.createEl("button", { text: "Got it", cls: "mod-cta" });
+    okBtn.addEventListener("click", () => this.close());
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
   }
 }
