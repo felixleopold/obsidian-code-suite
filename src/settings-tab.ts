@@ -231,13 +231,15 @@ export class CodeSettingTab extends PluginSettingTab {
 
     const execDesc = containerEl.createDiv({ cls: "setting-item-description ocode-exec-desc" });
     execDesc.appendText("Code runs ");
-    execDesc.createEl("b").appendChild(document.createTextNode("locally on your machine"));
+    execDesc.createEl("b").appendChild(activeDocument.createTextNode("locally on your machine"));
     execDesc.appendText(" using your installed language runtimes. Supported: Python (");
-    execDesc.createEl("code").appendChild(document.createTextNode("python3"));
+    execDesc.createEl("code").appendChild(activeDocument.createTextNode("python3"));
     execDesc.appendText("), JavaScript (");
-    execDesc.createEl("code").appendChild(document.createTextNode("node"));
+    execDesc.createEl("code").appendChild(activeDocument.createTextNode("node"));
     execDesc.appendText("), TypeScript (");
-    execDesc.createEl("code").appendChild(document.createTextNode("npx ts-node"));
+    execDesc.createEl("code").appendChild(activeDocument.createTextNode("npx tsx"));
+    execDesc.appendText("), PowerShell (");
+    execDesc.createEl("code").appendChild(activeDocument.createTextNode("pwsh"));
     execDesc.appendText("), Bash/Shell. The process runs in a child process with your system PATH. Output (stdout/stderr) streams live into the output panel. You can send stdin input while the program is running.");
 
     new Setting(containerEl)
@@ -250,7 +252,7 @@ export class CodeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Shared execution context")
-      .setDesc("When enabled, each code block you run accumulates into a per-note session. Later blocks can reference variables defined in earlier blocks (Python and Bash). The session is note-specific, lives in memory only, and resets when Obsidian is closed. Use the 'Clear execution session' command to reset manually. Run blocks top-to-bottom — order matters.")
+      .setDesc("When enabled, each code block you run accumulates into a per-note session. Later blocks can reference variables defined in earlier blocks (Python, Bash, and Zsh). The session is note-specific, lives in memory only, and resets when Obsidian is closed. Use the 'Clear execution session' command to reset manually. Run blocks top-to-bottom — order matters.")
       .addToggle((t) => {
         t.setValue(this.plugin.settings.sharedContext);
         t.onChange(async (v) => { this.plugin.settings.sharedContext = v; await this.plugin.saveSettings(); });
@@ -319,6 +321,33 @@ export class CodeSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.nodePath);
         t.onChange(async (v) => { this.plugin.settings.nodePath = v.trim(); await this.plugin.saveSettings(); });
       });
+
+    new Setting(containerEl)
+      .setName("Auto-prepend php opening tag")
+      .setDesc("Run php snippets that omit an opening <?php tag by adding one at execution time. The note text is not changed.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.autoPrependPhpOpenTag);
+        t.onChange(async (v) => { this.plugin.settings.autoPrependPhpOpenTag = v; await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("Run bash/zsh as login shell")
+      .setDesc("Run Bash and Zsh executions in login mode so startup files can initialize PATH, aliases, and functions.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.shellLogin);
+        t.onChange(async (v) => { this.plugin.settings.shellLogin = v; await this.plugin.saveSettings(); });
+      });
+
+    const sourceSetting = new Setting(containerEl)
+      .setName("Shell source files")
+      .addTextArea((t) => {
+        t.inputEl["placeholder"] = "/Users/you/.bashrc\n/Users/you/.config/codesuite/env.sh";
+        t.setValue(this.plugin.settings.shellSourceFiles);
+        t.inputEl.rows = 3;
+        t.inputEl.cols = 40;
+        t.onChange(async (v) => { this.plugin.settings.shellSourceFiles = v; await this.plugin.saveSettings(); });
+      });
+    sourceSetting.descEl["textContent"] = "Absolute paths to files sourced before Bash, Zsh, and Shell blocks run, one per line. Lines starting with # are ignored.";
 
     const envSetting = new Setting(containerEl)
       .setName("Extra environment variables")

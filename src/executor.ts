@@ -4,7 +4,7 @@
  */
 
 import { Platform } from "obsidian";
-import { parseExtraEnv, parseDotEnvFile, type CodePluginSettings } from "./settings";
+import { parseExtraEnv, parseDotEnvFile, parseShellSourceFiles, type CodePluginSettings } from "./settings";
 
 /** Runtime definitions */
 const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
@@ -14,6 +14,7 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
   bash:       { cmd: "bash",     args: [],           ext: ".sh" },
   zsh:        { cmd: "zsh",      args: [],           ext: ".sh" },
   shell:      { cmd: "sh",       args: [],           ext: ".sh" },
+  powershell: { cmd: "pwsh",     args: ["-NoLogo", "-NoProfile", "-File"], ext: ".ps1" },
   ruby:       { cmd: "ruby",     args: [],           ext: ".rb" },
   lua:        { cmd: "lua",      args: [],           ext: ".lua" },
   perl:       { cmd: "perl",     args: [],           ext: ".pl" },
@@ -25,6 +26,38 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
 
 export function isExecutable(lang: string): boolean {
   return lang in RUNTIMES;
+}
+
+function isPosixShell(lang: string): boolean {
+  return lang === "bash" || lang === "zsh" || lang === "shell";
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function buildShellSourcePreamble(sourceFiles: string[]): string {
+  if (sourceFiles.length === 0) return "";
+  return sourceFiles.map((filePath) => {
+    const quotedPath = shellQuote(filePath);
+    const quotedError = shellQuote(`CodeSuite: source file not readable: ${filePath}`);
+    return [
+      `if [ -r ${quotedPath} ]; then`,
+      `  . ${quotedPath}`,
+      "else",
+      `  printf '%s\n' ${quotedError} >&2`,
+      "  exit 1",
+      "fi",
+    ].join("\n");
+  }).join("\n") + "\n";
+}
+
+function prependPhpOpenTag(code: string): string {
+  const shebang = code.match(/^(#![^\n]*(?:\n|$))/);
+  const bodyStart = shebang ? shebang[0].length : 0;
+  const body = code.slice(bodyStart);
+  if (/^\s*<\?/i.test(body)) return code;
+  return code.slice(0, bodyStart) + "<?php\n" + body;
 }
 
 export interface ExecutionResult {
@@ -187,8 +220,19 @@ export function startExecution(
     execCode = wrapPythonForGraphs(code, imgDir);
   }
 
+  if (lang === "php" && settings.autoPrependPhpOpenTag) {
+    execCode = prependPhpOpenTag(execCode);
+  }
+
+  if (isPosixShell(lang)) {
+    const sourcePreamble = buildShellSourcePreamble(parseShellSourceFiles(settings.shellSourceFiles));
+    if (sourcePreamble) {
+      execCode = sourcePreamble + execCode;
+    }
+  }
+
   // For bash/shell: wrap sudo to use -S flag so passwords can be entered via stdin input bar
-  if ((lang === "bash" || lang === "zsh" || lang === "shell") && /\bsudo\b/.test(execCode)) {
+  if (isPosixShell(lang) && /\bsudo\b/.test(execCode)) {
     execCode = "sudo() { command sudo -S \"$@\"; }\n" + execCode;
   }
 
@@ -233,7 +277,11 @@ export function startExecution(
     }
   }
 
-  const args = [...runtime.args, tmpFile];
+  const args = [...runtime.args];
+  if (settings.shellLogin && (lang === "bash" || lang === "zsh")) {
+    args.unshift(lang === "zsh" ? "-l" : "--login");
+  }
+  args.push(tmpFile);
   let proc: ReturnType<typeof spawn>;
   let killed = false;
   let stdout = "";

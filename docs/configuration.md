@@ -38,7 +38,7 @@ Imported themes are saved in plugin settings and appear in the theme picker imme
 Show the Run button on supported language blocks. Disable to use CodeSuite as a syntax-highlighting-only plugin. Desktop only — no effect on mobile.
 
 ### Shared execution context *(on by default)*
-When enabled, each block run in a note accumulates into a per-note in-memory session. Later blocks can reference variables, functions, and imports from earlier blocks (Python and Bash). Also enables inline `` `$varname` `` substitution.
+When enabled, each block run in a note accumulates into a per-note in-memory session. Later blocks can reference variables, functions, and imports from earlier blocks (Python, Bash, and Zsh). Also enables inline `` `$varname` `` substitution.
 
 > **Tip:** Run blocks top-to-bottom to build up state correctly. Use **Run All** to execute the entire note in sequence automatically.
 
@@ -69,6 +69,32 @@ Absolute path to a Python binary or virtualenv. When pointing to a venv binary, 
 
 ### Node.js path
 Absolute path to a Node.js binary. Leave empty to use the system `node`.
+
+### Auto-prepend PHP opening tag
+When enabled, CodeSuite adds `<?php` to the temporary execution file for PHP blocks that do not already start with a PHP opening tag. Your note content is not modified.
+
+This is useful for snippet-style PHP fences:
+
+```php
+echo "Hello from PHP\n";
+```
+
+Blocks that already start with `<?php`, `<?=`, or another PHP opening tag are left unchanged.
+
+### Run Bash/Zsh as login shell
+Runs Bash and Zsh blocks in login mode so shell startup files can initialize your PATH, functions, and other environment customizations before the snippet runs.
+
+This is off by default because login shell startup files can have side effects or take extra time. It only applies to `bash` and `zsh` blocks; plain `shell` blocks keep using `sh` without login mode.
+
+### Shell source files
+Newline-separated absolute paths to files sourced before Bash, Zsh, and Shell blocks run. Blank lines and lines starting with `#` are ignored.
+
+```
+/Users/you/.bashrc
+/Users/you/.config/codesuite/env.sh
+```
+
+If any configured source file is not readable, the block exits with a clear error before running your snippet.
 
 ### Extra environment variables
 Additional `KEY=VALUE` pairs injected into every code execution, one per line. Lines starting with `#` are ignored.
@@ -136,4 +162,4 @@ code_vars:
 ---
 ```
 
-The values are available in inline `` `$threshold` `` substitutions and inside executable blocks (Python and Bash). A `vars` block in the note body takes precedence when the same key is defined in both places.
+The values are available in inline `` `$threshold` `` substitutions and inside executable blocks (Python, Bash, and Zsh). A `vars` block in the note body takes precedence when the same key is defined in both places.

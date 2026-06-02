@@ -16,7 +16,7 @@ This file tracks the text used in the CodeSuite entry on the Obsidian community 
 
 > VS Code–quality syntax highlighting (Shiki, 65+ built-in themes, import any VS Code .json theme) in Reading view, Live Preview, and Source mode — every token, pixel-perfect.
 >
-> Run Python, JS/TS, Bash, Go, Ruby, and more with live stdout/stderr streaming, interactive stdin, and Matplotlib/Plotly graphs rendered inline. No terminal, no switching apps.
+> Run Python, JS/TS, Bash, PowerShell, PHP, Go, Ruby, and more with live stdout/stderr streaming, interactive stdin, and Matplotlib/Plotly graphs rendered inline. No terminal, no switching apps.
 >
 > Share state across blocks like a Jupyter notebook: variables, imports, and functions carry over between runs. Reference any output value inline in your prose with `$varname` — it updates live after each run. Hit Run All to execute the entire note top-to-bottom in one click.
 >

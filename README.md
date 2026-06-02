@@ -7,12 +7,12 @@
 ## Features
 
 - **Shiki syntax highlighting** — 65+ built-in themes, import any VS Code `.json` theme, auto light/dark switching, full color in Reading view *and* the editor
-- **Live code execution** — Python, JS/TS, Bash, Go, Ruby, and more; output streams character-by-character; interactive stdin, password masking, cancel mid-run
+- **Live code execution** — Python, JS/TS, Bash, PowerShell, PHP, Go, Ruby, and more; output streams character-by-character; interactive stdin, password masking, cancel mid-run
 - **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; Matplotlib and Plotly render below the block without a display server
 - **Notebook mode** — shared execution context across blocks, `vars` blocks, `code_vars:` frontmatter, inline `` `$varname` `` substitution, **Run All** (with `codesuite:skip` opt-out) and **Clear Session**
 - **Embedded code files** — `![[script.py]]` renders as a collapsible, syntax-highlighted, executable block
 - **Code files in the file explorer** — open `.py`, `.js`, `.sh`, … straight from the vault in a lightweight editor with Run + live output, or symlink an external file into your vault with **Import code file as alias…**
-- **Environment management** — combine a shared `.env` file with per-vault overrides; reading values is one click away
+- **Environment management** — combine a shared `.env` file with per-vault overrides, source shell startup files, or run Bash/Zsh as a login shell
 
 ---
 
@@ -47,13 +47,14 @@ Run code directly from a code block — no terminal, no switching apps.
 | TypeScript | `npx tsx` | |
 | Bash | `bash` | Shared variable state across blocks |
 | Zsh | `zsh` | Shared variable state across blocks |
-| Shell | `sh` | |
+| Shell | `sh` | Source-file startup support |
+| PowerShell | `pwsh` | macOS/Linux/Windows when PowerShell 7+ is installed |
 | Go | `go run` | |
 | Ruby | `ruby` | |
 | Lua | `lua` | |
 | Perl | `perl` | |
 | R | `Rscript` | |
-| PHP | `php` | |
+| PHP | `php` | Automatically prepends `<?php` for snippets that omit the opening tag |
 | Swift | `swift` | |
 
 - **Live streaming** — stdout and stderr appear as the process runs, not after it finishes
@@ -61,6 +62,8 @@ Run code directly from a code block — no terminal, no switching apps.
 - **Password masking** — `sudo` is detected automatically; the input bar masks characters for sensitive prompts
 - **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; graphs render as inline images without a display server
 - **Virtual environment support** — point the Python path to a venv binary; CodeSuite sets `VIRTUAL_ENV` and prepends `bin/` to `PATH` so all venv packages are available across every language block
+- **PHP snippet mode** — PHP blocks can omit the opening `<?php` tag; CodeSuite adds it only to the temporary execution file
+- **Shell startup support** — Bash/Zsh can run as login shells, and Bash/Zsh/Shell blocks can source one or more startup files before your snippet runs
 
 ---
 
@@ -71,7 +74,7 @@ Run code directly from a code block — no terminal, no switching apps.
 
 Each note maintains an in-memory execution session — the closest thing to a Jupyter notebook inside Obsidian, without a kernel daemon or `.ipynb` file.
 
-- **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python and Bash)
+- **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python, Bash, and Zsh)
 - **`vars` blocks** — declare note-scoped variables once; they are injected into every run:
   ````
   ```vars

@@ -118,9 +118,15 @@ export interface CodePluginSettings {
   pythonPath: string;
   /** Custom Node.js path */
   nodePath: string;
+  /** Automatically prepend `<?php` to PHP snippets that omit an opening tag. */
+  autoPrependPhpOpenTag: boolean;
+  /** Run Bash and Zsh code blocks as login shells. */
+  shellLogin: boolean;
+  /** Newline-separated absolute paths to shell files sourced before POSIX shell blocks run. */
+  shellSourceFiles: string;
   /**
    * When true, each code block execution accumulates into a per-note session.
-   * Later blocks can reference variables defined in earlier blocks (Python & Bash).
+  * Later blocks can reference variables defined in earlier blocks (Python, Bash & Zsh).
    * The session lives in memory and resets when Obsidian is closed.
    */
   sharedContext: boolean;
@@ -163,6 +169,9 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   executionCwdCustom: "",
   pythonPath: "",
   nodePath: "",
+  autoPrependPhpOpenTag: true,
+  shellLogin: false,
+  shellSourceFiles: "",
   extraEnv: "",
   envFilePath: "",
   inlineCollapsible: false,
@@ -190,6 +199,17 @@ export function parseExtraEnv(envStr: string): Record<string, string> {
       }
       result[trimmed.slice(0, eqIdx).trim()] = val;
     }
+  }
+  return result;
+}
+
+/** Parse newline-separated shell source files from settings. */
+export function parseShellSourceFiles(sourceFiles: string): string[] {
+  const result: string[] = [];
+  for (const line of sourceFiles.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    result.push(trimmed);
   }
   return result;
 }

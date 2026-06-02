@@ -98,8 +98,8 @@ A CodeMirror 6 `ViewPlugin` in `main.ts` scans the document for code fences and 
 
 ### Code execution
 
-`executor.ts` exports `startExecution()`, which spawns a child process via Node's `child_process.spawn`. No code is ever sent to a remote server — everything runs locally. stdout and stderr pipe to the output panel in real time. For Python, accumulated session code is prepended to each run. For Bash, an `export` dump of the previous session's environment is sourced before each new block.
+`executor.ts` exports `startExecution()`, which spawns a child process via Node's `child_process.spawn`. No code is ever sent to a remote server — everything runs locally. stdout and stderr pipe to the output panel in real time. For Python, Bash, and Zsh, accumulated session code is prepended to each run.
 
 ### Shared context
 
-The per-note session object lives in a `Map` keyed by the note's file path. It holds the accumulated source (Python) or the last `export` snapshot (Bash). The map is cleared when the note is closed or **Clear Session** is clicked. Nothing is written to disk.
+The per-note session object lives in a `Map` keyed by the note's file path. It holds accumulated source per supported shared-context language. The map is cleared when the note is closed or **Clear Session** is clicked. Nothing is written to disk.

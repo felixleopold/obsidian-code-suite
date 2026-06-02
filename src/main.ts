@@ -788,7 +788,7 @@ except Exception:
 `;
 
   /**
-   * Bash postamble: emit non-builtin, non-environment variables as JSON.
+   * Bash postamble: emit non-builtin, non-environment scalar variables as JSON.
    * Filters out shell internals, exported env, and arrays/functions for safety.
    */
   private static readonly BASH_VAR_POSTAMBLE = `
@@ -812,6 +812,39 @@ __ocode_emit_vars() {
     printf '"%s":"%s"' "$__ocode_k" "$__ocode_v"
   done < <(compgen -v)
   printf '}\\n'
+}
+__ocode_emit_vars
+`;
+
+  /**
+   * Zsh postamble: emit ordinary non-exported scalar parameters as JSON.
+   * Uses zsh/parameter metadata instead of Bash-only compgen/declare.
+   */
+  private static readonly ZSH_VAR_POSTAMBLE = `
+__ocode_emit_vars() {
+  emulate -L zsh
+  zmodload zsh/parameter 2>/dev/null || return 0
+  local __ocode_k __ocode_v __ocode_type __ocode_first=1 __ocode_quote=$'"'
+  local __ocode_skip='^(0|ARGC|BAUD|COLUMNS|CONTEXT|CPUTYPE|DIRSTACKSIZE|EGID|ERRNO|EUID|FIGNORE|FPATH|GID|HISTCMD|HISTCHARS|HOST|HOSTTYPE|IFS|KEYBOARD_HACK|KEYTIMEOUT|LANG|LINENO|LISTMAX|LOGCHECK|MACHTYPE|MAILCHECK|MAILPATH|MODULE_PATH|NULLCMD|OLDPWD|OPTARG|OPTIND|OSTYPE|PPID|PROMPT.*|PS[0-9]?|PSVAR|PWD|RANDOM|READNULLCMD|REPORTTIME|RPROMPT.*|SAVEHIST|SECONDS|SHELL|SHLVL|SPROMPT|TERM|TIMEFMT|TMPPREFIX|TTY|UID|USERNAME|VENDOR|WATCH|WORDCHARS|ZDOTDIR|ZSH_.*|_|__ocode_.*)$'
+  printf '\n__OCODE_VARS__={'
+  for __ocode_k in \${(k)parameters}; do
+    [[ -z $__ocode_k || $__ocode_k == _* ]] && continue
+    [[ $__ocode_k =~ $__ocode_skip ]] && continue
+    __ocode_type=\${parameters[$__ocode_k]}
+    [[ $__ocode_type == *scalar* ]] || continue
+    [[ $__ocode_type == *export* ]] && continue
+    [[ $__ocode_type == *special* ]] && continue
+    __ocode_v=\${(P)__ocode_k}
+    __ocode_v="\${__ocode_v//\\/\\\\}"
+    __ocode_v=\${__ocode_v//$__ocode_quote/\\\\$__ocode_quote}
+    __ocode_v="\${__ocode_v//$'\n'/\\n}"
+    __ocode_v="\${__ocode_v//$'\t'/\\t}"
+    __ocode_v="\${__ocode_v//$'\r'/\\r}"
+    [[ $__ocode_first -eq 1 ]] || printf ','
+    __ocode_first=0
+    printf '"%s":"%s"' "$__ocode_k" "$__ocode_v"
+  done
+  printf '}\n'
 }
 __ocode_emit_vars
 `;
@@ -1487,11 +1520,15 @@ __ocode_emit_vars
       if (prevBlocks.length > 0 || hasSeed) {
         execCode = this.buildSharedContextCode(lang, prevBlocks, code, seedVars);
       }
-      // Append the var-extraction postamble so we can snapshot variables
+      // Append the var-extraction postamble where we have a language-specific
+      // snapshotter. Plain sh still gets shared replay, but reliable variable
+      // introspection is intentionally limited to shells with suitable APIs.
       if (lang === "python") {
         execCode = execCode + CodePlugin.PYTHON_VAR_POSTAMBLE;
-      } else if (lang === "bash" || lang === "zsh" || lang === "shell") {
+      } else if (lang === "bash") {
         execCode = execCode + CodePlugin.BASH_VAR_POSTAMBLE;
+      } else if (lang === "zsh") {
+        execCode = execCode + CodePlugin.ZSH_VAR_POSTAMBLE;
       }
     }
 
@@ -1760,7 +1797,7 @@ __ocode_emit_vars
 
   /** Check if code uses sudo (requires password masking) */
   private codeUsesSudo(code: string, lang: string): boolean {
-    return (lang === "bash" || lang === "shell") && /\bsudo\b/.test(code);
+    return (lang === "bash" || lang === "zsh" || lang === "shell") && /\bsudo\b/.test(code);
   }
 
   /** Check if code likely reads from stdin, based on common patterns per language */
@@ -1772,6 +1809,7 @@ __ocode_emit_vars
       case "typescript":
         return /\bprocess\.stdin\b/.test(code) || /\breadline\b/.test(code) || /\bprompt\s*\(/.test(code);
       case "bash":
+      case "zsh":
       case "shell":
         return /\bread\b/.test(code) || /\bsudo\b/.test(code);
       case "ruby":
@@ -1784,6 +1822,8 @@ __ocode_emit_vars
         return /\bfmt\.Scan/.test(code) || /\bbufio\.NewReader\(os\.Stdin\)/.test(code) || /\bos\.Stdin\b/.test(code);
       case "php":
         return /\bfgets\s*\(\s*STDIN\b/.test(code) || /\breadline\s*\(/.test(code);
+      case "powershell":
+        return /\bRead-Host\b/i.test(code) || /\[Console\]::ReadLine\s*\(/i.test(code) || /\$Host\.UI\.ReadLine\s*\(/i.test(code);
       case "r":
         return /\breadLines\s*\(\s*["']stdin/.test(code) || /\bscan\s*\(/.test(code);
       case "swift":

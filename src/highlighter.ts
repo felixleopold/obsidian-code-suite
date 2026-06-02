@@ -146,10 +146,10 @@ const ALL_LANGS = [
 /** Map common aliases to Shiki language IDs */
 export const LANGUAGE_ALIASES: Record<string, string> = {
   py: "python", js: "javascript", ts: "typescript",
-  sh: "bash", zsh: "bash", yml: "yaml", rs: "rust",
+  sh: "bash", zsh: "zsh", yml: "yaml", rs: "rust",
   rb: "ruby", cs: "csharp", "c++": "cpp", "c#": "csharp",
   kt: "kotlin", hs: "haskell", tex: "latex",
-  docker: "dockerfile", make: "makefile", ps1: "powershell",
+  docker: "dockerfile", make: "makefile", ps1: "powershell", pwsh: "powershell",
   gql: "graphql", text: "text", txt: "text",
   plaintext: "text", plain: "text",
 };
@@ -161,7 +161,7 @@ export const EXT_TO_LANG: Record<string, string> = {
   ".java": "java", ".c": "c", ".h": "c",
   ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp", ".hpp": "cpp",
   ".cs": "csharp", ".rs": "rust", ".go": "go",
-  ".sh": "bash", ".bash": "bash", ".zsh": "bash",
+  ".sh": "bash", ".bash": "bash", ".zsh": "zsh",
   ".html": "html", ".htm": "html",
   ".css": "css", ".json": "json", ".yaml": "yaml", ".yml": "yaml",
   ".toml": "toml", ".sql": "sql", ".md": "markdown",
@@ -220,6 +220,12 @@ export class Highlighter {
     return this.loadedThemes.has(theme);
   }
 
+  /** Map executable language IDs to Shiki grammars when they differ. */
+  private resolveHighlightLanguage(lang: string): string {
+    if (lang === "zsh") return "bash";
+    return this.loadedLanguages.has(lang) ? lang : "text";
+  }
+
   /** Resolve a raw language string (from code fence or alias) to a Shiki language ID */
   resolveLanguage(raw: string): string {
     const lower = raw.toLowerCase().trim();
@@ -238,7 +244,7 @@ export class Highlighter {
   highlight(code: string, lang: string, theme: string): string | null {
     if (!this.core) return null;
     try {
-      const resolved = this.loadedLanguages.has(lang) ? lang : "text";
+      const resolved = this.resolveHighlightLanguage(lang);
       const resolvedTheme = this.loadedThemes.has(theme) ? theme : "gruvbox-dark-hard";
       return this.core.codeToHtml(code, { lang: resolved, theme: resolvedTheme });
     } catch {
@@ -250,7 +256,7 @@ export class Highlighter {
   tokenize(code: string, lang: string, theme: string): { content: string; color?: string; fontStyle?: number }[][] | null {
     if (!this.core) return null;
     try {
-      const resolved = this.loadedLanguages.has(lang) ? lang : "text";
+      const resolved = this.resolveHighlightLanguage(lang);
       const resolvedTheme = this.loadedThemes.has(theme) ? theme : "gruvbox-dark-hard";
       return this.core.codeToTokensBase(code, { lang: resolved, theme: resolvedTheme });
     } catch {
