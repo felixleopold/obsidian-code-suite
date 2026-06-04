@@ -1,7 +1,7 @@
 {
   "id": "code-suite",
   "name": "CodeSuite",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "minAppVersion": "1.5.0",
   "description": "Shiki syntax highlighting, live code execution with stdin/stdout streaming, shared variables across blocks, inline $var substitution, Matplotlib/Plotly inline graphs, and embedded file rendering.",
   "author": "Felix Leopold",
