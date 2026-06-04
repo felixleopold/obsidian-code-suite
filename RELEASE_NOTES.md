@@ -1,5 +1,15 @@
-Fixes the line count that was missing from most code blocks.
+Soft-wrap support for reading view, hideable clear-session button, and extra blank line fix.
+
+## What's New
+
+- **Soft-wrap long lines** (Settings → Appearance): code blocks in reading view now wrap long lines instead of showing a horizontal scrollbar, matching the editor's behaviour. On by default.
+- **Hideable clear-session button** (Settings → Code execution): the "Clear execution session" button in the tab bar can now be turned off to declutter the header. The command palette entry is always available. The button is never shown on mobile.
 
 ## Bug Fixes
 
-- Line count ("N lines") now appears in the header of every code block, not only when the collapsible setting is enabled. The count was always tied to the collapse toggle, which is off by default, making it effectively invisible for most users.
+- Removed the extra blank line that appeared at the bottom of every code block in reading view. Every block was rendering one line taller than its actual content.
+
+## Upgrade Notes
+
+- Soft-wrap is on by default. If you prefer horizontal scrolling, disable it under Settings → Appearance → Soft-wrap long lines.
+- The clear-session button now only appears on desktop (it was always a no-op on mobile). No action needed.

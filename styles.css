@@ -165,6 +165,34 @@
   color: var(--ocode-muted, #928374);
 }
 
+/* ─── Soft wrap (reading view) ────────────────── */
+/* When enabled, long lines wrap instead of producing a horizontal scrollbar.
+   Continuation rows hang-indent past the line-number gutter so wrapped text
+   stays aligned with the code, not the numbers. */
+body.ocode-wrap-code .ocode-wrapper pre.shiki {
+  overflow-x: hidden;
+}
+
+body.ocode-wrap-code .ocode-wrapper pre.shiki code {
+  white-space: pre-wrap;
+}
+
+body.ocode-wrap-code .ocode-wrapper .line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Hang-indent only when a line-number gutter is present, so wrapped rows align
+   with the code rather than sliding under the numbers. */
+body.ocode-wrap-code .ocode-wrapper .line:has(.ocode-line-num) {
+  padding-left: calc(3em + 16px);
+  text-indent: calc(-3em - 16px);
+}
+
+body.ocode-wrap-code .ocode-wrapper .line .ocode-line-num {
+  text-indent: 0;
+}
+
 /* ─── Output panel ────────────────────────────── */
 .ocode-output {
   border-top: 1px solid var(--ocode-border, #3c3836);

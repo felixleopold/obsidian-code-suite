@@ -29,6 +29,7 @@ Imported themes are saved in plugin settings and appear in the theme picker imme
 | **Line numbers** | Show or hide line numbers in reading view. Does not affect editor mode. |
 | **Language label** | Show or hide the language name in the header bar of each code block. |
 | **Wide code blocks** | Allow code blocks to extend beyond the normal note content width. Useful for wide tables or long output lines. |
+| **Soft-wrap long lines** *(on by default)* | Wrap long lines in reading view instead of showing a horizontal scrollbar, matching the editor's behaviour. Turn off to restore horizontal scrolling. |
 
 ---
 
@@ -36,6 +37,9 @@ Imported themes are saved in plugin settings and appear in the theme picker imme
 
 ### Enable code execution
 Show the Run button on supported language blocks. Disable to use CodeSuite as a syntax-highlighting-only plugin. Desktop only — no effect on mobile.
+
+### Show clear-session button *(on by default)*
+Show the **Clear execution session** button in the note header bar. Turn it off to declutter the tab bar — the **Clear execution session for this note** command still works from the command palette. Desktop only; the button is never shown on mobile.
 
 ### Shared execution context *(on by default)*
 When enabled, each block run in a note accumulates into a per-note in-memory session. Later blocks can reference variables, functions, and imports from earlier blocks (Python, Bash, and Zsh). Also enables inline `` `$varname` `` substitution.

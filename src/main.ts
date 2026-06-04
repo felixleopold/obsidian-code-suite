@@ -152,6 +152,10 @@ export default class CodePlugin extends Plugin {
       activeDocument.body.addClass("ocode-wide-blocks");
     }
 
+    if (this.settings.wrapCodeInReadingView) {
+      activeDocument.body.addClass("ocode-wrap-code");
+    }
+
     // Apply theme CSS variables
     this.applyThemeColors();
 
@@ -287,6 +291,7 @@ export default class CodePlugin extends Plugin {
     this.runningProcs.clear();
     this.highlighter.dispose();
     activeDocument.body.removeClass("ocode-wide-blocks");
+    activeDocument.body.removeClass("ocode-wrap-code");
     // Remove all view-header action buttons so a plugin reload doesn't duplicate them.
     for (const el of this.viewActionEls) el.remove();
     this.viewActionEls = [];
@@ -542,15 +547,19 @@ export default class CodePlugin extends Plugin {
     if (view.containerEl.querySelector('[aria-label="Clear execution session"]')) return;
     this.viewActionsAdded.add(view);
 
-    this.viewActionEls.push(
-      view.addAction("rotate-ccw", "Clear execution session", () => {
-        const file = view.file;
-        if (file) {
-          this.clearNoteSession(file.path);
-          new Notice("Execution session cleared.");
-        }
-      })
-    );
+    // Clear-session button is desktop-only (no execution on mobile) and can be
+    // hidden via the showClearSessionButton setting to declutter the tab bar.
+    if (this.settings.showClearSessionButton && Platform.isDesktop) {
+      this.viewActionEls.push(
+        view.addAction("rotate-ccw", "Clear execution session", () => {
+          const file = view.file;
+          if (file) {
+            this.clearNoteSession(file.path);
+            new Notice("Execution session cleared.");
+          }
+        })
+      );
+    }
 
     if (this.settings.enableExecution && Platform.isDesktop) {
       this.viewActionEls.push(
@@ -559,6 +568,20 @@ export default class CodePlugin extends Plugin {
         })
       );
     }
+  }
+
+  /**
+   * Tear down and re-add all view-header actions across open MarkdownViews.
+   * Used when a setting that affects which buttons appear (e.g.
+   * showClearSessionButton) changes, so the change is reflected without a reload.
+   */
+  refreshViewActions(): void {
+    for (const el of this.viewActionEls) el.remove();
+    this.viewActionEls = [];
+    this.viewActionsAdded = new WeakSet();
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view instanceof MarkdownView) this.ensureViewActions(leaf.view);
+    });
   }
 
   /**
@@ -1387,7 +1410,10 @@ __ocode_emit_vars
     forceSkip = false,
     forceCollapsed: boolean | null = null,
   ) {
-    const html = this.highlighter.highlight(code, lang, this.settings.theme);
+    // Strip a single trailing newline so Shiki doesn't emit a dangling empty
+    // `.line` span — that's what made every block render one line too tall (#24).
+    const displayCode = code.replace(/\n$/, "");
+    const html = this.highlighter.highlight(displayCode, lang, this.settings.theme);
     if (!html) return;
 
     const wrapper = createDiv();

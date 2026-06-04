@@ -105,10 +105,17 @@ export interface CodePluginSettings {
   lightAutoTheme: string;
   showLineNumbers: boolean;
   showLanguageLabel: boolean;
+  /** Soft-wrap long lines in reading view instead of showing a horizontal scrollbar. */
+  wrapCodeInReadingView: boolean;
   enableExecution: boolean;
   renderEmbeddedFiles: boolean;
   collapseEmbeds: boolean;
   wideCodeBlocks: boolean;
+  /**
+   * Show the "Clear execution session" button in the note tab/header bar.
+   * Desktop only — the button is never added on mobile (no code execution there).
+   */
+  showClearSessionButton: boolean;
   executionTimeout: number;
   /** Working directory for code execution */
   executionCwd: ExecutionCwdMode;
@@ -172,10 +179,12 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   lightAutoTheme: "github-light",
   showLineNumbers: true,
   showLanguageLabel: true,
+  wrapCodeInReadingView: true,
   enableExecution: true,
   renderEmbeddedFiles: true,
   collapseEmbeds: true,
   wideCodeBlocks: false,
+  showClearSessionButton: true,
   executionTimeout: 30000,
   executionCwd: "vault",
   executionCwdCustom: "",

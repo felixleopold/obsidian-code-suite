@@ -171,6 +171,8 @@ The following features are on the roadmap. Track progress or vote on the linked 
 | 2 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
 | 3 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
 
+> Shipped in 1.5.2: soft-wrap long lines in reading view ([#22](https://github.com/felixleopold/obsidian-code-suite/issues/22)), optional/mobile-hidden clear-session button ([#23](https://github.com/felixleopold/obsidian-code-suite/issues/23)), removed the extra blank line at the end of every block ([#24](https://github.com/felixleopold/obsidian-code-suite/issues/24)).
+
 > Shipped in 1.5.0: explicit interpreter paths for bash/zsh/sh ([#20](https://github.com/felixleopold/obsidian-code-suite/issues/20)), line-count off-by-one fix ([#21](https://github.com/felixleopold/obsidian-code-suite/issues/21)), `sh` fence now runs POSIX sh (matching `shell`).
 
 > Shipped in 1.4.0: PHP support, PowerShell support, shell startup files, login-shell mode, Zsh-native variable snapshotter.

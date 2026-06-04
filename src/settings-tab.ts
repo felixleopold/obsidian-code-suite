@@ -226,6 +226,18 @@ export class CodeSettingTab extends PluginSettingTab {
         });
       });
 
+    new Setting(containerEl)
+      .setName("Soft-wrap long lines")
+      .setDesc("Wrap long lines in reading view instead of showing a horizontal scrollbar, matching the editor's behavior.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.wrapCodeInReadingView);
+        t.onChange(async (v) => {
+          this.plugin.settings.wrapCodeInReadingView = v;
+          await this.plugin.saveSettings();
+          activeDocument.body.toggleClass("ocode-wrap-code", v);
+        });
+      });
+
     // ─── Code Execution ──────────────────────────
     new Setting(containerEl).setName("Code execution").setHeading();
 
@@ -248,6 +260,18 @@ export class CodeSettingTab extends PluginSettingTab {
       .addToggle((t) => {
         t.setValue(this.plugin.settings.enableExecution);
         t.onChange(async (v) => { this.plugin.settings.enableExecution = v; await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("Show clear-session button")
+      .setDesc("Show the 'Clear execution session' button in the note header bar. Disable to declutter the tab bar — the 'Clear execution session for this note' command still works. Desktop only; never shown on mobile.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.showClearSessionButton);
+        t.onChange(async (v) => {
+          this.plugin.settings.showClearSessionButton = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshViewActions();
+        });
       });
 
     new Setting(containerEl)

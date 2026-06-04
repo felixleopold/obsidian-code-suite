@@ -28,3 +28,7 @@ install-plugin.sh
 *.tsbuildinfo
 
 RELEASE_NOTES.md
+
+# Claude Code instructions
+CLAUDE.md
+.claude/
