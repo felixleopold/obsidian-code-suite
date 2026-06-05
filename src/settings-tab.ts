@@ -476,5 +476,16 @@ export class CodeSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.codeImportsFolder);
         t.onChange(async (v) => { this.plugin.settings.codeImportsFolder = v.trim(); await this.plugin.saveSettings(); });
       });
+
+    // ─── Experimental features ───────────────────────
+    new Setting(containerEl).setName("Experimental features").setHeading();
+
+    new Setting(containerEl)
+      .setName("Data tables")
+      .setDesc("Expose markdown tables to code as variables. Put a %% codesuite: <name> as <shape> %% directive (shapes: records, dict, columns, matrix, vars) on the line directly above a table, or use a 'var | value' header for a vars table. Off by default — behaviour may change in future releases.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.experimentalTables);
+        t.onChange(async (v) => { this.plugin.settings.experimentalTables = v; await this.plugin.saveSettings(); });
+      });
   }
 }

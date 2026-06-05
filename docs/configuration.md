@@ -1,5 +1,7 @@
 # Configuration Reference
 
+> **Part of the CodeSuite docs** — [README](../README.md) · [Variables & Execution](variables-and-execution.md) · **Configuration Reference**
+
 Full reference for all settings in **Settings → CodeSuite**.
 
 ---
@@ -143,27 +145,24 @@ The companion command **Import code file as alias…** (command palette) opens a
 
 ## Run All Skip Marker
 
-Add a comment to the **first line** of a code block to opt that block out of **Run All**:
+Opt a block out of **Run All** in either of two ways:
 
-```python
-# codesuite:skip
+**Fence tag (recommended)** — add `skip` after the language in the fence header, keeping the code itself clean:
+
+````md
+```python skip
 print("Never executed by Run All")
 ```
+````
 
-Any common comment style works: `# …`, `// …`, `-- …`, `% …`, `/* … */`. Skipped blocks display a small `skip` badge in their toolbar but can still be run individually.
+**Comment marker** — add `codesuite:skip` to the **first line** of the block. Any common comment style works: `# …`, `// …`, `-- …`, `% …`, `/* … */`.
+
+Skipped blocks display a small `skip` badge in their toolbar but can still be run individually.
 
 ---
 
-## Frontmatter `code_vars:`
+## Variables, shared context & data tables
 
-Declare shared variables in YAML frontmatter alongside (or instead of) a `vars` block:
+`vars` blocks, `code_vars:` frontmatter, inline `$varname` substitution, the type system, cross-language variable propagation, and data tables (experimental) are covered in the dedicated guide:
 
-```yaml
----
-code_vars:
-  threshold: 0.85
-  dataset: sales_q4.csv
----
-```
-
-The values are available in inline `` `$threshold` `` substitutions and inside executable blocks (Python, Bash, and Zsh). A `vars` block in the note body takes precedence when the same key is defined in both places.
+→ **[Variables & Code Execution](variables-and-execution.md)**

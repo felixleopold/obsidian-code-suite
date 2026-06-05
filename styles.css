@@ -348,6 +348,21 @@ code.ocode-var-ref[data-resolved] {
   font-style: italic;
 }
 
+/* Experimental data-table badge — a small caption above a table that has been
+   registered as a code variable source. */
+.ocode-table-badge {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 1px 8px;
+  font-family: var(--font-monospace);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background-color: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+}
+
 
 /* Clear-session pill */
 .ocode-clear-session-pill {

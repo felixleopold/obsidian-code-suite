@@ -19,6 +19,21 @@ import {
   DEFAULT_SETTINGS,
 } from "./settings";
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
+import {
+  type VarValue,
+  type VarEntry,
+  parseVarsSource,
+  inferVarValue,
+  fromJsValue,
+  toJs,
+  toDisplay,
+  toShellScalar,
+  pythonSeedLine,
+  shellSeedLine,
+  parseTableDirective,
+  headerLooksLikeVars,
+  buildTableVars,
+} from "./vars";
 
 /**
  * Release that changed the `sh` fence alias from bash to POSIX sh. Users whose
@@ -92,8 +107,18 @@ export default class CodePlugin extends Plugin {
   private noteContexts: Map<string, Map<string, string[]>> = new Map();
   /** Latest variable snapshot per note (Python only). Maps note path → {varName: displayValue}. */
   private noteVarStore: Map<string, Record<string, string>> = new Map();
-  /** Variables declared in ```vars blocks — injected into code execution as seed assignments. */
-  private noteVarsBlockStore: Map<string, Record<string, string>> = new Map();
+  /** Variables declared in ```vars blocks, `code_vars:` frontmatter, and data
+   *  tables — the *initial* (seed) values injected into code execution. */
+  private noteVarsBlockStore: Map<string, Record<string, VarValue>> = new Map();
+  /**
+   * Live cross-language variable namespace. After a block runs, any shared var
+   * it *changed* (or newly defined) is recorded here, tagged with the producing
+   * language. On the next run, values produced by *other* languages are
+   * injected as seeds — so a value set in Python is visible in Bash, etc.
+   * Reset to the declared seeds by Clear Session. Maps note path →
+   * { varName → { value, lang } }.
+   */
+  private noteLiveVars: Map<string, Map<string, { value: VarValue; lang: string }>> = new Map();
   /** Tracks which MarkdownView instances have already had view-header actions added. */
   private viewActionsAdded = new WeakSet<MarkdownView>();
   /** All action buttons added to view headers — removed in onunload so plugin reloads don't duplicate them. */
@@ -206,6 +231,17 @@ export default class CodePlugin extends Plugin {
         this.processInlineVarRefs(el, ctx);
       },
       1001
+    );
+
+    // Reading view: experimental data-tables. A `%% codesuite: … %%` directive
+    // (or a `var | value` header) turns a markdown table into a code variable.
+    this.registerMarkdownPostProcessor(
+      (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
+        if (this.settings.experimentalTables) {
+          this.processDataTables(el, ctx);
+        }
+      },
+      1002
     );
 
     // Command: clear the execution session for the current note
@@ -526,6 +562,8 @@ export default class CodePlugin extends Plugin {
   private clearNoteSession(notePath: string): void {
     this.noteContexts.delete(notePath);
     this.noteVarStore.delete(notePath);
+    // Drop runtime mutations so shared vars fall back to their declared seeds.
+    this.noteLiveVars.delete(notePath);
     // Reset all inline $var spans back to their placeholder appearance
     const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
     for (const el of Array.from(els)) {
@@ -756,33 +794,87 @@ export default class CodePlugin extends Plugin {
   }
 
   /**
+   * After a run, record the variables a block *changed* into the live
+   * cross-language namespace. A var whose post-run value equals what we seeded
+   * is treated as untouched (so a pure reader doesn't claim ownership or
+   * degrade a value's type on a round-trip). Shell-produced values are
+   * re-inferred since shells stringify everything.
+   */
+  private recordRuntimeVars(
+    notePath: string,
+    lang: string,
+    snapshot: Record<string, unknown>,
+    seeded: Record<string, VarValue>
+  ): void {
+    if (!this.noteLiveVars.has(notePath)) this.noteLiveVars.set(notePath, new Map());
+    const live = this.noteLiveVars.get(notePath)!;
+    const isShell = lang === "bash" || lang === "zsh" || lang === "shell";
+    for (const [name, raw] of Object.entries(snapshot)) {
+      const seededVal = seeded[name];
+      if (seededVal !== undefined) {
+        // Compare against the exact form the language was given. Shells stringify
+        // everything, so compare scalar strings; typed languages compare values.
+        const unchanged = isShell
+          ? String(raw) === toShellScalar(seededVal)
+          : JSON.stringify(raw) === JSON.stringify(toJs(seededVal));
+        if (unchanged) continue; // pure read — don't claim ownership or change type
+      }
+      const value = isShell ? inferVarValue(String(raw)) : fromJsValue(raw);
+      live.set(name, { value, lang });
+    }
+  }
+
+  /**
+   * Rebuild the inline `$varname` display store from declared seeds overlaid
+   * with the live runtime values, then push the result to the DOM.
+   */
+  private refreshDisplayVars(notePath: string): void {
+    const display: Record<string, string> = {};
+    const declared = this.noteVarsBlockStore.get(notePath) ?? {};
+    for (const [name, v] of Object.entries(declared)) display[name] = toDisplay(v);
+    const live = this.noteLiveVars.get(notePath);
+    if (live) for (const [name, entry] of live) display[name] = toDisplay(entry.value);
+    this.noteVarStore.set(notePath, display);
+    this.updateInlineVarRefs(notePath, display);
+  }
+
+  /**
    * Build the full execution script for a shared-context run.
-   * Previous blocks are prepended with their stdout/stderr suppressed so they
-   * re-establish variables silently. Only the current block produces visible output.
+   *
+   * Layering (this order is what makes the live cross-language namespace work):
+   *   1. `preSeeds`  — declared vars (vars block / frontmatter / table), the
+   *                    *initial* values, injected before replay.
+   *   2. replay      — the current language's earlier blocks, run with output
+   *                    suppressed so they re-establish functions/imports/vars.
+   *   3. `postSeeds` — values *changed by other languages*, injected after
+   *                    replay so they win over this language's own earlier
+   *                    assignments (last-writer-wins across languages).
+   *   4. current block — the only block that produces visible output.
    */
   private buildSharedContextCode(
     lang: string,
     prevBlocks: string[],
     currentBlock: string,
-    seedVars?: Record<string, string>
+    preSeeds?: Record<string, VarValue>,
+    postSeeds?: Record<string, VarValue>
   ): string {
     const accum = prevBlocks.join("\n\n");
 
-    // Build language-specific seed-var assignment lines from the vars block store
-    const pythonSeedLines: string[] = [];
-    const bashSeedLines: string[] = [];
-    if (seedVars) {
-      for (const [k, v] of Object.entries(seedVars)) {
-        pythonSeedLines.push(`${k} = ${JSON.stringify(String(v))}`);
-        bashSeedLines.push(`${k}='${String(v).replace(/'/g, "'\\''")}' `);
-      }
-    }
-    const pythonSeed = pythonSeedLines.length ? pythonSeedLines.join("\n") + "\n" : "";
-    const bashSeed   = bashSeedLines.length   ? bashSeedLines.join("\n")   + "\n" : "";
+    // Build language-specific seed-var assignment lines. Each value is rendered
+    // as a native literal for the target language (typed for Python; scalar/
+    // JSON-string for shells) — see src/vars.ts.
+    const renderPy = (m?: Record<string, VarValue>) =>
+      m && Object.keys(m).length ? Object.entries(m).map(([k, v]) => pythonSeedLine(k, v)).join("\n") + "\n" : "";
+    const renderSh = (m?: Record<string, VarValue>) =>
+      m && Object.keys(m).length ? Object.entries(m).map(([k, v]) => shellSeedLine(k, v)).join("\n") + "\n" : "";
+    const pythonSeed = renderPy(preSeeds);
+    const pythonPost = renderPy(postSeeds);
+    const bashSeed   = renderSh(preSeeds);
+    const bashPost   = renderSh(postSeeds);
 
     if (lang === "python") {
       // Fast path: only seed vars, no accumulated blocks
-      if (!accum.trim()) return pythonSeed + currentBlock;
+      if (!accum.trim()) return pythonSeed + pythonPost + currentBlock;
 
       // Redirect stdout/stderr to a sink while the accumulated blocks run,
       // then restore before the current block so only the new output is shown.
@@ -815,13 +907,14 @@ export default class CodePlugin extends Plugin {
         "    try: __ocode_pio.show = __ocode_pio_bak; del __ocode_pio, __ocode_pio_bak",
         "    except Exception: pass",
         "",
+        pythonPost,
         currentBlock,
       ].join("\n");
     }
 
     if (lang === "bash" || lang === "zsh" || lang === "shell") {
       // Fast path: only seed vars, no accumulated blocks
-      if (!accum.trim()) return bashSeed + currentBlock;
+      if (!accum.trim()) return bashSeed + bashPost + currentBlock;
       // Use exec-based fd swapping to run the preamble silently. This is more
       // reliable than { } > /dev/null 2>&1 because it avoids nested-brace
       // parser edge cases (e.g. functions with complex bodies or heredocs) and
@@ -831,6 +924,7 @@ export default class CodePlugin extends Plugin {
         `exec 3>&1 4>&2 1>/dev/null 2>&1\n` +
         `${accum}\n` +
         `exec 1>&3 2>&4 3>&- 4>&-\n\n` +
+        `${bashPost}` +
         `${currentBlock}`
       );
     }
@@ -1239,41 +1333,41 @@ __ocode_emit_vars
   }
 
   /**
+   * Seed typed variable entries into both stores: noteVarStore (display strings
+   * for inline `$varname` spans) and noteVarsBlockStore (typed values for
+   * injection into code execution). Shared by vars blocks, the Apply button,
+   * and data tables.
+   */
+  private seedVarEntries(sourcePath: string, entries: VarEntry[]): void {
+    if (!entries.length || !sourcePath) return;
+    if (!this.noteVarStore.has(sourcePath)) this.noteVarStore.set(sourcePath, {});
+    if (!this.noteVarsBlockStore.has(sourcePath)) this.noteVarsBlockStore.set(sourcePath, {});
+    const displayStore = this.noteVarStore.get(sourcePath)!;
+    const varsStore = this.noteVarsBlockStore.get(sourcePath)!;
+    for (const e of entries) {
+      displayStore[e.name] = toDisplay(e.value);
+      varsStore[e.name] = e.value;
+    }
+    this.updateInlineVarRefs(sourcePath, displayStore);
+  }
+
+  /**
    * Render a ```vars block using the same ocode-wrapper / Shiki structure as a
    * regular code block. Variables are seeded into noteVarStore (for inline
    * $varname spans) and noteVarsBlockStore (for injection into code execution).
    * Syntax: one `key = value` (or `key: value`) assignment per line; blank
-   * lines and lines starting with `#` are ignored.
+   * lines and lines starting with `#` are ignored. Values may carry a `:type`
+   * hint and use triple-quoted (`"""` / `'''`) multiline strings.
    */
   private renderVarsBlock(originalPre: HTMLElement, source: string, sourcePath: string): void {
-    const entries: Array<[string, string]> = [];
-    for (const raw of source.split("\n")) {
-      const line = raw.trim();
-      if (!line || line.startsWith("#")) continue;
-      const sep = line.indexOf("=") !== -1
-        ? line.indexOf("=")
-        : line.indexOf(":");
-      if (sep === -1) continue;
-      const key = line.slice(0, sep).trim();
-      const val = line.slice(sep + 1).trim();
-      if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) entries.push([key, val]);
-    }
+    const entries = parseVarsSource(source);
 
-    // Seed both stores
-    if (entries.length && sourcePath) {
-      if (!this.noteVarStore.has(sourcePath)) this.noteVarStore.set(sourcePath, {});
-      const store = this.noteVarStore.get(sourcePath)!;
-      for (const [k, v] of entries) store[k] = v;
-      this.updateInlineVarRefs(sourcePath, store);
+    // Seed both stores with the typed values
+    this.seedVarEntries(sourcePath, entries);
 
-      if (!this.noteVarsBlockStore.has(sourcePath)) this.noteVarsBlockStore.set(sourcePath, {});
-      const varsStore = this.noteVarsBlockStore.get(sourcePath)!;
-      for (const [k, v] of entries) varsStore[k] = v;
-    }
-
-    // Format as INI-style assignments for Shiki highlighting (values unquoted, as written)
+    // Format as INI-style assignments for Shiki highlighting (values as written)
     const displayCode = entries.length
-      ? entries.map(([k, v]) => `${k} = ${v}`).join("\n")
+      ? entries.map((e) => `${e.name} = ${e.raw}`).join("\n")
       : "# (no variables defined)";
 
     const wrapper = createDiv({ cls: "ocode-wrapper ocode-vars-wrapper" });
@@ -1309,18 +1403,13 @@ __ocode_emit_vars
     });
     btnGroup.appendChild(copyBtn);
 
-    // Apply — re-seeds both stores (useful after clearing a session)
+    // Apply — re-asserts these declared values across all languages, discarding
+    // any runtime mutations to them (the explicit "reset to declared" action).
     const applyBtn = this.createPillButton("Apply", ICON.reload, () => {
-      if (entries.length && sourcePath) {
-        if (!this.noteVarStore.has(sourcePath)) this.noteVarStore.set(sourcePath, {});
-        const store = this.noteVarStore.get(sourcePath)!;
-        for (const [k, v] of entries) store[k] = v;
-        this.updateInlineVarRefs(sourcePath, store);
-
-        if (!this.noteVarsBlockStore.has(sourcePath)) this.noteVarsBlockStore.set(sourcePath, {});
-        const varsStore = this.noteVarsBlockStore.get(sourcePath)!;
-        for (const [k, v] of entries) varsStore[k] = v;
-      }
+      this.seedVarEntries(sourcePath, entries);
+      const live = this.noteLiveVars.get(sourcePath);
+      if (live) for (const e of entries) live.delete(e.name);
+      this.refreshDisplayVars(sourcePath);
       setSvgContent(applyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
       applyBtn.querySelector(".ocode-pill-text")!.textContent = "Applied";
       activeWindow.setTimeout(() => {
@@ -1369,6 +1458,80 @@ __ocode_emit_vars
   }
 
   /**
+   * Experimental: expose markdown tables to code as variables. A table is a
+   * data source when a `%% codesuite: <name> [as <shape>] %%` directive sits on
+   * the line directly above it, or — by convention — when its header row is
+   * `var | value`. Cells are typed via the same inference as vars blocks.
+   * The table still renders normally; a small badge marks it as a source.
+   */
+  private processDataTables(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
+    const sourcePath = ctx.sourcePath;
+    if (!sourcePath) return;
+    const tables = el.querySelectorAll("table");
+    for (const table of Array.from(tables)) {
+      if (table.hasClass("ocode-data-table")) continue; // already processed
+
+      // Extract headers. Obsidian normally emits <thead><th>, but some themes
+      // or renderers skip <thead> and put all rows in <tbody>. Use the first
+      // row of the first <tr> as fallback so we never miss a table.
+      let headers = Array.from(table.querySelectorAll("thead th")).map(
+        (th) => (th.textContent || "").trim()
+      );
+      const hasExplicitThead = headers.length > 0;
+      if (!hasExplicitThead) {
+        const firstRow = table.querySelector("tr");
+        if (firstRow) {
+          headers = Array.from(firstRow.querySelectorAll("th, td")).map(
+            (cell) => (cell.textContent || "").trim()
+          );
+        }
+      }
+      const allBodyRows = Array.from(table.querySelectorAll("tbody tr"));
+      // If there was no <thead>, the first tbody row was used as the header above.
+      const dataBodyRows = hasExplicitThead ? allBodyRows : allBodyRows.slice(1);
+      const rows = dataBodyRows.map((tr) =>
+        Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim())
+      );
+      if (!headers.length || !rows.length) continue;
+
+      // Look for a `%% codesuite … %%` directive on the nearest non-blank line
+      // above the table's data. Depending on blank-line placement, Obsidian may
+      // bundle the comment into the table's section or keep it separate, so we
+      // scan upward from the section start and skip the table's own rows.
+      let directive = null as ReturnType<typeof parseTableDirective>;
+      const info = ctx.getSectionInfo(table) ?? ctx.getSectionInfo(el);
+      if (info) {
+        const lines = info.text.split("\n");
+        for (let i = info.lineStart; i >= 0; i--) {
+          const above = (lines[i] ?? "").trim();
+          if (!above || above.startsWith("|")) continue; // blank or table row
+          directive = parseTableDirective(above);
+          break; // first non-blank, non-row line decides
+        }
+      }
+
+      // Header-convention fallback: `var | value` → vars shape.
+      if (!directive && headerLooksLikeVars(headers)) {
+        directive = { shape: "vars" };
+      }
+      if (!directive) continue;
+
+      const entries = buildTableVars(headers, rows, directive);
+      if (!entries.length) continue;
+      this.seedVarEntries(sourcePath, entries);
+
+      // Add a small badge above the table describing what it exposes.
+      // The table itself is left unstyled so it looks identical to a regular table.
+      const badgeText =
+        directive.shape === "vars"
+          ? `vars · ${entries.length} ${entries.length === 1 ? "var" : "vars"}`
+          : `${directive.name} · ${directive.shape}`;
+      const badge = createDiv({ cls: "ocode-table-badge", text: badgeText });
+      table.parentElement?.insertBefore(badge, table);
+    }
+  }
+
+  /**
    * Read `code_vars:` from the note's YAML frontmatter and merge those values
    * into noteVarStore and noteVarsBlockStore for the current note. Called from
    * both code-block and inline post-processors. Frontmatter vars are seeded
@@ -1392,10 +1555,10 @@ __ocode_emit_vars
     let changed = false;
     for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)) continue;
-      const str = v === null || v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
+      const typed = fromJsValue(v);
       // Only seed if not already present (block-level vars take precedence).
-      if (!(k in seedStore)) { seedStore[k] = str; changed = true; }
-      if (!(k in varStore))  { varStore[k]  = str; changed = true; }
+      if (!(k in seedStore)) { seedStore[k] = typed; changed = true; }
+      if (!(k in varStore))  { varStore[k]  = toDisplay(typed); changed = true; }
     }
     if (changed) this.updateInlineVarRefs(notePath, varStore);
   }
@@ -1592,14 +1755,27 @@ __ocode_emit_vars
       sourcePath !== undefined &&
       CodePlugin.SHARED_CTX_LANGS.has(lang);
 
-    // Build the code to actually execute (may prepend accumulated blocks)
+    // Build the code to actually execute (may prepend accumulated blocks).
+    // preSeeds  = declared initials (injected before replay).
+    // postSeeds = values another language changed (injected after replay, so
+    //             they win over this language's own earlier assignments).
+    // effectiveSeeds (their merge) is captured so the snapshot handler can tell
+    // which variables a block actually *changed* vs. just read.
     let execCode = code;
+    const preSeeds  = useSharedCtx ? (this.noteVarsBlockStore.get(sourcePath) ?? {}) : {};
+    const postSeeds: Record<string, VarValue> = {};
     if (useSharedCtx) {
-      const prevBlocks = this.noteContexts.get(sourcePath)?.get(lang) ?? [];
-      const seedVars   = this.noteVarsBlockStore.get(sourcePath);
-      const hasSeed    = seedVars && Object.keys(seedVars).length > 0;
+      const live = this.noteLiveVars.get(sourcePath);
+      if (live) for (const [name, entry] of live) if (entry.lang !== lang) postSeeds[name] = entry.value;
+    }
+    const effectiveSeeds: Record<string, VarValue> = { ...preSeeds, ...postSeeds };
+    if (useSharedCtx) {
+      // Exclude the current block from its own replay so re-running it doesn't
+      // double-apply (the block runs once, after replaying the blocks before it).
+      const prevBlocks = (this.noteContexts.get(sourcePath)?.get(lang) ?? []).filter((b) => b !== code);
+      const hasSeed    = Object.keys(preSeeds).length > 0 || Object.keys(postSeeds).length > 0;
       if (prevBlocks.length > 0 || hasSeed) {
-        execCode = this.buildSharedContextCode(lang, prevBlocks, code, seedVars);
+        execCode = this.buildSharedContextCode(lang, prevBlocks, code, preSeeds, postSeeds);
       }
       // Append the var-extraction postamble where we have a language-specific
       // snapshotter. Plain sh still gets shared replay, but reliable variable
@@ -1708,12 +1884,10 @@ __ocode_emit_vars
             if (line.startsWith("__OCODE_VARS__=")) {
               try {
                 const vars = JSON.parse(line.slice("__OCODE_VARS__=".length)) as Record<string, unknown>;
-                const store: Record<string, string> = {};
-                for (const [k, v] of Object.entries(vars)) {
-                  store[k] = typeof v === "string" ? v : JSON.stringify(v);
-                }
-                this.noteVarStore.set(sourcePath, store);
-                this.updateInlineVarRefs(sourcePath, store);
+                // Record any var this block changed into the live cross-language
+                // namespace, then refresh inline $varname display from it.
+                this.recordRuntimeVars(sourcePath, lang, vars, effectiveSeeds);
+                this.refreshDisplayVars(sourcePath);
               } catch (_e) { /* ignore parse failures */ }
             } else {
               appendStdout(line + "\n");
@@ -1861,7 +2035,10 @@ __ocode_emit_vars
         }
         const noteCtx = this.noteContexts.get(notePath)!;
         if (!noteCtx.has(lang)) noteCtx.set(lang, []);
-        noteCtx.get(lang)!.push(code); // store the original block, not the wrapped version
+        const blocks = noteCtx.get(lang)!;
+        // Store the original block (not the wrapped version). Dedupe identical
+        // sources so re-running a block doesn't stack duplicate replays.
+        if (!blocks.includes(code)) blocks.push(code);
       }
     } catch (err: unknown) {
       new Notice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);

@@ -165,6 +165,12 @@ export interface CodePluginSettings {
   /** User-imported VS Code themes */
   customThemes: CustomTheme[];
   /**
+   * Experimental: expose markdown tables to code as variables via a
+   * `%% codesuite: <name> [as <shape>] %%` directive (or a `var | value`
+   * header). Off by default.
+   */
+  experimentalTables: boolean;
+  /**
    * Last plugin version for which the one-time upgrade notice was shown.
    * Empty on a fresh install. Used to surface breaking-change notices once
    * to users upgrading across them; not user-facing.
@@ -203,6 +209,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   enableCodeFileView: true,
   codeImportsFolder: "CodeSuiteImports",
   sharedContext: true,
+  experimentalTables: false,
   customThemes: [],
   lastNoticeVersion: "",
 };

@@ -9,7 +9,7 @@
 - **Shiki syntax highlighting** — 65+ built-in themes, import any VS Code `.json` theme, auto light/dark switching, full color in Reading view *and* the editor
 - **Live code execution** — Python, JS/TS, Bash, PowerShell, PHP, Go, Ruby, and more; output streams character-by-character; interactive stdin, password masking, cancel mid-run
 - **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; Matplotlib and Plotly render below the block without a display server
-- **Notebook mode** — shared execution context across blocks, `vars` blocks, `code_vars:` frontmatter, inline `` `$varname` `` substitution, **Run All** (with `codesuite:skip` opt-out) and **Clear Session**
+- **Notebook mode** — shared execution context across blocks, `vars` blocks, `code_vars:` frontmatter, inline `` `$varname` `` substitution, **Run All** (with `skip` fence-tag opt-out) and **Clear Session**
 - **Embedded code files** — `![[script.py]]` renders as a collapsible, syntax-highlighted, executable block
 - **Code files in the file explorer** — open `.py`, `.js`, `.sh`, … straight from the vault in a lightweight editor with Run + live output, or symlink an external file into your vault with **Import code file as alias…**
 - **Environment management** — combine a shared `.env` file with per-vault overrides, source shell startup files, run Bash/Zsh as a login shell, or pin exact interpreter paths for bash, zsh, and sh
@@ -76,13 +76,18 @@ Run code directly from a code block — no terminal, no switching apps.
 Each note maintains an in-memory execution session — the closest thing to a Jupyter notebook inside Obsidian, without a kernel daemon or `.ipynb` file.
 
 - **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python, Bash, and Zsh)
-- **`vars` blocks** — declare note-scoped variables once; they are injected into every run:
+- **Live cross-language variables** — a shared variable changed by one block is visible to later blocks in *any* language, in execution order. Set `count = 42` in Python and a later Bash block sees `42`; change it in Bash and the next Python block sees the new value (re-typed). Scalars and JSON structures cross languages; rich objects (functions, DataFrames) stay within their language. See [Variable typing & the execution model](docs/configuration.md#variable-typing).
+- **`vars` blocks** — declare note-scoped variables once; they are injected into every run as **native, correctly-typed literals**:
   ````
   ```vars
-  threshold = 0.85
-  dataset = "sales_q4.csv"
+  threshold = 0.85          # float
+  crawl_depth = 5           # int
+  download_assets = True    # bool
+  base_url = "https://x"    # string (one layer of quotes stripped)
+  dataset = sales_q4.csv    # bare text is a string too
   ```
   ````
+  Types are inferred from how each value is written, so in Python `crawl_depth` is an `int`, `download_assets` is a `bool`, and `base_url` is a clean string (no double-quoting). See [Typed variables](#typed-variables) below for the full rules, `:type` hints, and multiline strings.
 - **Inline `$varname` substitution** — write `` `$result` `` anywhere in your note; it updates live in Reading view after each run
 - **`code_vars:` frontmatter** — declare the same variables in YAML frontmatter when you prefer note metadata over a fenced block:
   ```yaml
@@ -93,11 +98,13 @@ Each note maintains an in-memory execution session — the closest thing to a Ju
   ---
   ```
   A `vars` block in the body still wins if both define the same key.
-- **Run All** — runs every executable block top-to-bottom in sequence, stopping on the first error. Mark a block with a `codesuite:skip` marker on its first line (in any comment style — `# codesuite:skip`, `// codesuite:skip`, `-- codesuite:skip`, `/* codesuite:skip */`, …) to keep it from being run by Run All. Skipped blocks display a small **skip** badge in their toolbar.
+- **Run All** — runs every executable block top-to-bottom in sequence, stopping on the first error. Mark a block to keep it out of Run All by adding `skip` to its fence header (e.g. ` ```python skip ` — recommended, keeps the code clean), or by putting a `codesuite:skip` marker on its first line in any comment style (`# codesuite:skip`, `// codesuite:skip`, `-- codesuite:skip`, `/* codesuite:skip */`, …). Skipped blocks display a small **skip** badge in their toolbar.
 - **Clear Session** — reset all accumulated state from the note header button
 - **Copy output** — every successful run gets a **Copy output** pill next to the Clear button
 
 State is per-note, lives only in memory, and resets when Obsidian is closed.
+
+For the full details on variable types, `:type` hints, multiline strings, cross-language propagation, data tables, and the execution model, see **[docs/variables-and-execution.md](docs/variables-and-execution.md)**.
 
 ---
 
@@ -147,7 +154,12 @@ Command palette → **Import code file as alias…** opens a native file picker 
 
 ## Configuration
 
-Open **Settings → CodeSuite** to configure themes, code execution, environment variables, and embedded file behaviour. See the full [configuration reference](docs/configuration.md) for all options.
+Open **Settings → CodeSuite** to configure themes, code execution, environment variables, and embedded file behaviour.
+
+| | |
+|---|---|
+| [Variables & Execution](docs/variables-and-execution.md) | How to run code, declare variables, use `$varname`, cross-language propagation, practical patterns |
+| [Configuration Reference](docs/configuration.md) | Every setting, option, and environment knob |
 
 ---
 
@@ -170,6 +182,8 @@ The following features are on the roadmap. Track progress or vote on the linked 
 | 1 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
 | 2 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
 | 3 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+
+> Shipped in 1.6.0: typed `vars`/`code_vars` injection with `:type` hints and triple-quoted multiline strings ([#16](https://github.com/felixleopold/obsidian-code-suite/issues/16)), live cross-language variable propagation, experimental data tables (`%% codesuite: … %%`).
 
 > Shipped in 1.5.2: soft-wrap long lines in reading view ([#22](https://github.com/felixleopold/obsidian-code-suite/issues/22)), optional/mobile-hidden clear-session button ([#23](https://github.com/felixleopold/obsidian-code-suite/issues/23)), removed the extra blank line at the end of every block ([#24](https://github.com/felixleopold/obsidian-code-suite/issues/24)).
 
