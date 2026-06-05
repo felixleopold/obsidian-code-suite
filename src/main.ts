@@ -313,11 +313,11 @@ export default class CodePlugin extends Plugin {
 
   onunload() {
     if (this._autoThemeTimer !== null) {
-      activeWindow.clearTimeout(this._autoThemeTimer);
+      window.clearTimeout(this._autoThemeTimer);
       this._autoThemeTimer = null;
     }
     if (this._skipSyncTimer !== null) {
-      activeWindow.clearTimeout(this._skipSyncTimer);
+      window.clearTimeout(this._skipSyncTimer);
       this._skipSyncTimer = null;
     }
     // Kill all running processes
@@ -379,9 +379,9 @@ export default class CodePlugin extends Plugin {
   applyAutoTheme() {
     if (!this.settings.autoTheme) return;
     if (this._autoThemeTimer !== null) {
-      activeWindow.clearTimeout(this._autoThemeTimer);
+      window.clearTimeout(this._autoThemeTimer);
     }
-    this._autoThemeTimer = activeWindow.setTimeout(() => {
+    this._autoThemeTimer = window.setTimeout(() => {
       this._autoThemeTimer = null;
       void this._runAutoTheme();
     }, 75);
@@ -668,9 +668,9 @@ export default class CodePlugin extends Plugin {
   /** Queue a lightweight skip-badge DOM sync for already-rendered views. */
   private queueSkipBadgeSync(notePath?: string, delay = 0): void {
     if (this._skipSyncTimer !== null) {
-      activeWindow.clearTimeout(this._skipSyncTimer);
+      window.clearTimeout(this._skipSyncTimer);
     }
-    this._skipSyncTimer = activeWindow.setTimeout(() => {
+    this._skipSyncTimer = window.setTimeout(() => {
       this._skipSyncTimer = null;
       const views: MarkdownView[] = [];
       this.app.workspace.iterateAllLeaves((leaf) => {
@@ -771,10 +771,10 @@ export default class CodePlugin extends Plugin {
           if (!this.runningProcs.has(wrapper) || Date.now() > deadline) {
             resolve();
           } else {
-            activeWindow.setTimeout(poll, 150);
+            window.setTimeout(poll, 150);
           }
         };
-        activeWindow.setTimeout(poll, 150);
+        window.setTimeout(poll, 150);
       });
       // Stop Run All if the block exited with an error so later blocks don't
       // run against incomplete shared context and produce confusing failures.
@@ -788,7 +788,7 @@ export default class CodePlugin extends Plugin {
       }
       // Brief pause so the shared-context store is fully committed and any
       // rapid-fire OS process startup races are avoided before the next block.
-      await new Promise<void>((resolve) => activeWindow.setTimeout(resolve, 500));
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
     }
     if (ran === 0) new Notice("All code blocks are currently running.");
   }
@@ -1054,12 +1054,12 @@ __ocode_emit_vars
       .map((e) => e.startsWith(".") ? e.slice(1) : e);
     try {
       this.registerExtensions(exts, CODE_FILE_VIEW_TYPE);
-    } catch (_e) {
+    } catch {
       // Some extensions may already be claimed by another plugin — Obsidian
       // throws in that case. Fall back to per-extension registration so we
       // still grab everything we can.
       for (const e of exts) {
-        try { this.registerExtensions([e], CODE_FILE_VIEW_TYPE); } catch (_err) { /* skip taken extension */ }
+        try { this.registerExtensions([e], CODE_FILE_VIEW_TYPE); } catch { /* skip taken extension */ }
       }
     }
   }
@@ -1076,7 +1076,7 @@ __ocode_emit_vars
       new Notice("Importing code files is only available on desktop.");
       return;
     }
-    const nodeRequire = (globalThis as unknown as { require: (id: string) => unknown }).require;
+    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
     const fs = nodeRequire("fs") as typeof import("fs");
     const path = nodeRequire("path") as typeof import("path");
 
@@ -1109,7 +1109,7 @@ __ocode_emit_vars
     }
     const existingFolder = this.app.vault.getAbstractFileByPath(folderRel);
     if (!existingFolder) {
-      try { await this.app.vault.createFolder(folderRel); } catch (_e) { /* already exists */ }
+      try { await this.app.vault.createFolder(folderRel); } catch { /* already exists */ }
     } else if (!(existingFolder instanceof TFolder)) {
       new Notice(`Cannot import: "${folderRel}" exists and is not a folder.`);
       return;
@@ -1165,12 +1165,12 @@ __ocode_emit_vars
         void openInNewTab(f);
       } else if (delay < 5000) {
         delay = Math.min(delay * 2, 5000);
-        activeWindow.setTimeout(poll, delay);
+        window.setTimeout(poll, delay);
       } else {
         this.app.vault.offref(ref);
       }
     };
-    activeWindow.setTimeout(poll, delay);
+    window.setTimeout(poll, delay);
   }
 
   /**
@@ -1180,7 +1180,7 @@ __ocode_emit_vars
    * `<input type="file">` for environments where Electron is unreachable.
    */
   private async pickExternalCodeFile(): Promise<string | null> {
-    const nodeRequire = (globalThis as unknown as { require?: (id: string) => unknown }).require;
+    const nodeRequire = (window as unknown as { require?: (id: string) => unknown }).require;
     interface ShowOpenDialog {
       (opts: { properties?: string[]; filters?: { name: string; extensions: string[] }[] }):
         Promise<{ canceled: boolean; filePaths: string[] }>;
@@ -1197,7 +1197,7 @@ __ocode_emit_vars
           electron?.remote?.dialog?.showOpenDialog ??
           electron?.dialog?.showOpenDialog ??
           null;
-      } catch (_e) { /* electron not available — fall through */ }
+      } catch { /* electron not available — fall through */ }
 
       if (!showOpenDialog) {
         try {
@@ -1205,7 +1205,7 @@ __ocode_emit_vars
             dialog?: { showOpenDialog?: ShowOpenDialog };
           };
           showOpenDialog = remote?.dialog?.showOpenDialog ?? null;
-        } catch (_e) { /* @electron/remote not available — fall through */ }
+        } catch { /* @electron/remote not available — fall through */ }
       }
     }
 
@@ -1395,7 +1395,7 @@ __ocode_emit_vars
       void navigator.clipboard.writeText(source).then(() => {
         setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
         copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
-        activeWindow.setTimeout(() => {
+        window.setTimeout(() => {
           setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
           copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copy";
         }, 2000) as unknown as number;
@@ -1412,7 +1412,7 @@ __ocode_emit_vars
       this.refreshDisplayVars(sourcePath);
       setSvgContent(applyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
       applyBtn.querySelector(".ocode-pill-text")!.textContent = "Applied";
-      activeWindow.setTimeout(() => {
+      window.setTimeout(() => {
         setSvgContent(applyBtn.querySelector(".ocode-pill-icon")!, ICON.reload);
         applyBtn.querySelector(".ocode-pill-text")!.textContent = "Apply";
       }, 1500) as unknown as number;
@@ -1612,7 +1612,7 @@ __ocode_emit_vars
       void navigator.clipboard.writeText(code).then(() => {
         setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
         copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
-        activeWindow.setTimeout(() => {
+        window.setTimeout(() => {
           setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
           copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copy";
         }, 2000) as unknown as number;
@@ -1653,6 +1653,9 @@ __ocode_emit_vars
           line.prepend(numSpan);
           lineNum++;
         }
+        // Marker class so the soft-wrap hang-indent can target gutter lines
+        // without a `:has()` selector (broad invalidation / perf).
+        if (lines.length) wrapper.addClass("ocode-has-lnum");
       }
     }
 
@@ -1853,7 +1856,7 @@ __ocode_emit_vars
     // Auto-focus the input field if the stdin bar is visible from the start
     if (needsStdin) {
       // requestAnimationFrame ensures the element is rendered before focusing
-      requestAnimationFrame(() => inputField.focus());
+      window.requestAnimationFrame(() => inputField.focus());
     }
 
     // ─── Start execution with live streaming ───
@@ -1888,7 +1891,7 @@ __ocode_emit_vars
                 // namespace, then refresh inline $varname display from it.
                 this.recordRuntimeVars(sourcePath, lang, vars, effectiveSeeds);
                 this.refreshDisplayVars(sourcePath);
-              } catch (_e) { /* ignore parse failures */ }
+              } catch { /* ignore parse failures */ }
             } else {
               appendStdout(line + "\n");
             }
@@ -1906,7 +1909,7 @@ __ocode_emit_vars
           inputField.type = "password";
           inputField.placeholder = "Enter password\u2026";
           inputBar.classList.add("ocode-input-bar-visible");
-          requestAnimationFrame(() => inputField.focus());
+          window.requestAnimationFrame(() => inputField.focus());
         }
         const span = createSpan();
         span.className = "ocode-stderr";
@@ -1978,7 +1981,7 @@ __ocode_emit_vars
         const text = outContent.textContent || "";
         void navigator.clipboard.writeText(text).then(() => {
           setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.check);
-          activeWindow.setTimeout(() => {
+          window.setTimeout(() => {
             setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
           }, 2000);
         });
@@ -1993,7 +1996,7 @@ __ocode_emit_vars
         const copyErrBtn = this.createPillButton("", ICON.copy, () => {
           void navigator.clipboard.writeText(errorText).then(() => {
             setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.check);
-            activeWindow.setTimeout(() => {
+            window.setTimeout(() => {
               setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
             }, 2000);
           });

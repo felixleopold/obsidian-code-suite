@@ -183,14 +183,21 @@ body.ocode-wrap-code .ocode-wrapper .line {
 }
 
 /* Hang-indent only when a line-number gutter is present, so wrapped rows align
-   with the code rather than sliding under the numbers. */
-body.ocode-wrap-code .ocode-wrapper .line:has(.ocode-line-num) {
+   with the code rather than sliding under the numbers. The gutter is reserved
+   with padding-left and the number is pulled into it via absolute positioning,
+   so every visual row (first and wrapped) starts at the code column. This
+   avoids `:has()` (broad style invalidation) and text-indent (only partially
+   supported in older Obsidian). The `ocode-has-lnum` marker class is added in
+   the renderer when line numbers are present. */
+body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line {
+  position: relative;
   padding-left: calc(3em + 16px);
-  text-indent: calc(-3em - 16px);
 }
 
-body.ocode-wrap-code .ocode-wrapper .line .ocode-line-num {
-  text-indent: 0;
+body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
+  position: absolute;
+  left: 0;
+  margin-right: 0;
 }
 
 /* ─── Output panel ────────────────────────────── */

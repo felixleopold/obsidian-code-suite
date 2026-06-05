@@ -199,8 +199,8 @@ export function startExecution(
   }
 
   // Node.js builtins are required for code execution (desktop only, guarded by Platform.isDesktop above).
-  // Access via globalThis to avoid static-analysis restrictions on direct require() calls.
-  const nodeRequire = (globalThis as unknown as { require: (id: string) => unknown }).require;
+  // Access via window.require (Electron's Node bridge) to avoid static-analysis restrictions on direct require() calls.
+  const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
   const { spawn } = nodeRequire("child_process") as typeof import("child_process");
   const fs = nodeRequire("fs") as typeof import("fs");
   const os = nodeRequire("os") as typeof import("os");
@@ -301,7 +301,7 @@ export function startExecution(
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  const timer = activeWindow.setTimeout(() => {
+  const timer = window.setTimeout(() => {
     killed = true;
     proc.kill("SIGKILL");
   }, settings.executionTimeout);
@@ -328,7 +328,7 @@ export function startExecution(
 
   const promise = new Promise<ExecutionResult>((resolve) => {
     proc.on("close", (exitCode: number | null) => {
-      activeWindow.clearTimeout(timer);
+      window.clearTimeout(timer);
 
       // Collect generated images
       const images: string[] = [];
@@ -342,17 +342,17 @@ export function startExecution(
             }
           }
         }
-      } catch (_e) { /* image collection is best-effort */ }
+      } catch { /* image collection is best-effort */ }
 
       // Cleanup
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_e) { /* cleanup is best-effort */ }
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
 
       resolve({ stdout, stderr, exitCode, killed, images });
     });
 
     proc.on("error", (err: Error) => {
-      activeWindow.clearTimeout(timer);
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_e) { /* cleanup is best-effort */ }
+      window.clearTimeout(timer);
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
       resolve({
         stdout: "",
         stderr: `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`,
@@ -368,10 +368,10 @@ export function startExecution(
       proc.kill("SIGKILL");
     },
     writeStdin: (text: string) => {
-      try { proc.stdin?.write(text); } catch (_e) { /* stdin may already be closed */ }
+      try { proc.stdin?.write(text); } catch { /* stdin may already be closed */ }
     },
     closeStdin: () => {
-      try { proc.stdin?.end(); } catch (_e) { /* stdin may already be closed */ }
+      try { proc.stdin?.end(); } catch { /* stdin may already be closed */ }
     },
   };
 }

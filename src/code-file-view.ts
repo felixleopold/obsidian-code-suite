@@ -216,7 +216,7 @@ export class CodeFileView extends TextFileView {
     void navigator.clipboard.writeText(this.content).then(() => {
       setSvgContent(this.copyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
       this.copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
-      activeWindow.setTimeout(() => {
+      window.setTimeout(() => {
         setSvgContent(this.copyBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
         this.copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copy";
       }, 2000);
@@ -293,7 +293,7 @@ export class CodeFileView extends TextFileView {
       const copyOutBtn = this.makePill("", ICON.copy, outHeader, () => {
         void navigator.clipboard.writeText(outContent.textContent ?? "").then(() => {
           setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.check);
-          activeWindow.setTimeout(() => {
+          window.setTimeout(() => {
             setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
           }, 2000);
         });

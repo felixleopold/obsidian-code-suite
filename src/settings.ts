@@ -253,7 +253,7 @@ export function parseShellSourceFiles(sourceFiles: string): string[] {
 export function parseDotEnvFile(filePath: string): Record<string, string> {
   if (!filePath) return {};
   try {
-    const nodeRequire = (globalThis as unknown as { require: (id: string) => unknown }).require;
+    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
     const fs = nodeRequire("fs") as typeof import("fs");
     if (!fs.existsSync(filePath)) return {};
     const text = fs.readFileSync(filePath, "utf-8");
@@ -262,7 +262,7 @@ export function parseDotEnvFile(filePath: string): Record<string, string> {
       .map((l) => l.replace(/^\s*export\s+/, ""))
       .join("\n");
     return parseExtraEnv(stripped);
-  } catch (_e) {
+  } catch {
     return {};
   }
 }

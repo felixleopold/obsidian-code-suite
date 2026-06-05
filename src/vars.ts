@@ -48,7 +48,7 @@ function unquote(text: string): string {
   if (text.length >= 2 && text[0] === '"' && text[text.length - 1] === '"') {
     try {
       return JSON.parse(text) as string;
-    } catch (_e) {
+    } catch {
       return text.slice(1, -1);
     }
   }
@@ -73,7 +73,7 @@ function coerceWithHint(raw: string, hint: VarTypeHint): VarValue {
     case "json":
       try {
         return { kind: "json", value: JSON.parse(raw) };
-      } catch (_e) {
+      } catch {
         return { kind: "string", value: unquote(raw) };
       }
   }
@@ -102,7 +102,7 @@ export function inferVarValue(raw: string, hint?: VarTypeHint): VarValue {
   if ((t[0] === "[" && t[t.length - 1] === "]") || (t[0] === "{" && t[t.length - 1] === "}")) {
     try {
       return { kind: "json", value: JSON.parse(t) };
-    } catch (_e) {
+    } catch {
       /* not valid JSON — fall through to bare string */
     }
   }
