@@ -356,15 +356,24 @@ body {
 .ocode-export .ocode-pill, .ocode-export .ocode-btn-group,
 .ocode-export .ocode-input-bar, .ocode-export .edit-block-button { display: none !important; }
 @media print {
-  /* Page margins are set to 0 in printToPDF so the themed background reaches the
-     paper edge; this padding is the real content inset. */
-  body { padding: 16mm 14mm; }
+  /* printToPDF runs with margins:0 so the themed background bleeds to the paper
+     edge. (Electron's printToPDF, unlike Chrome's CLI, does NOT paint the root
+     background into @page/programmatic margins — any margin renders as white
+     bands — so margins:0 + a dark body/html background is the only reliable way
+     to get full-bleed dark.) This body padding is the content inset; top/bottom
+     only insets the first/last page, so for uniform per-page padding use the
+     single-page export (one tall page = no interior page breaks). */
+  html, body { background: var(--background-primary, #ffffff); }
+  body { padding: 12mm 14mm; }
   .ocode-export { max-width: none; }
+  /* Kill the leading top margin on the first element (usually the title H1) so
+     the header hugs the top inset — no extra wasted band above the title. */
+  .ocode-export > :first-child { margin-top: 0 !important; }
   /* Don't override .ocode-wrapper's overflow/border-radius here — keep the exact
      rounded-card look of the reading view. Line wrapping is handled by the
-     ocode-wrap-code body class we carry over, not by print rules. We also do
-     NOT set break-inside:avoid on code blocks: a tall block that can't fit on
-     the current page would otherwise leave a large blank gap. */
+     ocode-wrap-code body class we carry over, not by print rules. Whether code
+     blocks may split across pages is controlled per-export by the keepBlocksWhole
+     rule appended below, not here. */
   /* Show outputs in full — drop the on-screen scroll caps so nothing is hidden. */
   .ocode-export .ocode-output .ocode-output-content { max-height: none !important; overflow: visible !important; }
   .ocode-export .ocode-output-images { max-height: none !important; overflow: visible !important; }
@@ -372,8 +381,41 @@ body {
   .ocode-export img { max-width: 100% !important; height: auto; }
   /* Keep a plot from being split across a page break. */
   .ocode-output-images, .ocode-output-img { break-inside: avoid; }
+  /* Smart splitting: avoid stranding a line or two of a paragraph at a page
+     edge, keep each short block whole, and never leave a heading orphaned at
+     the bottom of a page (it sticks to the content that follows it). The engine
+     still fills each page greedily — these only steer the break points so we
+     use most of the page without ugly orphan jumps. */
+  .ocode-export p, .ocode-export li { orphans: 3; widows: 3; break-inside: avoid; }
+  .ocode-export blockquote, .ocode-export table { break-inside: avoid; }
+  .ocode-export h1, .ocode-export h2, .ocode-export h3,
+  .ocode-export h4, .ocode-export h5, .ocode-export h6 { break-after: avoid; }
 }
 `;
+
+/** Width strategy for the exported content column. */
+export type ExportWidthMode = "default" | "current" | "full";
+
+/** User-selected export options, gathered from the per-export modal. */
+export interface ExportOptions {
+  /** Content column width: Obsidian's default readable width, the live view's
+   *  current width, or unconstrained full width. */
+  widthMode: ExportWidthMode;
+  /** PDF only: try to keep each code block on one page (split only when a block
+   *  is taller than a page). Off = split anywhere, the original behaviour. */
+  keepCodeBlocksWhole: boolean;
+  /** PDF only: emit a single tall page with no page breaks. */
+  singlePage: boolean;
+  /** PDF/HTML: prepend the note filename as an H1 heading at the top. */
+  includeTitle: boolean;
+}
+
+export const DEFAULT_EXPORT_OPTIONS: ExportOptions = {
+  widthMode: "current",
+  keepCodeBlocksWhole: true,
+  singlePage: false,
+  includeTitle: false,
+};
 
 /**
  * Assemble a complete, standalone HTML document from a cleaned note body.
@@ -397,10 +439,39 @@ export function buildExportHtml(opts: {
   /** Content column width (px) measured from the live reading view, so the
    *  export matches Obsidian's configured width. Omit for full width. */
   contentWidth?: number;
+  /** PDF: try to keep each code block whole (break-inside: avoid). A block
+   *  taller than a page still splits, so nothing is clipped. */
+  keepBlocksWhole?: boolean;
+  /** PDF single-page: layout the on-screen render exactly as it prints (no
+   *  output scroll caps, fixed inset) so the page-height measurement matches. */
+  singlePage?: boolean;
+  /** PDF multi-page (separate pages): wrap the body in a repeating-thead/tfoot
+   *  table so every printed page gets a themed top/bottom inset. Electron's
+   *  printToPDF runs with margins:0 (for full-bleed dark) which only insets the
+   *  first page top / last page bottom; the repeating header/footer rows are the
+   *  only way to reserve per-page vertical space that inherits the background. */
+  paginated?: boolean;
+  /** Prepend the note filename as an H1 heading before the body content. */
+  includeTitle?: boolean;
 }): string {
   const widthRule = opts.contentWidth && opts.contentWidth > 0
     ? `.ocode-export { max-width: ${opts.contentWidth}px; }`
     : "";
+  // Keep-whole: prefer not to break inside a code block / its output panel. The
+  // browser still splits any block taller than the page, so tall blocks are
+  // never clipped — they just split as a last resort.
+  const keepWholeRule = opts.keepBlocksWhole ? `@media print {
+  .ocode-export .ocode-wrapper { break-inside: avoid; page-break-inside: avoid; }
+}` : "";
+  // Single-page: the page height is measured from the on-screen render, but the
+  // on-screen layout normally differs from print (output scroll caps, padding).
+  // Mirror the print layout into screen via the ocode-singlepage class (carried
+  // on <body>) so the measured height equals the printed height.
+  const singlePageRule = opts.singlePage ? `
+body.ocode-singlepage { padding: 10mm 14mm 14mm !important; }
+.ocode-singlepage .ocode-export .ocode-output .ocode-output-content { max-height: none !important; overflow: visible !important; }
+.ocode-singlepage .ocode-export .ocode-output-images { max-height: none !important; overflow: visible !important; }
+.ocode-singlepage .ocode-export .ocode-output-img { max-height: none !important; max-width: 100% !important; }` : "";
   // styles.css hides `.ocode-output` under `@media print` (so printing a note
   // from inside Obsidian omits outputs). For our export the outputs are the
   // whole point — re-show them in print (PDF). Emitted AFTER pluginCss so it wins.
@@ -409,6 +480,35 @@ export function buildExportHtml(opts: {
   .ocode-export .ocode-output-header { display: flex !important; }
   .ocode-export .ocode-output-images { display: flex !important; }
 }`;
+  // Repeating-thead/tfoot table: the spacer rows repeat on every printed page,
+  // reserving 12mm of themed (background-inheriting) space top and bottom. Body
+  // padding only covers the horizontal inset now — the vertical inset moves to
+  // the spacers so it lands on *every* page, not just the first/last.
+  const paginatedRule = opts.paginated ? `@media print {
+  body { padding: 0 14mm !important; }
+  table.ocode-page-table { width: 100%; border-collapse: collapse; border: none; margin: 0; }
+  table.ocode-page-table > thead > tr > td { height: 12mm; border: none; padding: 0; }
+  table.ocode-page-table > tfoot > tr > td { height: 12mm; border: none; padding: 0; }
+  table.ocode-page-table > tbody > tr > td { border: none; padding: 0; vertical-align: top; }
+}` : "";
+  // Title: inject before body content when requested. Uses an existing h1 style
+  // so it inherits all heading rules including the bottom border from BASE_HTML_CSS.
+  const titleHtml = opts.includeTitle
+    ? `<h1 class="ocode-export-title">${escapeHtml(opts.title)}</h1>\n`
+    : "";
+  // When paginated, the body is wrapped so the spacer rows can repeat per page.
+  const inner = `<div class="markdown-preview-view markdown-rendered ocode-export">
+${titleHtml}${opts.bodyHtml}
+</div>`;
+  const body = opts.paginated
+    ? `<table class="ocode-page-table">
+<thead><tr><td></td></tr></thead>
+<tbody><tr><td>
+${inner}
+</td></tr></tbody>
+<tfoot><tr><td></td></tr></tfoot>
+</table>`
+    : inner;
   return `<!DOCTYPE html>
 <html lang="en" class="${escapeAttr(opts.bodyClass)}">
 <head>
@@ -421,12 +521,13 @@ ${BASE_HTML_CSS}
 ${opts.pluginCss}
 ${widthRule}
 ${printShowOutputs}
+${keepWholeRule}
+${singlePageRule}
+${paginatedRule}
 </style>
 </head>
 <body class="${escapeAttr(opts.bodyClass)}">
-<div class="markdown-preview-view markdown-rendered ocode-export">
-${opts.bodyHtml}
-</div>
+${body}
 </body>
 </html>`;
 }

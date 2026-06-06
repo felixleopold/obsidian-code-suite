@@ -1,10 +1,12 @@
 import {
+  App,
   Component,
   Plugin,
   MarkdownPostProcessorContext,
   MarkdownRenderer,
   MarkdownView,
   Modal,
+  Setting,
   TFile,
   TFolder,
   Notice,
@@ -23,6 +25,9 @@ import {
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 import {
   type Notebook,
+  type ExportOptions,
+  type ExportWidthMode,
+  DEFAULT_EXPORT_OPTIONS,
   ipynbToMarkdown,
   markdownToIpynb,
   buildExportHtml,
@@ -81,7 +86,10 @@ interface ElectronDialog {
 }
 interface ElectronBrowserWindow {
   loadFile: (p: string) => Promise<void>;
-  webContents: { printToPDF: (o: Record<string, unknown>) => Promise<Uint8Array> };
+  webContents: {
+    printToPDF: (o: Record<string, unknown>) => Promise<Uint8Array>;
+    executeJavaScript: (code: string) => Promise<unknown>;
+  };
   destroy: () => void;
 }
 type ElectronBrowserWindowCtor = new (opts: Record<string, unknown>) => ElectronBrowserWindow;
@@ -1471,17 +1479,44 @@ __ocode_emit_vars
     }
     const { view, previewEl } = found;
     const file = view.file!;
-    const html = await this.buildNoteHtml(previewEl, file);
+
+    const options = await this.promptExportOptions(format);
+    if (!options) return; // user cancelled
+    await this.persistExportOptions(options);
+
+    const html = await this.buildNoteHtml(previewEl, file, format, options);
 
     if (format === "html") {
       await this.saveExport(this.exportDefaultPath(file, "html"), "HTML", ["html"], html);
     } else {
-      await this.exportPdf(html, this.exportDefaultPath(file, "pdf"));
+      await this.exportPdf(html, this.exportDefaultPath(file, "pdf"), options);
     }
   }
 
+  /** Show the per-export options modal, seeded from the last-used choices. */
+  private promptExportOptions(format: "html" | "pdf"): Promise<ExportOptions | null> {
+    const seed: ExportOptions = {
+      widthMode: this.settings.exportWidthMode ?? DEFAULT_EXPORT_OPTIONS.widthMode,
+      keepCodeBlocksWhole: this.settings.exportKeepCodeBlocksWhole ?? DEFAULT_EXPORT_OPTIONS.keepCodeBlocksWhole,
+      singlePage: this.settings.exportSinglePage ?? DEFAULT_EXPORT_OPTIONS.singlePage,
+      includeTitle: this.settings.exportIncludeTitle ?? DEFAULT_EXPORT_OPTIONS.includeTitle,
+    };
+    return new Promise((resolve) => {
+      new ExportOptionsModal(this.app, format, seed, resolve).open();
+    });
+  }
+
+  /** Remember the chosen export options for next time. */
+  private async persistExportOptions(o: ExportOptions): Promise<void> {
+    this.settings.exportWidthMode = o.widthMode;
+    this.settings.exportKeepCodeBlocksWhole = o.keepCodeBlocksWhole;
+    this.settings.exportSinglePage = o.singlePage;
+    this.settings.exportIncludeTitle = o.includeTitle;
+    await this.saveSettings();
+  }
+
   /** Build a self-contained, themed HTML document from a rendered preview clone. */
-  private async buildNoteHtml(previewEl: HTMLElement, file: TFile): Promise<string> {
+  private async buildNoteHtml(previewEl: HTMLElement, file: TFile, format: "html" | "pdf", options: ExportOptions): Promise<string> {
     const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
     const fs = nodeRequire("fs") as typeof import("fs");
     const path = nodeRequire("path") as typeof import("path");
@@ -1507,13 +1542,41 @@ __ocode_emit_vars
 
       const pluginCss = await this.readPluginCss();
       const themeVars = this.captureThemeVars();
-      const bodyClass = this.captureBodyClass();
-      const contentWidth = this.captureContentWidth(previewEl);
+      const singlePage = format === "pdf" && options.singlePage;
+      let bodyClass = this.captureBodyClass();
+      if (singlePage) bodyClass += " ocode-singlepage";
+      // PDF always matches the current reading-view width (the width dropdown is
+      // HTML-only); "full width" on a fixed/endless page breaks the layout.
+      const contentWidth = format === "pdf"
+        ? this.captureContentWidth(previewEl)
+        : this.resolveContentWidth(previewEl, options.widthMode);
 
-      return buildExportHtml({ title: file.basename, bodyHtml: full.innerHTML, pluginCss, themeVars, bodyClass, contentWidth });
+      return buildExportHtml({
+        title: file.basename,
+        bodyHtml: full.innerHTML,
+        pluginCss,
+        themeVars,
+        bodyClass,
+        contentWidth,
+        keepBlocksWhole: format === "pdf" && options.keepCodeBlocksWhole,
+        singlePage,
+        paginated: format === "pdf" && !singlePage,
+        includeTitle: options.includeTitle,
+      });
     } finally {
       comp.unload();
     }
+  }
+
+  /** Resolve the requested width mode to a max-width in px (0 = full width). */
+  private resolveContentWidth(previewEl: HTMLElement, mode: ExportWidthMode): number {
+    if (mode === "full") return 0;
+    if (mode === "current") return this.captureContentWidth(previewEl);
+    // "default": Obsidian's readable-line-length width, independent of the
+    // current window size. Falls back to 700px (Obsidian's own default).
+    const v = activeWindow.getComputedStyle(activeDocument.body).getPropertyValue("--file-line-width").trim();
+    const n = parseFloat(v);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 700;
   }
 
   /**
@@ -1642,7 +1705,7 @@ __ocode_emit_vars
   }
 
   /** Render HTML to PDF in a hidden Electron window via webContents.printToPDF. */
-  private async exportPdf(html: string, defaultPath: string): Promise<void> {
+  private async exportPdf(html: string, defaultPath: string, options: ExportOptions): Promise<void> {
     const BrowserWindow = this.getBrowserWindow();
     if (!BrowserWindow) {
       // eslint-disable-next-line obsidianmd/ui/sentence-case -- PDF/HTML/Electron are acronyms/proper nouns
@@ -1669,13 +1732,45 @@ __ocode_emit_vars
       fs.writeFileSync(tmpHtml, html);
       win = new BrowserWindow({ show: false, width: 820, height: 1160, webPreferences: { sandbox: true } });
       await win.loadFile(tmpHtml);
-      const pdf = await win.webContents.printToPDF({
+
+      // Margins 0 so the dark themed background bleeds to the paper edge.
+      const printOpts: Record<string, unknown> = {
         printBackground: true,
         pageSize: "A4",
-        // No page margins: let the (themed) page background fill edge-to-edge.
-        // The @media print body padding insets the content cleanly instead.
         margins: { top: 0, bottom: 0, left: 0, right: 0 },
-      });
+      };
+
+      if (options.singlePage) {
+        // One tall page, no breaks. Measure the FULL rendered document height via
+        // the root element's bounding box — that's the true content height even
+        // though the offscreen window's viewport is short (scrollHeight there can
+        // collapse to ~viewport, which paginated the page into many short pages).
+        // Wait for fonts + every inlined image to load first so the height is final.
+        const dims = await win.webContents.executeJavaScript(`
+          (async () => {
+            try { await document.fonts.ready; } catch { /* fonts API unavailable */ }
+            await Promise.all(Array.from(document.images).map((img) =>
+              img.complete ? null : new Promise((res) => { img.onload = img.onerror = () => res(null); })
+            ));
+            await new Promise((r) => setTimeout(r, 50));
+            const r = document.documentElement.getBoundingClientRect();
+            return { w: Math.ceil(r.width), h: Math.ceil(r.height) };
+          })()
+        `) as { w: number; h: number };
+        // Modern Electron (Obsidian runs Chrome 142+) takes pageSize in INCHES,
+        // not microns. 96 CSS px = 1 inch. PDF caps a page at 200 inches. A single
+        // explicit pageSize (with margins 0, already set) means no page breaks;
+        // the dark body/html background fills it and ocode-singlepage pads it.
+        const wIn = (dims && dims.w > 0 ? dims.w : 820) / 96;
+        const hIn = (dims && dims.h > 0 ? dims.h : 1160) / 96;
+        printOpts.pageSize = {
+          width: Number(wIn.toFixed(3)),
+          height: Number(Math.min(hIn, 200).toFixed(3)),
+        };
+      }
+
+      const pdf = await win.webContents.printToPDF(printOpts);
+
       fs.writeFileSync(out, pdf);
       new Notice(`Exported → ${out}`);
     } catch (err) {
@@ -2669,5 +2764,87 @@ class ShellAliasNoticeModal extends Modal {
 
   onClose(): void {
     this.contentEl.empty();
+  }
+}
+
+/**
+ * Per-export options dialog for HTML/PDF export. Width applies to both formats;
+ * the code-block split mode and single-page toggle are PDF-only. Resolves with
+ * the chosen options, or `null` if the user cancels / dismisses the modal.
+ */
+class ExportOptionsModal extends Modal {
+  private options: ExportOptions;
+  private submitted = false;
+
+  constructor(
+    app: App,
+    private format: "html" | "pdf",
+    seed: ExportOptions,
+    private resolve: (result: ExportOptions | null) => void,
+  ) {
+    super(app);
+    this.options = { ...seed };
+  }
+
+  onOpen(): void {
+    const { contentEl, titleEl } = this;
+    titleEl.setText(this.format === "pdf" ? "Export to PDF" : "Export to HTML");
+
+    if (this.format === "html") {
+      // Width is HTML-only. PDF always matches the current reading-view width
+      // (a fixed page can't sensibly honour "full width" — it overflows).
+      new Setting(contentEl)
+        .setName("Content width")
+        .setDesc("How wide the document content column should be.")
+        .addDropdown((dd) => {
+          dd.addOption("default", "Obsidian default (readable line length)");
+          dd.addOption("current", "Match current view");
+          dd.addOption("full", "Full width");
+          dd.setValue(this.options.widthMode);
+          dd.onChange((v) => { this.options.widthMode = v as ExportWidthMode; });
+        });
+    }
+
+    new Setting(contentEl)
+      .setName("Include note title")
+      .setDesc("Add the note name as a heading at the top of the document.")
+      .addToggle((t) => {
+        t.setValue(this.options.includeTitle);
+        t.onChange((v) => { this.options.includeTitle = v; });
+      });
+
+    if (this.format === "pdf") {
+      new Setting(contentEl)
+        .setName("Keep code blocks together")
+        .setDesc("Avoid splitting a code block across pages. A block taller than a page still splits so nothing is clipped.")
+        .addToggle((t) => {
+          t.setValue(this.options.keepCodeBlocksWhole);
+          t.onChange((v) => { this.options.keepCodeBlocksWhole = v; });
+        });
+
+      new Setting(contentEl)
+        .setName("Single long page")
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- "A4" is a paper-size proper noun
+        .setDesc("Output one continuous page with no page breaks instead of paginated A4.")
+        .addToggle((t) => {
+          t.setValue(this.options.singlePage);
+          t.onChange((v) => { this.options.singlePage = v; });
+        });
+    }
+
+    const buttonRow = contentEl.createDiv({ cls: "modal-button-container" });
+    const cancelBtn = buttonRow.createEl("button", { text: "Cancel" });
+    cancelBtn.addEventListener("click", () => this.close());
+    const exportBtn = buttonRow.createEl("button", { text: "Export", cls: "mod-cta" });
+    exportBtn.addEventListener("click", () => {
+      this.submitted = true;
+      this.resolve({ ...this.options });
+      this.close();
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.submitted) this.resolve(null);
   }
 }

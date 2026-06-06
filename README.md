@@ -151,6 +151,12 @@ Move work between CodeSuite and the Jupyter/notebook ecosystem, or share a polis
 
 Both produce a self-contained file that matches what you see in Obsidian — same Shiki theme, CodeSuite styling, and **code outputs** (text, images, plots).
 
+Each export opens a small **options dialog** (your last choices are remembered):
+
+- **Content width** (HTML + PDF) — *Obsidian default* (the readable-line-length width), *Match current view* (the width the note is shown at right now), or *Full width* (no column cap).
+- **Keep code blocks together** (PDF) — avoid splitting a code block across a page break. A block taller than a page still splits, so nothing is ever clipped. Turn off for the old split-anywhere behaviour.
+- **Single long page** (PDF) — emit one continuous page with no page breaks instead of paginated A4.
+
 > **Outputs come from the live render.** Open the note in **reading view** and run the blocks you want shown (individually or with **Run All**), *then* export. Whatever output is currently on screen is captured as-is; nothing is written back into your `.md`. If the note isn't in reading view, the command is unavailable.
 
 ---
