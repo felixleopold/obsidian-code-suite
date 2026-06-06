@@ -135,6 +135,26 @@ Command palette → **Import code file as alias…** opens a native file picker 
 
 ---
 
+## Import & Export
+
+Move work between CodeSuite and the Jupyter/notebook ecosystem, or share a polished copy of a note. All four commands live in the command palette (desktop only).
+
+### Jupyter notebooks (`.ipynb`)
+
+- **Import Jupyter notebook (.ipynb)…** — pick a notebook and CodeSuite creates a new note next to your active file. Code cells become fenced code blocks in the notebook's language; markdown cells become note prose. Notebooks import **unrun** — cell outputs are dropped so you re-run blocks in CodeSuite (where you control execution).
+- **Export note to Jupyter notebook (.ipynb)** — converts the active note back into a notebook. The notebook is single-kernel, so code blocks in the note's dominant executable language become code cells; blocks in other languages, `vars` blocks, and prose stay in markdown cells. Cells are exported **without** outputs.
+
+### Styled HTML & PDF (with outputs)
+
+- **Export note to HTML (with outputs)**
+- **Export note to PDF (with outputs)** (rendered via Electron's print engine)
+
+Both produce a self-contained file that matches what you see in Obsidian — same Shiki theme, CodeSuite styling, and **code outputs** (text, images, plots).
+
+> **Outputs come from the live render.** Open the note in **reading view** and run the blocks you want shown (individually or with **Run All**), *then* export. Whatever output is currently on screen is captured as-is; nothing is written back into your `.md`. If the note isn't in reading view, the command is unavailable.
+
+---
+
 ## Installation
 
 ### Community Plugins *(recommended)*
@@ -179,9 +199,10 @@ The following features are on the roadmap. Track progress or vote on the linked 
 
 | # | Feature | Issue |
 |---|---------|-------|
-| 1 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
-| 2 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
-| 3 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+| 1 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
+| 2 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+
+> Shipped in 1.7.0: import/export — Jupyter notebook `.ipynb` conversion (import unrun, export without outputs) and styled HTML/PDF export with live code outputs ([#5](https://github.com/felixleopold/obsidian-code-suite/issues/5)).
 
 > Shipped in 1.6.0: typed `vars`/`code_vars` injection with `:type` hints and triple-quoted multiline strings ([#16](https://github.com/felixleopold/obsidian-code-suite/issues/16)), live cross-language variable propagation, experimental data tables (`%% codesuite: … %%`).
 
