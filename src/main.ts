@@ -7,10 +7,13 @@ import {
   TFolder,
   Notice,
   Platform,
+  editorInfoField,
+  editorLivePreviewField,
 } from "obsidian";
-import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
+import { ViewPlugin, Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
-import { RangeSetBuilder } from "@codemirror/state";
+import { RangeSetBuilder, StateField, StateEffect, Prec } from "@codemirror/state";
+import type { Extension, Text, EditorState } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess } from "./executor";
@@ -83,6 +86,143 @@ function blockHasSkipMarker(code: string): boolean {
   return false;
 }
 
+/**
+ * Languages that Obsidian (or its plugins) render natively — we leave their
+ * blocks untouched in both reading view and Live Preview.
+ */
+const PASSTHROUGH_LANGS = new Set(["mermaid", "dataview", "dataviewjs", "query"]);
+
+/** A fenced code block located in an editor document, with absolute positions. */
+interface FencedBlock {
+  /** Raw language token from the opening fence info string (may be ""). */
+  lang: string;
+  /** Full opening fence info string (everything after the backticks, trimmed). */
+  info: string;
+  /** Doc position of the start of the opening fence line. */
+  openFrom: number;
+  /** Doc position of the end of the closing fence line. */
+  closeTo: number;
+  /** Inner (non-fence) lines with their absolute start positions. */
+  innerLines: { text: string; from: number }[];
+  /** Inner lines joined with newlines. */
+  code: string;
+}
+
+/**
+ * Walk an editor document and return every *closed* ```-fenced code block with
+ * absolute positions covering the fence lines. Shared by the Shiki token-color
+ * extension and the Live Preview block-widget extension so both agree on block
+ * boundaries. Only backtick fences are recognized (matches the editor's
+ * historical behavior); unclosed blocks are skipped so they stay editable.
+ */
+function scanFencedBlocks(doc: Text): FencedBlock[] {
+  const blocks: FencedBlock[] = [];
+  let inBlock = false;
+  let lang = "";
+  let info = "";
+  let openFrom = 0;
+  let innerLines: { text: string; from: number }[] = [];
+  for (let i = 1; i <= doc.lines; i++) {
+    const line = doc.line(i);
+    const trimmed = line.text.trimStart();
+    if (!inBlock && trimmed.startsWith("```")) {
+      inBlock = true;
+      info = trimmed.slice(3).trim();
+      lang = info.split(/\s/)[0];
+      openFrom = line.from;
+      innerLines = [];
+    } else if (inBlock && /^`{3,}\s*$/.test(trimmed)) {
+      blocks.push({
+        lang,
+        info,
+        openFrom,
+        closeTo: line.to,
+        innerLines: [...innerLines],
+        code: innerLines.map((l) => l.text).join("\n"),
+      });
+      inBlock = false;
+      lang = "";
+      info = "";
+      innerLines = [];
+    } else if (inBlock) {
+      innerLines.push({ text: line.text, from: line.from });
+    }
+  }
+  return blocks;
+}
+
+/**
+ * Dispatched to force the Live Preview block-widget StateField to rebuild even
+ * when the document and selection are unchanged (e.g. after a theme/highlighter
+ * refresh). Carried as a transaction effect.
+ */
+const lpRebuildEffect = StateEffect.define<null>();
+
+/**
+ * CM6 block widget that renders a CodeSuite `ocode-wrapper` in Live Preview.
+ * The wrapper DOM is owned by the plugin's per-block cache (via `resolve`), so
+ * the *same* node — with its live output and running process — is reused across
+ * cursor moves and reveal/re-render cycles. `eq()` compares the cache key, which
+ * already folds in language, source, block attributes, and the settings sig, so
+ * CM never recreates a widget whose content is unchanged.
+ */
+class CodeBlockWidget extends WidgetType {
+  constructor(
+    private readonly key: string,
+    private readonly resolve: () => HTMLElement | null,
+  ) {
+    super();
+  }
+
+  eq(other: CodeBlockWidget): boolean {
+    return other.key === this.key;
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const wrapper = this.resolve() ?? createDiv({ cls: "ocode-wrapper ocode-lp-empty" });
+    this.wireReveal(view, wrapper);
+    return wrapper;
+  }
+
+  /**
+   * The widget owns all of its own events. We dispatch reveal explicitly on a
+   * code-body click (below), and the chrome's buttons have their own handlers,
+   * so CM6 must never treat a click as an editor gesture — otherwise a tall
+   * block (one with output) maps clicks to a position *outside* its range and
+   * the block never reveals for editing.
+   */
+  ignoreEvent(): boolean {
+    return true;
+  }
+
+  /**
+   * Clicking the code body reveals the raw source for editing. We can't rely on
+   * CM6's click-to-coordinate mapping (a block widget is atomic — clicks land at
+   * its edges, and output makes that unreliable), so we move the selection into
+   * the block ourselves. The next render sees the cursor overlap and drops the
+   * widget, exposing the editable lines.
+   */
+  private wireReveal(view: EditorView, wrapper: HTMLElement): void {
+    if (wrapper.dataset.ocodeRevealWired === "1") return;
+    wrapper.dataset.ocodeRevealWired = "1";
+    const codeArea = wrapper.querySelector<HTMLElement>("pre.shiki");
+    if (!codeArea) return;
+    codeArea.addEventListener("mousedown", (e) => {
+      // Let users still select text inside the code body (drag / modifier).
+      if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+      const pos = view.posAtDOM(wrapper);
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: pos } });
+      view.focus();
+    });
+  }
+
+  /** Let CM6 measure the real DOM height rather than guessing. */
+  get estimatedHeight(): number {
+    return -1;
+  }
+}
+
 /** Parse an SVG string into a DOM element without using innerHTML */
 function parseSvg(svgString: string): Node {
   const doc = new DOMParser().parseFromString(svgString, "text/html");
@@ -100,6 +240,14 @@ export default class CodePlugin extends Plugin {
   highlighter: Highlighter = new Highlighter();
   /** Track running processes per wrapper element for cancel */
   private runningProcs: Map<HTMLElement, RunningProcess> = new Map();
+  /**
+   * Live Preview block-widget DOM cache. Maps note path → blockKey
+   * (`lang\0code`) → the rendered `ocode-wrapper`. CM6 recreates widgets on
+   * every cursor move; returning the *same* DOM node keeps a block's streaming
+   * output and running process alive across cursor movement and reveal/re-render.
+   * In-memory only; pruned on rebuild and cleared on unload / rename / session clear.
+   */
+  private lpWrapperCache: Map<string, Map<string, HTMLElement>> = new Map();
   /**
    * Shared execution context. Maps note path → language → ordered list of
    * previously-executed code blocks. In-memory only; cleared on unload.
@@ -181,6 +329,13 @@ export default class CodePlugin extends Plugin {
       activeDocument.body.addClass("ocode-wrap-code");
     }
 
+    // Mirror line-number chrome onto the raw lines Obsidian shows while a Live
+    // Preview block is being edited, so clicking in doesn't flash a gutter-less
+    // "native" block before our chrome returns.
+    if (this.settings.showLineNumbers) {
+      activeDocument.body.addClass("ocode-lp-lnum");
+    }
+
     // Apply theme CSS variables
     this.applyThemeColors();
 
@@ -209,10 +364,30 @@ export default class CodePlugin extends Plugin {
       })
     );
 
-    // Editor (CM6): Shiki-based syntax highlighting via ViewPlugin
+    // Editor (CM6): Shiki token colors + full block-chrome widgets (Live Preview)
     this.registerEditorExtension([
       this.buildShikiEditorExtension(),
+      this.buildBlockWidgetExtension(),
     ]);
+
+    // A renamed note's cached Live Preview wrappers are keyed by its old path —
+    // drop them so they don't leak (and re-render fresh under the new path).
+    this.registerEvent(
+      this.app.vault.on("rename", (_file, oldPath) => {
+        this.dropLpWrapperCache(oldPath);
+      })
+    );
+
+    // Force the block-widget field to rebuild on edit/preview mode toggles and
+    // leaf switches. The field-level live-preview check catches most flips, but
+    // these events also cover the first render after a note opens before its
+    // file path is available, so chrome never lags a mode switch.
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => this.forceLpRebuild())
+    );
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => this.forceLpRebuild())
+    );
 
     // Reading view: syntax highlighting + execution
     this.registerMarkdownPostProcessor(
@@ -325,9 +500,11 @@ export default class CodePlugin extends Plugin {
       proc.cancel();
     }
     this.runningProcs.clear();
+    this.lpWrapperCache.clear();
     this.highlighter.dispose();
     activeDocument.body.removeClass("ocode-wide-blocks");
     activeDocument.body.removeClass("ocode-wrap-code");
+    activeDocument.body.removeClass("ocode-lp-lnum");
     // Remove all view-header action buttons so a plugin reload doesn't duplicate them.
     for (const el of this.viewActionEls) el.remove();
     this.viewActionEls = [];
@@ -362,12 +539,30 @@ export default class CodePlugin extends Plugin {
     }
     // Trigger editor ViewPlugins to re-tokenize (lastTheme check in update())
     this.app.workspace.updateOptions();
+    // Cached Live Preview wrappers were highlighted with the old theme — drop
+    // them and force each editor's block-widget field to rebuild.
+    this.lpWrapperCache.clear();
+    this.forceLpRebuild();
     // Re-render all open reading views so post-processors re-run with new theme
     this.app.workspace.iterateAllLeaves((leaf) => {
       const view = leaf.view;
       if (view instanceof MarkdownView && view.getMode() === "preview") {
         view.previewMode.rerender(true);
       }
+    });
+  }
+
+  /**
+   * Force every open editor's Live Preview block-widget field to rebuild by
+   * dispatching {@link lpRebuildEffect}. Used after a theme/highlighter refresh
+   * where the document and selection are unchanged but the chrome is stale.
+   */
+  private forceLpRebuild(): void {
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) return;
+      const cm = (view.editor as unknown as { cm?: EditorView }).cm;
+      if (cm) cm.dispatch({ effects: lpRebuildEffect.of(null) });
     });
   }
 
@@ -484,41 +679,19 @@ export default class CodePlugin extends Plugin {
           const builder = new RangeSetBuilder<Decoration>();
           const doc = view.state.doc;
 
-          // Collect all code blocks from the full document
-          const blocks: { lang: string; lines: { text: string; from: number }[] }[] = [];
-          let inBlock = false;
-          let blockLang = "";
-          let codeLines: { text: string; from: number }[] = [];
-
-          for (let i = 1; i <= doc.lines; i++) {
-            const line = doc.line(i);
-            const trimmed = line.text.trimStart();
-
-            if (!inBlock && trimmed.startsWith("```")) {
-              inBlock = true;
-              blockLang = trimmed.slice(3).trim().split(/\s/)[0];
-              codeLines = [];
-            } else if (inBlock && /^`{3,}\s*$/.test(trimmed)) {
-              if (codeLines.length > 0 && blockLang) {
-                blocks.push({ lang: blockLang, lines: [...codeLines] });
-              }
-              inBlock = false;
-              blockLang = "";
-              codeLines = [];
-            } else if (inBlock) {
-              codeLines.push({ text: line.text, from: line.from });
-            }
-          }
-
-          for (const block of blocks) {
+          // Tokenize every closed fenced block that carries a language. Blocks
+          // hidden behind a Live Preview widget are simply painted underneath —
+          // the replace decoration covers them, so the wasted marks are harmless.
+          for (const block of scanFencedBlocks(doc)) {
+            if (!block.lang || block.innerLines.length === 0) continue;
             const lang = resolveLanguage(block.lang);
-            const code = block.lines.map((l) => l.text).join("\n");
+            const code = block.code;
 
             const tokens = tokenize(code, lang, getTheme());
             if (!tokens) continue;
 
-            for (let lineIdx = 0; lineIdx < block.lines.length; lineIdx++) {
-              const codeLine = block.lines[lineIdx];
+            for (let lineIdx = 0; lineIdx < block.innerLines.length; lineIdx++) {
+              const codeLine = block.innerLines[lineIdx];
 
               const lineTokens = tokens[lineIdx] ?? [];
               let offset = codeLine.from;
@@ -553,6 +726,156 @@ export default class CodePlugin extends Plugin {
     );
   }
 
+  // ─── Live Preview block widgets ──────────────────────────────
+
+  /**
+   * Settings fingerprint folded into a block's cache key + widget identity, so
+   * a settings change rebuilds widgets (and evicts stale cached DOM) instead of
+   * leaving stale chrome. Only settings that change the rendered wrapper matter.
+   */
+  private lpRenderSig(): string {
+    const s = this.settings;
+    return [
+      s.theme,
+      s.showLanguageLabel,
+      s.showLineNumbers,
+      s.enableExecution,
+      s.inlineCollapsible,
+      s.inlineCollapsedByDefault,
+      s.collapseEmbeds,
+      s.renderEmbeddedFiles,
+    ].join("|");
+  }
+
+  /**
+   * CM6 editor extension that renders full code-block chrome (header, Run/Copy,
+   * line numbers, collapse, live output) and embedded code files in Live
+   * Preview, by replacing each block with a {@link CodeBlockWidget}. The block
+   * the cursor sits in is left untouched so its raw source stays editable (the
+   * Shiki token extension still colours it). Block-replacing decorations must
+   * come from a StateField, not a ViewPlugin, so they can affect line layout.
+   */
+  private buildBlockWidgetExtension(): Extension {
+    const build = (state: EditorState): DecorationSet => {
+      // Only in Live Preview — raw Source mode must stay plain text.
+      if (!state.field(editorLivePreviewField)) return Decoration.none;
+      const info = state.field(editorInfoField, false);
+      const notePath = info?.file?.path;
+      if (!notePath) return Decoration.none;
+
+      const sig = this.lpRenderSig();
+      const doc = state.doc;
+      const sel = state.selection;
+      const overlapsSelection = (from: number, to: number) =>
+        sel.ranges.some((r) => r.from <= to && r.to >= from);
+
+      const liveKeys = new Set<string>();
+      const items: { from: number; to: number; deco: Decoration }[] = [];
+
+      // ─── Fenced code blocks (and ```vars) ───
+      for (const block of scanFencedBlocks(doc)) {
+        const rawLang = (block.lang || "").toLowerCase();
+        if (PASSTHROUGH_LANGS.has(rawLang)) continue;
+
+        const attrs = new Set(
+          block.info.split(/\s+/).slice(1).map((w) => w.toLowerCase()).filter(Boolean)
+        );
+        const forceSkip = attrs.has("skip");
+        const forceCollapsed: boolean | null =
+          attrs.has("collapsed") ? true : attrs.has("expanded") ? false : null;
+
+        const isVars = rawLang === "vars";
+        const resolvedLang = isVars ? "vars" : this.highlighter.resolveLanguage(block.lang);
+        const key = `${this.lpBlockKey(resolvedLang, block.code)}\0${forceSkip}\0${forceCollapsed}\0${sig}`;
+        // Register the key BEFORE the cursor check so a block being edited (or
+        // running) is never pruned out from under its live output / process.
+        liveKeys.add(key);
+
+        // Cursor inside (incl. fence lines) → reveal raw source for editing.
+        if (overlapsSelection(block.openFrom, block.closeTo)) continue;
+
+        const code = block.code;
+        const resolve = (): HTMLElement | null =>
+          this.getCachedLpWrapper(notePath, key, () =>
+            isVars
+              ? this.buildVarsWrapper(code, notePath)
+              : this.buildCodeBlockWrapper(
+                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed,
+                )
+          );
+
+        items.push({
+          from: block.openFrom,
+          to: block.closeTo,
+          deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(key, resolve) }),
+        });
+      }
+
+      // ─── Embedded code files: `![[file.py]]` on its own line ───
+      if (this.settings.renderEmbeddedFiles) {
+        const embedRe = /^!\[\[([^\]|]+?\.[a-zA-Z0-9]+)(?:\|[^\]]*)?\]\]$/;
+        for (let i = 1; i <= doc.lines; i++) {
+          const line = doc.line(i);
+          const m = line.text.trim().match(embedRe);
+          if (!m) continue;
+          const ext = (m[1].match(/\.[a-zA-Z0-9]+$/)?.[0] ?? "").toLowerCase();
+          if (!CODE_FILE_EXTENSIONS.has(ext)) continue;
+          const file = this.app.metadataCache.getFirstLinkpathDest(m[1], notePath);
+          if (!(file instanceof TFile)) continue;
+
+          const key = `embed\0${file.path}\0${sig}`;
+          liveKeys.add(key);
+          if (overlapsSelection(line.from, line.to)) continue;
+          const resolve = (): HTMLElement | null =>
+            this.getCachedLpWrapper(notePath, key, () => {
+              const container = createDiv({ cls: "ocode-embed-container" });
+              void this.populateEmbedContainer(container, file, ext, notePath);
+              return container;
+            });
+          items.push({
+            from: line.from,
+            to: line.to,
+            deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(key, resolve) }),
+          });
+        }
+      }
+
+      this.pruneLpWrapperCache(notePath, liveKeys);
+
+      items.sort((a, b) => a.from - b.from);
+      const builder = new RangeSetBuilder<Decoration>();
+      for (const it of items) builder.add(it.from, it.to, it.deco);
+      return builder.finish();
+    };
+
+    // Highest precedence so our block-replace widgets win over Obsidian's own
+    // Live Preview code-block rendering. Without this, the two compete over the
+    // same fence lines and Obsidian's native render (language flag, no chrome)
+    // intermittently shows through until a selection change re-asserts ours.
+    const field = StateField.define<DecorationSet>({
+      create: (state) => build(state),
+      update(value, tr) {
+        // Toggling Live Preview ↔ Source mode flips this field with no doc or
+        // selection change — rebuild so chrome appears/disappears immediately
+        // instead of staying stale until the next click.
+        const lpChanged =
+          tr.startState.field(editorLivePreviewField, false) !==
+          tr.state.field(editorLivePreviewField, false);
+        if (
+          lpChanged ||
+          tr.docChanged ||
+          tr.selection ||
+          tr.effects.some((e) => e.is(lpRebuildEffect))
+        ) {
+          return build(tr.state);
+        }
+        return value.map(tr.changes);
+      },
+      provide: (f) => EditorView.decorations.from(f),
+    });
+    return Prec.highest(field);
+  }
+
   // ─── Shared Execution Context ────────────────────────────────
 
   /** Languages that support shared context (prepend-and-suppress approach). */
@@ -564,6 +887,8 @@ export default class CodePlugin extends Plugin {
     this.noteVarStore.delete(notePath);
     // Drop runtime mutations so shared vars fall back to their declared seeds.
     this.noteLiveVars.delete(notePath);
+    // Drop cached Live Preview wrappers (with their stale output panels).
+    this.dropLpWrapperCache(notePath);
     // Reset all inline $var spans back to their placeholder appearance
     const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
     for (const el of Array.from(els)) {
@@ -573,6 +898,58 @@ export default class CodePlugin extends Plugin {
         el.removeAttribute("data-resolved");
       }
     }
+  }
+
+  // ─── Live Preview wrapper cache ──────────────────────────────
+
+  /** Stable identity for a block's cached wrapper: language + exact source. */
+  private lpBlockKey(lang: string, code: string): string {
+    return `${lang}\0${code}`;
+  }
+
+  /**
+   * Return the cached `ocode-wrapper` for a block, building and caching it via
+   * `build()` on a miss. Reusing the same node keeps streaming output and the
+   * running process alive across the cursor moving in/out of the block.
+   */
+  private getCachedLpWrapper(notePath: string, key: string, build: () => HTMLElement | null): HTMLElement | null {
+    let perNote = this.lpWrapperCache.get(notePath);
+    const existing = perNote?.get(key);
+    if (existing) return existing;
+    const wrapper = build();
+    if (!wrapper) return null;
+    if (!perNote) { perNote = new Map(); this.lpWrapperCache.set(notePath, perNote); }
+    perNote.set(key, wrapper);
+    return wrapper;
+  }
+
+  /**
+   * Evict cached wrappers for a note whose keys are no longer present in the
+   * document, so edited/removed blocks don't leak DOM (and their processes).
+   * `liveKeys` is the set of block keys currently in the doc.
+   */
+  private pruneLpWrapperCache(notePath: string, liveKeys: Set<string>): void {
+    const perNote = this.lpWrapperCache.get(notePath);
+    if (!perNote) return;
+    for (const [key, wrapper] of perNote) {
+      if (!liveKeys.has(key)) {
+        this.runningProcs.get(wrapper)?.cancel();
+        this.runningProcs.delete(wrapper);
+        perNote.delete(key);
+      }
+    }
+    if (perNote.size === 0) this.lpWrapperCache.delete(notePath);
+  }
+
+  /** Drop all cached wrappers for a note, cancelling any processes they own. */
+  private dropLpWrapperCache(notePath: string): void {
+    const perNote = this.lpWrapperCache.get(notePath);
+    if (!perNote) return;
+    for (const wrapper of perNote.values()) {
+      this.runningProcs.get(wrapper)?.cancel();
+      this.runningProcs.delete(wrapper);
+    }
+    this.lpWrapperCache.delete(notePath);
   }
 
   /**
@@ -694,8 +1071,11 @@ export default class CodePlugin extends Plugin {
     const source = view.getViewData();
     if (!source) return;
     const skipStates = this.parseSkipStatesFromSource(source);
+    // Scope to the reading view only. Live Preview widgets bake their skip
+    // badge in at build time, and the cursor's block has no widget — including
+    // them here would misalign the source-parsed skip-state index.
     const wrappers = Array.from(
-      view.contentEl.querySelectorAll<HTMLElement>('.ocode-wrapper[data-ocode-fenced="1"]')
+      view.contentEl.querySelectorAll<HTMLElement>('.markdown-reading-view .ocode-wrapper[data-ocode-fenced="1"]')
     );
     let idx = 0;
     for (const wrapper of wrappers) {
@@ -726,8 +1106,10 @@ export default class CodePlugin extends Plugin {
    * to finish before starting the next (so shared context accumulates in order).
    */
   private async runAllBlocks(view: MarkdownView): Promise<void> {
+    // Run All operates on the reading view (deterministic block order with no
+    // cursor-revealed gaps). Live Preview blocks have their own Run buttons.
     const runBtns = Array.from(
-      view.contentEl.querySelectorAll<HTMLButtonElement>(".ocode-run-pill")
+      view.contentEl.querySelectorAll<HTMLButtonElement>(".markdown-reading-view .ocode-run-pill")
     );
     if (runBtns.length === 0) {
       new Notice("No executable code blocks found. Switch to reading view first.");
@@ -1298,7 +1680,6 @@ __ocode_emit_vars
 
       // Skip languages that Obsidian (or its plugins) render natively — let
       // them handle the block so we don't swallow their output.
-      const PASSTHROUGH_LANGS = new Set(["mermaid", "dataview", "dataviewjs", "query"]);
       if (PASSTHROUGH_LANGS.has(rawLang.toLowerCase())) continue;
 
       // `vars` blocks define note-scoped variables inline — parse and store immediately.
@@ -1360,6 +1741,16 @@ __ocode_emit_vars
    * hint and use triple-quoted (`"""` / `'''`) multiline strings.
    */
   private renderVarsBlock(originalPre: HTMLElement, source: string, sourcePath: string): void {
+    originalPre.replaceWith(this.buildVarsWrapper(source, sourcePath));
+  }
+
+  /**
+   * Build the `ocode-wrapper` for a ```vars block (INI-highlighted body, vars
+   * header with Copy + Apply) and seed the note's var stores. Shared by the
+   * reading-view post-processor ({@link renderVarsBlock}) and the Live Preview
+   * block widget.
+   */
+  private buildVarsWrapper(source: string, sourcePath: string): HTMLElement {
     const entries = parseVarsSource(source);
 
     // Seed both stores with the typed values
@@ -1422,7 +1813,7 @@ __ocode_emit_vars
     header.appendChild(btnGroup);
     wrapper.insertBefore(header, wrapper.firstChild);
 
-    originalPre.replaceWith(wrapper);
+    return wrapper;
   }
 
   /**
@@ -1573,11 +1964,32 @@ __ocode_emit_vars
     forceSkip = false,
     forceCollapsed: boolean | null = null,
   ) {
+    const wrapper = this.buildCodeBlockWrapper(
+      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed,
+    );
+    if (wrapper) originalPre.replaceWith(wrapper);
+  }
+
+  /**
+   * Build the `ocode-wrapper` chrome (header, Shiki body, line numbers, collapse)
+   * for a code block and return it. Shared by the reading-view post-processor
+   * ({@link renderCodeBlock}) and the Live Preview block widget so both views
+   * render identical chrome. Returns `null` only when highlighting fails.
+   */
+  private buildCodeBlockWrapper(
+    code: string,
+    lang: string,
+    displayLang: string,
+    fileName?: string,
+    sourcePath?: string,
+    forceSkip = false,
+    forceCollapsed: boolean | null = null,
+  ): HTMLElement | null {
     // Strip a single trailing newline so Shiki doesn't emit a dangling empty
     // `.line` span — that's what made every block render one line too tall (#24).
     const displayCode = code.replace(/\n$/, "");
     const html = this.highlighter.highlight(displayCode, lang, this.settings.theme);
-    if (!html) return;
+    if (!html) return null;
 
     const wrapper = createDiv();
     wrapper.className = "ocode-wrapper";
@@ -1678,7 +2090,7 @@ __ocode_emit_vars
     if (!fileName && isExecutable(lang)) {
       wrapper.setAttribute("data-ocode-fenced", "1");
     }
-    originalPre.replaceWith(wrapper);
+    return wrapper;
   }
 
   /**
@@ -2117,24 +2529,31 @@ __ocode_emit_vars
   }
 
   private async renderEmbeddedFile(embedEl: HTMLElement, file: TFile, ext: string, sourcePath?: string) {
-    const code = await this.app.vault.read(file);
-    const lang = this.highlighter.resolveExtension(ext);
-
     // Replace the .internal-embed element with a plain container so
     // Obsidian's click-to-open handler is completely severed.
     const container = createDiv();
     container.className = "ocode-embed-container";
     embedEl.replaceWith(container);
+    await this.populateEmbedContainer(container, file, ext, sourcePath);
+  }
 
-    // Re-use the same render path
-    const tempPre = createEl("pre");
-    container.appendChild(tempPre);
+  /**
+   * Read `file`, render its contents as an embedded code block, and append the
+   * resulting `ocode-wrapper` into `container`. Shared by the reading-view
+   * embed post-processor ({@link renderEmbeddedFile}) and the Live Preview
+   * embed widget. The read is async, so callers get a synchronously-returned
+   * (empty) container that fills in once the file is read.
+   */
+  private async populateEmbedContainer(container: HTMLElement, file: TFile, ext: string, sourcePath?: string) {
+    const code = await this.app.vault.read(file);
+    const lang = this.highlighter.resolveExtension(ext);
 
-    this.renderCodeBlock(tempPre, code, lang, lang, file.name, sourcePath);
+    const wrapper = this.buildCodeBlockWrapper(code, lang, lang, file.name, sourcePath);
+    if (!wrapper) return;
+    container.empty();
+    container.appendChild(wrapper);
 
     // Mark as embedded
-    const wrapper = container.querySelector(".ocode-wrapper");
-    if (!wrapper) return;
     wrapper.classList.add("ocode-embedded");
 
     // Always show filename and make it a link to the file
@@ -2150,7 +2569,7 @@ __ocode_emit_vars
     // already had a collapse toggle attached (via inlineCollapsible), but
     // makeCollapsible no-ops when an arrow is already present, so this is safe.
     if (this.settings.collapseEmbeds) {
-      this.makeCollapsible(wrapper as HTMLElement, true);
+      this.makeCollapsible(wrapper, true);
     }
   }
 }

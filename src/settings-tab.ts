@@ -203,7 +203,11 @@ export class CodeSettingTab extends PluginSettingTab {
       .setDesc("Show line numbers in code blocks (reading view only).")
       .addToggle((t) => {
         t.setValue(this.plugin.settings.showLineNumbers);
-        t.onChange(async (v) => { this.plugin.settings.showLineNumbers = v; await this.plugin.saveSettings(); });
+        t.onChange(async (v) => {
+          this.plugin.settings.showLineNumbers = v;
+          activeDocument.body.toggleClass("ocode-lp-lnum", v);
+          await this.plugin.saveSettings();
+        });
       });
 
     new Setting(containerEl)
