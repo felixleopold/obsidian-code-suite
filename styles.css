@@ -511,6 +511,50 @@ body.ocode-wide-blocks .ocode-wrapper {
   color: var(--ocode-muted, #928374);
 }
 
+/* ─── Edit-state line-number gutter (Live Preview reveal) ─────
+   When the cursor enters a block its chrome widget is dropped and Obsidian
+   shows the raw HyperMD lines. Without numbers there, clicking in flashes a
+   gutter-less "native" block before our chrome returns. Mirror the gutter here
+   (CSS counters) so the revealed source lines up with the chrome it replaced.
+   Gated by `body.ocode-lp-lnum`, which tracks the Line numbers setting.
+   Fence lines (begin/end) are not numbered — they have no number in chrome. */
+body.ocode-lp-lnum .cm-s-obsidian .cm-line.HyperMD-codeblock-begin {
+  counter-reset: ocode-lp-ln;
+}
+
+body.ocode-lp-lnum
+  .cm-s-obsidian
+  .cm-line.HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) {
+  counter-increment: ocode-lp-ln;
+  position: relative;
+  padding-left: calc(3em + 28px);
+}
+
+body.ocode-lp-lnum
+  .cm-s-obsidian
+  .cm-line.HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end)::before {
+  content: counter(ocode-lp-ln);
+  position: absolute;
+  left: 4px;
+  width: 3em;
+  text-align: right;
+  color: var(--ocode-line-num, #504945);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  /* Number is chrome, not source — never let a drag select it. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Obsidian's native Live Preview language widget — a span Obsidian injects at the
+   top-right of every code block's opening fence (class `code-block-flair`, doubles
+   as a copy button). When the cursor enters a block our chrome widget is dropped
+   and this native flair paints in the corner — the "Python top-right" flash. We
+   render our own header/Copy, so suppress it everywhere in the editor. */
+.cm-s-obsidian .code-block-flair {
+  display: none !important;
+}
+
 /* Inline code in editor */
 .cm-s-obsidian .cm-inline-code {
   background-color: var(--ocode-bg, #1d2021);
@@ -861,5 +905,36 @@ body.ocode-wide-blocks .ocode-wrapper {
 /* Prevent line hover highlight firing on the (pointer-events:none) bg layer */
 .ocode-file-page .ocode-file-full-page .ocode-file-editor-bg .line:hover {
   background: none;
+}
+
+/* ─── Live Preview block widgets ──────────────── */
+/* In Live Preview the same ocode-wrapper chrome is rendered inside the CM6
+   editor via block-replace widgets. These rules position it within the editor
+   content flow and keep the chrome non-editable while leaving code/output
+   selectable. */
+.cm-content .ocode-wrapper,
+.cm-content .ocode-embed-container {
+  margin: 0.5em 0;
+  /* Header/buttons are UI, not editable text — don't let drags select them. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Code body and output text stay selectable/copyable. */
+.cm-content .ocode-wrapper pre.shiki,
+.cm-content .ocode-wrapper pre.shiki code,
+.cm-content .ocode-wrapper .ocode-output-content {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Clicking the code body should feel like entering text to edit. */
+.cm-content .ocode-wrapper pre.shiki {
+  cursor: text;
+}
+
+/* Highlighting failed for this block — hide the empty fallback box. */
+.cm-content .ocode-lp-empty {
+  display: none;
 }
 

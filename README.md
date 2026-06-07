@@ -28,6 +28,7 @@ Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses 
 - **Auto light/dark switching** — set a separate theme for each mode; CodeSuite switches when Obsidian's appearance changes
 - **36+ languages** with common aliases (`py`, `js`, `ts`, `rb`, …)
 - **Editor highlighting** — full token colors in Live Preview and Source mode via a CodeMirror 6 ViewPlugin, not just in Reading view
+- **Full chrome in Live Preview** — code blocks and `![[file.py]]` embeds render with the same header, Run/Copy buttons, live output, line numbers, and collapse as Reading view. The block your cursor is in reveals its raw source for editing; every other block shows the rendered chrome, with running output preserved as you move around
 
 ---
 
@@ -182,6 +183,8 @@ The following features are on the roadmap. Track progress or vote on the linked 
 | 1 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
 | 2 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
 | 3 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+
+> Shipped in 1.7.0: full code-block chrome in Live Preview — header, Run/Copy, live output, line numbers, collapse, and `![[file.py]]` embeds now render in Live Preview (not just Reading view); the cursor's block reveals raw source for editing, and a per-block DOM cache keeps streaming output alive as you move the cursor.
 
 > Shipped in 1.6.0: typed `vars`/`code_vars` injection with `:type` hints and triple-quoted multiline strings ([#16](https://github.com/felixleopold/obsidian-code-suite/issues/16)), live cross-language variable propagation, experimental data tables (`%% codesuite: … %%`).
 
