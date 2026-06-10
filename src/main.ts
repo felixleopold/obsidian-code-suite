@@ -125,12 +125,50 @@ function blockHasSkipMarker(code: string): boolean {
  */
 const PASSTHROUGH_LANGS = new Set(["mermaid", "dataview", "dataviewjs", "query"]);
 
+/**
+ * Strip an opening fence's indentation from one of its content lines. Mirrors
+ * CommonMark, which removes up to the fence's indent from each line: an exact
+ * prefix match is removed whole; otherwise leading whitespace is consumed up
+ * to the indent's length (tolerating tab/space mixes).
+ */
+function stripFenceIndent(line: string, indent: string): string {
+  if (!indent) return line;
+  if (line.startsWith(indent)) return line.slice(indent.length);
+  let i = 0;
+  while (i < indent.length && i < line.length && (line[i] === " " || line[i] === "\t")) i++;
+  return line.slice(i);
+}
+
+/** Tiny stable hash (djb2) used to match source code blocks to rendered wrappers. */
+function codeHash(s: string): string {
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/** One runnable unit in a Run All pass, parsed from the note source. */
+interface RunAllEntry {
+  /** Executable fenced block, or an embedded code file on its own line. */
+  kind: "fence" | "embed";
+  /** 0-based source line of the opening fence / embed — scroll target when the
+   *  block's section is virtualized out of the reading view. */
+  line: number;
+  /** Excluded from Run All (fence `skip` attribute or codesuite:skip marker). */
+  skip: boolean;
+  /** Hash of the dedented code; matches the wrapper's data-ocode-hash. Fences only. */
+  hash?: string;
+  /** Embedded file's basename — matches the wrapper's header label. Embeds only. */
+  name?: string;
+}
+
 /** A fenced code block located in an editor document, with absolute positions. */
 interface FencedBlock {
   /** Raw language token from the opening fence info string (may be ""). */
   lang: string;
   /** Full opening fence info string (everything after the backticks, trimmed). */
   info: string;
+  /** Leading whitespace before the opening fence (list-nested blocks). */
+  indent: string;
   /** Doc position of the start of the opening fence line. */
   openFrom: number;
   /** Doc position of the end of the closing fence line. */
@@ -153,6 +191,7 @@ function scanFencedBlocks(doc: Text): FencedBlock[] {
   let inBlock = false;
   let lang = "";
   let info = "";
+  let indent = "";
   let openFrom = 0;
   let innerLines: { text: string; from: number }[] = [];
   for (let i = 1; i <= doc.lines; i++) {
@@ -162,12 +201,14 @@ function scanFencedBlocks(doc: Text): FencedBlock[] {
       inBlock = true;
       info = trimmed.slice(3).trim();
       lang = info.split(/\s/)[0];
+      indent = line.text.slice(0, line.text.length - trimmed.length);
       openFrom = line.from;
       innerLines = [];
     } else if (inBlock && /^`{3,}\s*$/.test(trimmed)) {
       blocks.push({
         lang,
         info,
+        indent,
         openFrom,
         closeTo: line.to,
         innerLines: [...innerLines],
@@ -176,6 +217,7 @@ function scanFencedBlocks(doc: Text): FencedBlock[] {
       inBlock = false;
       lang = "";
       info = "";
+      indent = "";
       innerLines = [];
     } else if (inBlock) {
       innerLines.push({ text: line.text, from: line.from });
@@ -273,6 +315,12 @@ export default class CodePlugin extends Plugin {
   highlighter: Highlighter = new Highlighter();
   /** Track running processes per wrapper element for cancel */
   private runningProcs: Map<HTMLElement, RunningProcess> = new Map();
+  /**
+   * Tail of the per-note run queue: resolves when the most recently started
+   * (or queued) run in that note finishes. Shared-context runs chain onto it
+   * so rapid manual clicks execute in click order instead of racing (#25).
+   */
+  private noteRunQueue: Map<string, Promise<void>> = new Map();
   /**
    * Live Preview block-widget DOM cache. Maps note path → blockKey
    * (`lang\0code`) → the rendered `ocode-wrapper`. CM6 recreates widgets on
@@ -882,7 +930,15 @@ export default class CodePlugin extends Plugin {
 
         const isVars = rawLang === "vars";
         const resolvedLang = isVars ? "vars" : this.highlighter.resolveLanguage(block.lang);
-        const key = `${this.lpBlockKey(resolvedLang, block.code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${sig}`;
+        // A list-nested block's lines carry the fence's indentation — strip it
+        // (like the reading-view markdown renderer does) so the rendered code,
+        // its cache key, and what Run executes are all dedented (#27).
+        const code = block.indent
+          ? block.innerLines.map((l) => stripFenceIndent(l.text, block.indent)).join("\n")
+          : block.code;
+        // Visual indent in editor columns, so the widget lines up with its list.
+        const indentCols = this.indentColumns(block.indent, state.tabSize);
+        const key = `${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${indentCols}\0${sig}`;
         // Register the key BEFORE the cursor check so a block being edited (or
         // running) is never pruned out from under its live output / process.
         liveKeys.add(key);
@@ -890,15 +946,21 @@ export default class CodePlugin extends Plugin {
         // Cursor inside (incl. fence lines) → reveal raw source for editing.
         if (overlapsSelection(block.openFrom, block.closeTo)) continue;
 
-        const code = block.code;
         const resolve = (): HTMLElement | null =>
-          this.getCachedLpWrapper(notePath, key, () =>
-            isVars
+          this.getCachedLpWrapper(notePath, key, () => {
+            const w = isVars
               ? this.buildVarsWrapper(code, notePath)
               : this.buildCodeBlockWrapper(
                   code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed, htmlPreview,
-                )
-          );
+                );
+            // Indent the widget to match its list nesting (#27); ch units track
+            // the indent's column width closely enough for a clear visual cue.
+            if (w && indentCols > 0) {
+              w.addClass("ocode-lp-indented");
+              w.setCssProps({ "--ocode-lp-indent": `${indentCols}ch` });
+            }
+            return w;
+          });
 
         items.push({
           from: block.openFrom,
@@ -1007,6 +1069,13 @@ export default class CodePlugin extends Plugin {
     return `${lang}\0${code}`;
   }
 
+  /** Visual width of a fence indent in editor columns (tabs expand to tab stops). */
+  private indentColumns(indent: string, tabSize: number): number {
+    let cols = 0;
+    for (const ch of indent) cols += ch === "\t" ? tabSize - (cols % tabSize) : 1;
+    return cols;
+  }
+
   /**
    * Return the cached `ocode-wrapper` for a block, building and caching it via
    * `build()` on a miss. Reusing the same node keeps streaming output and the
@@ -1100,32 +1169,46 @@ export default class CodePlugin extends Plugin {
   }
 
   /**
-   * Parse the current note source and return a skip-state boolean for each
-   * executable fenced code block (in source order). Used by runAllBlocks so
-   * that skip markers added/removed since the last reading-view render are
-   * honoured without requiring a note reopen (fixes GitHub issue #15).
+   * Parse the note source into the ordered list of runnable units Run All
+   * works through: executable fenced blocks (with their dedented code, skip
+   * state, and a hash for matching the rendered wrapper) and embedded code
+   * files. Source-driven so skip markers edited since the last render are
+   * honoured (#15) and blocks virtualized out of the reading view are still
+   * found (#25).
    */
-  private parseSkipStatesFromSource(source: string): boolean[] {
-    const states: boolean[] = [];
+  private parseRunAllPlan(source: string): RunAllEntry[] {
+    const entries: RunAllEntry[] = [];
     const lines = source.split("\n");
+    const embedRe = /^!\[\[([^\]|]+?\.[a-zA-Z0-9]+)(?:\|[^\]]*)?\]\]$/;
     let i = 0;
     while (i < lines.length) {
       const line = lines[i];
-      const fenceMatch = line.match(/^([`~]{3,})(.*)/);
-      if (!fenceMatch) { i++; continue; }
-      const fenceChar = fenceMatch[1][0];
-      const fenceLen  = fenceMatch[1].length;
-      const infoStr   = fenceMatch[2].trim();
+      const fenceMatch = line.match(/^(\s*)([`~]{3,})(.*)/);
+      if (!fenceMatch) {
+        const em = line.trim().match(embedRe);
+        if (em) {
+          const ext = (em[1].match(/\.[a-zA-Z0-9]+$/)?.[0] ?? "").toLowerCase();
+          if (CODE_FILE_EXTENSIONS.has(ext)) {
+            entries.push({ kind: "embed", line: i, skip: false, name: em[1].split("/").pop() });
+          }
+        }
+        i++; continue;
+      }
+      const indent    = fenceMatch[1];
+      const fenceChar = fenceMatch[2][0];
+      const fenceLen  = fenceMatch[2].length;
+      const infoStr   = fenceMatch[3].trim();
       const parts     = infoStr.split(/\s+/);
       const rawLang   = (parts[0] ?? "").toLowerCase();
       const forceSkip = parts.slice(1).map((w) => w.toLowerCase()).includes("skip");
+      const openLine  = i;
       // Collect block content
       const contentLines: string[] = [];
       i++;
       while (i < lines.length) {
         const l = lines[i];
-        const cm = l.match(/^([`~]{3,})(.*)/);
-        if (cm && cm[1][0] === fenceChar && cm[1].length >= fenceLen && cm[2].trim() === "") {
+        const cm = l.match(/^(\s*)([`~]{3,})(.*)/);
+        if (cm && cm[2][0] === fenceChar && cm[2].length >= fenceLen && cm[3].trim() === "") {
           i++; break; // consume closing fence
         }
         contentLines.push(l);
@@ -1136,9 +1219,26 @@ export default class CodePlugin extends Plugin {
       if (PASSTHROUGH_LANGS.has(rawLang) || rawLang === "vars") continue;
       const resolvedLang = this.highlighter.resolveLanguage(rawLang);
       if (!isExecutable(resolvedLang)) continue;
-      states.push(forceSkip || blockHasSkipMarker(contentLines.join("\n")));
+      // Dedent like the markdown renderer so the hash matches the rendered code.
+      const code = contentLines.map((l) => stripFenceIndent(l, indent)).join("\n");
+      entries.push({
+        kind: "fence",
+        line: openLine,
+        skip: forceSkip || blockHasSkipMarker(code),
+        hash: codeHash(code.trim()),
+      });
     }
-    return states;
+    return entries;
+  }
+
+  /**
+   * Skip-state booleans for each executable fenced block in source order —
+   * the view syncSkipBadges aligns against rendered wrappers (#15).
+   */
+  private parseSkipStatesFromSource(source: string): boolean[] {
+    return this.parseRunAllPlan(source)
+      .filter((e) => e.kind === "fence")
+      .map((e) => e.skip);
   }
 
   /** Queue a lightweight skip-badge DOM sync for already-rendered views. */
@@ -1203,63 +1303,48 @@ export default class CodePlugin extends Plugin {
   /**
    * Run every executable code block in the view sequentially, waiting for each
    * to finish before starting the next (so shared context accumulates in order).
+   *
+   * Plan-driven from the note *source*, not the DOM: the reading view
+   * virtualizes sections, so blocks scrolled far off screen have no wrapper —
+   * the old DOM-snapshot approach silently missed them (#25). Each entry is
+   * located (scrolling its section into render if needed), brought into view
+   * so progress is visible, run, and awaited.
    */
   private async runAllBlocks(view: MarkdownView): Promise<void> {
-    // Run All operates on the reading view (deterministic block order with no
-    // cursor-revealed gaps). Live Preview blocks have their own Run buttons.
-    const runBtns = Array.from(
-      view.contentEl.querySelectorAll<HTMLButtonElement>(".markdown-reading-view .ocode-run-pill")
-    );
-    if (runBtns.length === 0) {
-      new Notice("No executable code blocks found. Switch to reading view first.");
+    if (view.getMode() !== "preview") {
+      new Notice("Switch to reading view to run all code blocks.");
+      return;
+    }
+    const plan = this.parseRunAllPlan(view.getViewData());
+    const runnable = plan.filter((e) => !e.skip);
+    if (runnable.length === 0) {
+      new Notice("No executable code blocks found.");
       return;
     }
     // Sync badges first so the visual state is correct before we start running.
     this.syncSkipBadges(view);
-    const skipStates = this.parseSkipStatesFromSource(view.getViewData());
+
+    const used = new Set<HTMLElement>();
     let ran = 0;
-    let fencedIdx = 0;
-    for (const btn of runBtns) {
-      const wrapper = btn.closest<HTMLElement>(".ocode-wrapper");
-      if (!wrapper) continue;
-      // Embedded file blocks are not present in the note source and are
-      // excluded from skipStates — fall back to their DOM class.
-      // All other (inline fenced) blocks use the live-parsed state. We check
-      // ocode-embedded rather than data-ocode-fenced so this works even for
-      // blocks rendered before the attribute was introduced (fixes #15).
-      let shouldSkip: boolean;
-      if (!wrapper.classList.contains("ocode-embedded")) {
-        // Inline fenced block — use source-parsed state.
-        shouldSkip = fencedIdx < skipStates.length
-          ? skipStates[fencedIdx]
-          : wrapper.classList.contains("ocode-skip-run-all");
-        // Advance BEFORE the cancel-pill check so already-running blocks still
-        // consume their slot in skipStates (they exist in the source too).
-        fencedIdx++;
-      } else {
-        // Embedded file block — fall back to DOM class.
-        shouldSkip = wrapper.classList.contains("ocode-skip-run-all");
-      }
-      if (btn.classList.contains("ocode-cancel-pill")) continue; // already running
-      if (shouldSkip) continue;
+    let missing = 0;
+    for (const entry of runnable) {
+      const wrapper = await this.locateRunAllWrapper(view, entry, used);
+      if (!wrapper) { missing++; continue; }
+      used.add(wrapper);
+      const btn = wrapper.querySelector<HTMLButtonElement>(".ocode-run-pill");
+      if (!btn) continue;                                          // execution disabled / not runnable
+      if (btn.classList.contains("ocode-cancel-pill")) continue;   // already running or queued
+      // Embedded files aren't in skipStates — honour their DOM skip class.
+      if (entry.kind === "embed" && wrapper.classList.contains("ocode-skip-run-all")) continue;
+
+      // Follow progress: keep the running block in view (it also carries the
+      // ocode-running highlight while its process is live).
+      wrapper.scrollIntoView({ block: "center" });
       btn.click();
       ran++;
       // runCode runs synchronously up to its first await, so runningProcs.set()
       // is already called by the time btn.click() returns. Poll for completion.
-      await new Promise<void>((resolve) => {
-        // Safety net sized to the execution timeout (which kills the process)
-        // plus slack for spawn/teardown, so Run All never gives up on a block
-        // the executor itself would still allow to finish.
-        const deadline = Date.now() + this.settings.executionTimeout + 10_000;
-        const poll = () => {
-          if (!this.runningProcs.has(wrapper) || Date.now() > deadline) {
-            resolve();
-          } else {
-            window.setTimeout(poll, 150);
-          }
-        };
-        window.setTimeout(poll, 150);
-      });
+      await this.waitForBlockCompletion(wrapper);
       // Stop Run All if the block exited with an error so later blocks don't
       // run against incomplete shared context and produce confusing failures.
       const label = wrapper.querySelector<HTMLElement>(".ocode-output-label");
@@ -1275,6 +1360,61 @@ export default class CodePlugin extends Plugin {
       await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
     }
     if (ran === 0) new Notice("All code blocks are currently running.");
+    else if (missing > 0) new Notice(`Run all: ${missing} block${missing === 1 ? "" : "s"} could not be located and ${missing === 1 ? "was" : "were"} skipped.`);
+  }
+
+  /**
+   * Find the rendered reading-view wrapper for a Run All entry. When its
+   * section is virtualized out of the DOM, scroll the preview to the entry's
+   * source line so Obsidian renders it, then wait for the wrapper (and an
+   * embed's async file read) to appear. `used` prevents a duplicate code block
+   * from matching the same wrapper twice.
+   */
+  private async locateRunAllWrapper(
+    view: MarkdownView,
+    entry: RunAllEntry,
+    used: Set<HTMLElement>,
+  ): Promise<HTMLElement | null> {
+    const selector = entry.kind === "fence"
+      ? `.markdown-reading-view .ocode-wrapper[data-ocode-hash="${entry.hash}"]`
+      : ".markdown-reading-view .ocode-wrapper.ocode-embedded";
+    const find = (): HTMLElement | null => {
+      for (const w of Array.from(view.contentEl.querySelectorAll<HTMLElement>(selector))) {
+        if (used.has(w)) continue;
+        // Embeds carry no hash — pin the match to the file shown in the header
+        // so a missing/unrendered embed can't steal a later one's wrapper.
+        if (entry.name && w.querySelector(".ocode-label")?.textContent !== entry.name) continue;
+        return w;
+      }
+      return null;
+    };
+    let wrapper = find();
+    if (wrapper) return wrapper;
+    view.currentMode.applyScroll(entry.line);
+    const deadline = Date.now() + 3000;
+    while (!wrapper && Date.now() < deadline) {
+      await new Promise<void>((r) => window.setTimeout(r, 100));
+      wrapper = find();
+    }
+    return wrapper;
+  }
+
+  /** Resolve when the wrapper's process has finished (or the safety deadline passes). */
+  private waitForBlockCompletion(wrapper: HTMLElement): Promise<void> {
+    return new Promise<void>((resolve) => {
+      // Safety net sized to the execution timeout (which kills the process)
+      // plus slack for spawn/teardown, so Run All never gives up on a block
+      // the executor itself would still allow to finish.
+      const deadline = Date.now() + this.settings.executionTimeout + 10_000;
+      const poll = () => {
+        if (!this.runningProcs.has(wrapper) || Date.now() > deadline) {
+          resolve();
+        } else {
+          window.setTimeout(poll, 150);
+        }
+      };
+      window.setTimeout(poll, 150);
+    });
   }
 
   /**
@@ -2687,9 +2827,11 @@ __ocode_emit_vars
     // Mark inline executable blocks so badge-sync logic can align them with the
     // source-parsed skip-state array. Embedded files, vars blocks, and other
     // non-runnable code blocks are excluded because parseSkipStatesFromSource()
-    // does not count them.
+    // does not count them. The code hash lets Run All match a source-parsed
+    // block to its rendered wrapper even when duplicates exist (#25).
     if (!fileName && isExecutable(lang)) {
       wrapper.setAttribute("data-ocode-fenced", "1");
+      wrapper.setAttribute("data-ocode-hash", codeHash(code.trim()));
     }
 
     // Re-attach a previously-run output (this session) so it survives reading-
@@ -2974,7 +3116,14 @@ __ocode_emit_vars
     textSpan.className = "ocode-pill-text";
     textSpan.textContent = text;
     btn.appendChild(textSpan);
-    btn.addEventListener("click", onClick);
+    btn.addEventListener("click", (e) => {
+      // Stop the bubble to the header's collapse toggle. Its closest(".ocode-pill")
+      // guard is not enough: handlers like Run/Copy swap the icon SVG, so by the
+      // time the event reaches the header, e.target (the old SVG) is detached and
+      // closest() finds nothing — collapsing the block on an exact icon click (#26).
+      e.stopPropagation();
+      onClick();
+    });
     return btn;
   }
 
@@ -2987,11 +3136,50 @@ __ocode_emit_vars
     runBtn: HTMLButtonElement,
     sourcePath?: string
   ) {
-    // If already running, this is a cancel click
+    // If already running (or queued), this is a cancel click
     const existingProc = this.runningProcs.get(wrapper);
     if (existingProc) {
       existingProc.cancel();
       return;
+    }
+
+    // ─── Per-note run queue (#25) ──────────────────────────────────
+    // With shared context, concurrent runs in one note race the session replay
+    // (and each other's variable snapshots). Serialize: each run waits for the
+    // note's previous run before *building* its execution script, so context
+    // accumulates in click order. The queued state is cancellable via a
+    // placeholder process entry (a second click on "Queued" aborts it).
+    let releaseQueue: (() => void) | undefined;
+    let queueTail: Promise<void> | null = null;
+    if (this.settings.sharedContext && sourcePath !== undefined) {
+      const prevTail = this.noteRunQueue.get(sourcePath);
+      // The executor runs synchronously, so `resolveTail` is assigned here.
+      let resolveTail!: () => void;
+      queueTail = new Promise<void>((r) => (resolveTail = r));
+      releaseQueue = resolveTail;
+      this.noteRunQueue.set(sourcePath, queueTail);
+      if (prevTail) {
+        let cancelledWhileQueued = false;
+        this.runningProcs.set(wrapper, {
+          promise: Promise.resolve({ stdout: "", stderr: "", exitCode: null, killed: true, figures: [] }),
+          cancel: () => { cancelledWhileQueued = true; },
+          writeStdin: () => {},
+          closeStdin: () => {},
+        });
+        setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.stop);
+        runBtn.querySelector(".ocode-pill-text")!.textContent = "Queued";
+        runBtn.classList.add("ocode-cancel-pill");
+        await prevTail;
+        this.runningProcs.delete(wrapper);
+        if (cancelledWhileQueued) {
+          releaseQueue?.();
+          if (this.noteRunQueue.get(sourcePath) === queueTail) this.noteRunQueue.delete(sourcePath);
+          setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.play);
+          runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
+          runBtn.classList.remove("ocode-cancel-pill");
+          return;
+        }
+      }
     }
 
     // ─── Shared context ───────────────────────────────────────────
@@ -3167,6 +3355,8 @@ __ocode_emit_vars
       },
     }, vaultPath);
     this.runningProcs.set(wrapper, proc);
+    // Progress cue (#25): highlight the block while its process is live.
+    wrapper.classList.add("ocode-running");
 
     // ─── Wire up stdin ───
     const doSend = () => {
@@ -3290,6 +3480,13 @@ __ocode_emit_vars
       new Notice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       this.runningProcs.delete(wrapper);
+      wrapper.classList.remove("ocode-running");
+      // Hand the note's queue to the next waiting run (and drop the map entry
+      // when no one is waiting, so closed notes don't accumulate tails).
+      releaseQueue?.();
+      if (sourcePath !== undefined && this.noteRunQueue.get(sourcePath) === queueTail) {
+        this.noteRunQueue.delete(sourcePath);
+      }
       // Restore run button
       setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.play);
       runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";

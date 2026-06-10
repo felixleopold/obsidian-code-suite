@@ -100,7 +100,8 @@ Each note maintains an in-memory execution session — the closest thing to a Ju
   ---
   ```
   A `vars` block in the body still wins if both define the same key.
-- **Run All** — runs every executable block top-to-bottom in sequence, stopping on the first error. Mark a block to keep it out of Run All by adding `skip` to its fence header (e.g. ` ```python skip ` — recommended, keeps the code clean), or by putting a `codesuite:skip` marker on its first line in any comment style (`# codesuite:skip`, `// codesuite:skip`, `-- codesuite:skip`, `/* codesuite:skip */`, …). Skipped blocks display a small **skip** badge in their toolbar.
+- **Run All** — runs every executable block top-to-bottom in sequence, stopping on the first error. The view scrolls along with the run and the executing block is highlighted, so progress is easy to follow. Mark a block to keep it out of Run All by adding `skip` to its fence header (e.g. ` ```python skip ` — recommended, keeps the code clean), or by putting a `codesuite:skip` marker on its first line in any comment style (`# codesuite:skip`, `// codesuite:skip`, `-- codesuite:skip`, `/* codesuite:skip */`, …). Skipped blocks display a small **skip** badge in their toolbar.
+- **Queued runs** — with shared context on, clicking Run on several blocks queues them in click order instead of running them concurrently; a queued block's button shows **Queued** (click again to cancel).
 - **Clear Session** — reset all accumulated state from the note header button
 - **Copy output** — every successful run gets a **Copy output** pill next to the Clear button
 

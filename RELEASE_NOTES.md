@@ -11,7 +11,10 @@ The notebook release — interactive Plotly widgets, Jupyter import/export, styl
 
 ## Bug Fixes
 
-- Run All no longer gives up on long-running blocks at 2 minutes — its safety timeout now follows the configured execution timeout.
+- **Run All actually runs all blocks** ([#25](https://github.com/felixleopold/obsidian-code-suite/issues/25)) — execution is now driven from the note source instead of the rendered DOM, so blocks Obsidian had virtualized off screen are scrolled into view and run instead of being silently skipped. The view follows the running block, which is highlighted while its process is live. The per-block safety timeout also follows the configured execution timeout instead of a hardcoded 2 minutes.
+- **Queued execution** ([#25](https://github.com/felixleopold/obsidian-code-suite/issues/25)) — with shared context on, clicking Run on several blocks queues them in click order (the button shows *Queued*; click again to cancel) instead of racing the session replay.
+- **Pill clicks no longer collapse the block** ([#26](https://github.com/felixleopold/obsidian-code-suite/issues/26)) — clicking exactly on the Copy/Run icon used to also toggle expand/collapse.
+- **List-nested code blocks in Live Preview** ([#27](https://github.com/felixleopold/obsidian-code-suite/issues/27)) — indented fenced blocks now render with their list indentation instead of snapping flat to the left margin, and their code is dedented like Reading view (so Run executes it without the stray leading whitespace).
 - Output panels restored from a snapshot have working Clear and Copy buttons.
 - Internal cleanup: stale html-preview frame references are garbage-collected, and obsolete lint suppressions were removed.
 

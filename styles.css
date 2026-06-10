@@ -456,6 +456,18 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   border-color: var(--ocode-fg, #ebdbb2);
 }
 
+/* List-nested fenced blocks keep their visual indent in Live Preview (#27).
+   --ocode-lp-indent is set per block from the fence's indent width. */
+.ocode-wrapper.ocode-lp-indented {
+  margin-inline-start: var(--ocode-lp-indent, 0);
+}
+
+/* Block whose process is currently executing — progress cue for Run All and
+   queued manual runs (#25). */
+.ocode-wrapper.ocode-running {
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
 /* ─── Utility classes ─────────────────────────── */
 .ocode-hidden { display: none; }
 .ocode-hidden-input { display: none; }
