@@ -103,6 +103,13 @@ export interface CodePluginSettings {
   darkAutoTheme: string;
   /** Theme to use in light mode when autoTheme is enabled */
   lightAutoTheme: string;
+  /**
+   * Demo/recording only — NOT a user feature, no settings UI. When true, a
+   * "CodeSuite: Cycle theme (demo)" command is registered so a keyboard shortcut
+   * can flick through a curated theme list on camera. Enable by hand-editing
+   * data.json in a scratch vault; leave false everywhere else.
+   */
+  demoThemeCycle?: boolean;
   showLineNumbers: boolean;
   showLanguageLabel: boolean;
   /** Soft-wrap long lines in reading view instead of showing a horizontal scrollbar. */

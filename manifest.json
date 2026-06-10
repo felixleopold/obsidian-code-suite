@@ -3,7 +3,7 @@
   "name": "CodeSuite",
   "version": "1.9.1",
   "minAppVersion": "1.5.0",
-  "description": "Shiki syntax highlighting, live code execution with stdin/stdout streaming, shared variables across blocks, inline $var substitution, Matplotlib/Plotly inline graphs, and embedded file rendering.",
+  "description": "Execute code inside your notes: VS Code-quality Shiki highlighting with 65+ themes, live streaming output, inline Matplotlib and Plotly graphs, shared variables across blocks, Jupyter import and export, plus styled HTML and PDF export with outputs.",
   "author": "Felix Leopold",
   "authorUrl": "https://github.com/felixleopold",
   "isDesktopOnly": false

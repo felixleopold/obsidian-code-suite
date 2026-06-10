@@ -24,6 +24,7 @@ import { startExecution, isExecutable, type RunningProcess } from "./executor";
 import {
   type CodePluginSettings,
   DEFAULT_SETTINGS,
+  BUNDLED_THEMES,
 } from "./settings";
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 import { buildFigureEl } from "./output-view";
@@ -363,6 +364,18 @@ export default class CodePlugin extends Plugin {
 
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
+
+  /** Demo/recording only — curated themes the demo-cycle command steps through. */
+  private static readonly DEMO_THEME_CYCLE = [
+    // popular darks
+    "gruvbox-dark-medium",
+    "catppuccin-mocha",
+    "dracula",
+    // light themes
+    "catppuccin-latte",
+    "rose-pine-dawn",
+  ];
+  private _demoThemeIdx = 0;
   /** Debounce timer for auto-theme switching (css-change can fire many times per mode switch) */
   private _autoThemeTimer: number | null = null;
   /** Debounce timer for queued skip-badge sync passes. */
@@ -449,6 +462,17 @@ export default class CodePlugin extends Plugin {
           if (ok && !checking) void this.exportRenderedNote("pdf");
           return ok;
         },
+      });
+    }
+
+    // Demo/recording only (see CodePluginSettings.demoThemeCycle). Gated behind
+    // a hidden, UI-less setting so it never registers for normal users; bind a
+    // hotkey to flick through a curated theme list on camera.
+    if (this.settings.demoThemeCycle) {
+      this.addCommand({
+        id: "demo-cycle-theme",
+        name: "Cycle theme (demo)",
+        callback: () => { void this.demoCycleTheme(); },
       });
     }
 
@@ -737,6 +761,22 @@ export default class CodePlugin extends Plugin {
     await this.saveSettings();
     this.applyThemeColors();
     await this.refreshHighlighter();
+  }
+
+  /**
+   * Demo/recording only — advance to the next theme in DEMO_THEME_CYCLE and
+   * apply it the same way the auto-theme switch does. Registered only when the
+   * hidden `demoThemeCycle` setting is on.
+   */
+  private async demoCycleTheme(): Promise<void> {
+    const list = CodePlugin.DEMO_THEME_CYCLE;
+    this._demoThemeIdx = (this._demoThemeIdx + 1) % list.length;
+    const next = list[this._demoThemeIdx];
+    this.settings.theme = next;
+    await this.saveSettings();
+    this.applyThemeColors();
+    await this.refreshHighlighter();
+    new Notice(`Theme: ${BUNDLED_THEMES[next] ?? next}`);
   }
 
   /** Apply the current theme's bg/fg colors as CSS variables on the body */
