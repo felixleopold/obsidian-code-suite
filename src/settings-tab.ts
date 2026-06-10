@@ -296,6 +296,36 @@ export class CodeSettingTab extends PluginSettingTab {
         s.onChange(async (v) => { this.plugin.settings.executionTimeout = v * 1000; await this.plugin.saveSettings(); });
       });
 
+    new Setting(containerEl)
+      .setName("Interactive plots")
+      .setDesc("Render Plotly figures as interactive HTML widgets (zoom, pan, hover, legend toggles) instead of static images. The static fallback needs the 'kaleido' package; the interactive path does not. Matplotlib figures are always static images.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.interactivePlots);
+        t.onChange(async (v) => {
+          this.plugin.settings.interactivePlots = v;
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+
+    if (this.plugin.settings.interactivePlots) {
+      new Setting(containerEl)
+        .setName("Embed Plotly.js offline")
+        .setDesc("Bundle the Plotly.js library inline with each interactive plot so it renders without internet. Produces larger output; when off, the library is loaded from a CDN.")
+        .addToggle((t) => {
+          t.setValue(this.plugin.settings.embedPlotlyJs);
+          t.onChange(async (v) => { this.plugin.settings.embedPlotlyJs = v; await this.plugin.saveSettings(); });
+        });
+    }
+
+    new Setting(containerEl)
+      .setName("Matplotlib style")
+      .setDesc("Style applied to all Matplotlib plots. Use a built-in name (e.g. dark_background, seaborn-v0_8-darkgrid) or an absolute path to a .mplstyle file. Leave blank for Matplotlib defaults.")
+      .addText((t) => {
+        t.setValue(this.plugin.settings.matplotlibStyle);
+        t.onChange(async (v) => { this.plugin.settings.matplotlibStyle = v.trim(); await this.plugin.saveSettings(); });
+      });
+
     // ─── Working Directory ───────────────────────
     const cwdOptions: Record<ExecutionCwdMode, string> = {
       vault: "Vault root",

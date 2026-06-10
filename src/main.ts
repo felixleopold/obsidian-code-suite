@@ -22,6 +22,7 @@ import {
   DEFAULT_SETTINGS,
 } from "./settings";
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
+import { buildFigureEl } from "./output-view";
 import {
   type VarValue,
   type VarEntry,
@@ -1273,9 +1274,10 @@ export default class CodePlugin extends Plugin {
         "try:",
         "    __ocode_plt_bak = __plt.show; __plt.show = lambda *a,**kw: None",
         "except Exception: pass",
-        // Suppress plotly saves during replay
+        // Suppress plotly saves during replay — null out __ocode_save_plotly, which
+        // both __patched_pio_show and __patched_pgo_show route through.
         "try:",
-        "    import plotly.io as __ocode_pio; __ocode_pio_bak = __ocode_pio.show; __ocode_pio.show = lambda *a,**kw: None",
+        "    __ocode_save_plotly_bak = __ocode_save_plotly; __ocode_save_plotly = lambda *a,**kw: None",
         "except Exception: pass",
         "try:",
         indented,
@@ -1286,7 +1288,7 @@ export default class CodePlugin extends Plugin {
         "    del __ocode_null, __ocode_prev_out, __ocode_prev_err",
         "    try: __plt.show = __ocode_plt_bak; del __ocode_plt_bak",
         "    except Exception: pass",
-        "    try: __ocode_pio.show = __ocode_pio_bak; del __ocode_pio, __ocode_pio_bak",
+        "    try: __ocode_save_plotly = __ocode_save_plotly_bak; del __ocode_save_plotly_bak",
         "    except Exception: pass",
         "",
         pythonPost,
@@ -2236,8 +2238,8 @@ __ocode_emit_vars
     outHeader.appendChild(clearBtn);
     outputPanel.appendChild(outHeader);
 
-    // Scrollable text content area
-    const outContent = createEl("pre");
+    // Scrollable output content area (div so figures can be interleaved with text)
+    const outContent = createDiv();
     outContent.className = "ocode-output-content";
     outputPanel.appendChild(outContent);
 
@@ -2277,40 +2279,45 @@ __ocode_emit_vars
     let isPasswordMode = isSudo;
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
 
-    // For Python shared context: buffer stdout line-by-line to intercept the
-    // __OCODE_VARS__ snapshot line without disrupting live streaming.
+    // Always line-buffer stdout so we can filter __OCODE_VARS__ lines (shared
+    // context) and replace figure sentinels (\x00OCODE_FIG_N\x00) with
+    // placeholder elements that are filled in after execution completes.
     let stdoutLineBuffer = "";
+    const SENTINEL_RE = /^OCODE_FIG_(\d+)$/;
+
     const appendStdout = (text: string) => {
-      const span = createSpan();
-      span.className = "ocode-stdout";
-      span.textContent = text;
+      const span = createSpan({ cls: "ocode-stdout", text });
       outContent.appendChild(span);
       outContent.scrollTop = outContent.scrollHeight;
     };
 
+    const processStdoutLine = (line: string) => {
+      if (useSharedCtx && line.startsWith("__OCODE_VARS__=")) {
+        try {
+          const vars = JSON.parse(line.slice("__OCODE_VARS__=".length)) as Record<string, unknown>;
+          this.recordRuntimeVars(sourcePath, lang, vars, effectiveSeeds);
+          this.refreshDisplayVars(sourcePath);
+        } catch { /* ignore parse failures */ }
+        return;
+      }
+      const sentinelMatch = SENTINEL_RE.exec(line);
+      if (sentinelMatch) {
+        // Insert a placeholder; replaced with the real figure after execution.
+        const placeholder = createDiv({ cls: "ocode-fig-placeholder" });
+        placeholder.dataset.figIdx = sentinelMatch[1];
+        outContent.appendChild(placeholder);
+        outContent.scrollTop = outContent.scrollHeight;
+        return;
+      }
+      appendStdout(line + "\n");
+    };
+
     const proc = startExecution(execCode, lang, this.settings, {
       onStdout: (data) => {
-        if (useSharedCtx) {
-          // Buffer to cleanly strip the __OCODE_VARS__ line from streamed output
-          stdoutLineBuffer += data;
-          const lines = stdoutLineBuffer.split("\n");
-          stdoutLineBuffer = lines.pop()!; // last (possibly incomplete) chunk
-          for (const line of lines) {
-            if (line.startsWith("__OCODE_VARS__=")) {
-              try {
-                const vars = JSON.parse(line.slice("__OCODE_VARS__=".length)) as Record<string, unknown>;
-                // Record any var this block changed into the live cross-language
-                // namespace, then refresh inline $varname display from it.
-                this.recordRuntimeVars(sourcePath, lang, vars, effectiveSeeds);
-                this.refreshDisplayVars(sourcePath);
-              } catch { /* ignore parse failures */ }
-            } else {
-              appendStdout(line + "\n");
-            }
-          }
-        } else {
-          appendStdout(data);
-        }
+        stdoutLineBuffer += data;
+        const lines = stdoutLineBuffer.split("\n");
+        stdoutLineBuffer = lines.pop()!; // last (possibly incomplete) chunk
+        for (const line of lines) processStdoutLine(line);
       },
       onStderr: (data) => {
         stderrText += data;
@@ -2364,9 +2371,7 @@ __ocode_emit_vars
 
       // Flush any remaining buffered stdout (no trailing newline at end of script)
       if (stdoutLineBuffer) {
-        if (!stdoutLineBuffer.startsWith("__OCODE_VARS__=")) {
-          appendStdout(stdoutLineBuffer);
-        }
+        processStdoutLine(stdoutLineBuffer);
         stdoutLineBuffer = "";
       }
 
@@ -2386,20 +2391,20 @@ __ocode_emit_vars
         outContent.classList.add("ocode-has-error");
       }
 
-      // Copy-output button — copies the rendered stdout/stderr text from the panel.
-      // Reads from the DOM so we always include exactly what the user sees
-      // (with the __OCODE_VARS__ snapshot line already stripped).
-      const copyOutBtn = this.createPillButton("", ICON.copy, () => {
-        const text = outContent.textContent || "";
-        void navigator.clipboard.writeText(text).then(() => {
-          setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.check);
-          window.setTimeout(() => {
-            setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
-          }, 2000);
+      // Copy-output button — only shown when there is actual text in the panel.
+      if (outContent.textContent?.trim()) {
+        const copyOutBtn = this.createPillButton("", ICON.copy, () => {
+          const text = outContent.textContent || "";
+          void navigator.clipboard.writeText(text).then(() => {
+            setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.check);
+            window.setTimeout(() => {
+              setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
+            }, 2000);
+          });
         });
-      });
-      copyOutBtn.classList.add("ocode-copy-out-pill");
-      outHeader.insertBefore(copyOutBtn, clearBtn);
+        copyOutBtn.classList.add("ocode-copy-out-pill");
+        outHeader.insertBefore(copyOutBtn, clearBtn);
+      }
 
       // Add copy-error button if there was meaningful stderr
       // Strip the sudo password prompt line — it's not an error
@@ -2418,28 +2423,22 @@ __ocode_emit_vars
         outHeader.insertBefore(copyErrBtn, clearBtn);
       }
 
-      // Add images (before text content)
-      if (result.images.length > 0) {
-        const imgContainer = createDiv();
-        imgContainer.className = "ocode-output-images";
-        for (const base64 of result.images) {
-          const img = createEl("img");
-          img.src = `data:image/png;base64,${base64}`;
-          img.className = "ocode-output-img";
-          imgContainer.appendChild(img);
+      // Replace figure placeholders with the real image/widget elements.
+      // Placeholders were inserted inline during streaming to preserve order.
+      for (const placeholder of Array.from(outContent.querySelectorAll<HTMLElement>(".ocode-fig-placeholder"))) {
+        const idx = parseInt(placeholder.dataset.figIdx ?? "0", 10);
+        const fig = result.figures.find((f) => f.figureIndex === idx);
+        if (fig) {
+          placeholder.replaceWith(buildFigureEl(fig, this.app));
+        } else {
+          placeholder.remove();
         }
-        outputPanel.insertBefore(imgContainer, outContent);
       }
 
       // If no output at all
-      if (!outContent.childNodes.length && result.images.length === 0) {
+      if (!outContent.childNodes.length) {
         outContent.textContent = "(no output)";
         outContent.classList.add("ocode-no-output");
-      }
-
-      // Hide text area if only images, no text
-      if (!outContent.childNodes.length && result.images.length > 0) {
-        outContent.classList.add("ocode-hidden");
       }
 
       // ─── Accumulate into session on clean exit ───
