@@ -323,8 +323,9 @@ export default class CodePlugin extends Plugin {
   private _isFreshInstall = false;
   /** Monotonic id for html-preview iframes — used to match their resize messages. */
   private _frameSeq = 0;
-  /** Live html-preview iframes by token, sized by the shared resize listener. */
-  private _htmlFrames = new Map<string, HTMLIFrameElement>();
+  /** Live html-preview iframes by token, sized by the shared resize listener.
+   *  Weakly referenced so pruned blocks' frames can be garbage-collected. */
+  private _htmlFrames = new Map<string, WeakRef<HTMLIFrameElement>>();
   /** True once the single shared `message` listener for frame resizes is installed. */
   private _htmlFrameListenerInstalled = false;
 
@@ -624,16 +625,8 @@ export default class CodePlugin extends Plugin {
     // Trigger editor ViewPlugins to re-tokenize (lastTheme check in update())
     this.app.workspace.updateOptions();
     // Cached Live Preview wrappers were highlighted with the old theme — drop
-    // them and force each editor's block-widget field to rebuild.
-    this.lpWrapperCache.clear();
-    this.forceLpRebuild();
-    // Re-render all open reading views so post-processors re-run with new theme
-    this.app.workspace.iterateAllLeaves((leaf) => {
-      const view = leaf.view;
-      if (view instanceof MarkdownView && view.getMode() === "preview") {
-        view.previewMode.rerender(true);
-      }
-    });
+    // them, force block-widget rebuilds, and re-render open reading views.
+    this.refreshRenderedBlocks();
   }
 
   /**
@@ -1113,7 +1106,6 @@ export default class CodePlugin extends Plugin {
    * honoured without requiring a note reopen (fixes GitHub issue #15).
    */
   private parseSkipStatesFromSource(source: string): boolean[] {
-    const PASSTHROUGH = new Set(["mermaid", "dataview", "dataviewjs", "query"]);
     const states: boolean[] = [];
     const lines = source.split("\n");
     let i = 0;
@@ -1141,7 +1133,7 @@ export default class CodePlugin extends Plugin {
       }
       // Apply the same filters as processCodeBlocks: skip passthrough langs,
       // vars blocks, and non-executable languages (those don't get Run buttons).
-      if (PASSTHROUGH.has(rawLang) || rawLang === "vars") continue;
+      if (PASSTHROUGH_LANGS.has(rawLang) || rawLang === "vars") continue;
       const resolvedLang = this.highlighter.resolveLanguage(rawLang);
       if (!isExecutable(resolvedLang)) continue;
       states.push(forceSkip || blockHasSkipMarker(contentLines.join("\n")));
@@ -1255,7 +1247,10 @@ export default class CodePlugin extends Plugin {
       // runCode runs synchronously up to its first await, so runningProcs.set()
       // is already called by the time btn.click() returns. Poll for completion.
       await new Promise<void>((resolve) => {
-        const deadline = Date.now() + 120_000; // 2-min safety timeout
+        // Safety net sized to the execution timeout (which kills the process)
+        // plus slack for spawn/teardown, so Run All never gives up on a block
+        // the executor itself would still allow to finish.
+        const deadline = Date.now() + this.settings.executionTimeout + 10_000;
         const poll = () => {
           if (!this.runningProcs.has(wrapper) || Date.now() > deadline) {
             resolve();
@@ -2810,7 +2805,14 @@ __ocode_emit_vars
     // height via postMessage. All frames share one window listener (installed
     // lazily, cleaned up by registerDomEvent on unload) keyed by token —
     // one listener per note full of html blocks, not one per block.
-    this._htmlFrames.set(token, iframe);
+    // WeakRef so a pruned block's iframe can be GC'd; dead entries are swept
+    // here so the map stays bounded across a long session. (A merely *detached*
+    // frame — e.g. an LP cache wrapper while the cursor reveals its block —
+    // stays reachable through the cache, so its entry survives until then.)
+    for (const [t, ref] of this._htmlFrames) {
+      if (!ref.deref()) this._htmlFrames.delete(t);
+    }
+    this._htmlFrames.set(token, new WeakRef(iframe));
     if (!this._htmlFrameListenerInstalled) {
       this._htmlFrameListenerInstalled = true;
       this.registerDomEvent(activeWindow, "message", (e: MessageEvent) => {
@@ -2823,13 +2825,14 @@ __ocode_emit_vars
   private onHtmlFrameMessage(e: MessageEvent): void {
     const data = e.data as { __ocodeFrame?: string; height?: number } | null;
     if (!data || typeof data.__ocodeFrame !== "string" || typeof data.height !== "number") return;
-    const iframe = this._htmlFrames.get(data.__ocodeFrame);
-    if (!iframe) return;
-    if (!iframe.isConnected) {
-      // Block was re-rendered or pruned; drop the stale entry.
+    const iframe = this._htmlFrames.get(data.__ocodeFrame)?.deref();
+    if (!iframe) {
       this._htmlFrames.delete(data.__ocodeFrame);
       return;
     }
+    // A detached frame can't legitimately message (its doc is unloaded) — this
+    // only catches a message in flight while the block was being pruned.
+    if (!iframe.isConnected) return;
     // Only the frame itself may report its height.
     if (e.source !== iframe.contentWindow) return;
     // Size to content with no upper clamp — capping forces clipped content
@@ -2903,8 +2906,21 @@ __ocode_emit_vars
     const html = this.noteOutputs.get(notePath)?.get(code);
     if (!html) return;
     const parsed = new DOMParser().parseFromString(html, "text/html");
-    const panel = parsed.querySelector(".ocode-output");
-    if (panel) wrapper.appendChild(activeDocument.adoptNode(panel));
+    const panel = parsed.querySelector<HTMLElement>(".ocode-output");
+    if (!panel) return;
+    const adopted = activeDocument.adoptNode(panel);
+    // The outerHTML round-trip drops all event listeners — rewire the header
+    // buttons so the restored panel behaves like a live one.
+    adopted.querySelector(".ocode-clear-pill")?.addEventListener("click", () => adopted.remove());
+    const content = adopted.querySelector<HTMLElement>(".ocode-output-content");
+    adopted.querySelector(".ocode-copy-out-pill")?.addEventListener("click", () => {
+      void navigator.clipboard.writeText(content?.textContent ?? "");
+    });
+    adopted.querySelector(".ocode-copy-err-pill")?.addEventListener("click", () => {
+      const err = Array.from(adopted.querySelectorAll(".ocode-stderr")).map((s) => s.textContent ?? "").join("");
+      void navigator.clipboard.writeText(err.trim());
+    });
+    wrapper.appendChild(adopted);
   }
 
   /**

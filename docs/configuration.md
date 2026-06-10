@@ -32,6 +32,7 @@ Imported themes are saved in plugin settings and appear in the theme picker imme
 | **Language label** | Show or hide the language name in the header bar of each code block. |
 | **Wide code blocks** | Allow code blocks to extend beyond the normal note content width. Useful for wide tables or long output lines. |
 | **Soft-wrap long lines** *(on by default)* | Wrap long lines in reading view instead of showing a horizontal scrollbar, matching the editor's behaviour. Turn off to restore horizontal scrolling. |
+| **Render HTML blocks** *(off by default)* | Show `html` code blocks as a live preview (sandboxed iframe) by default instead of their source. Override per block with a `preview` or `source` flag on the fence (e.g. ` ```html preview `) or in an embed alias (`![[page.html\|preview]]`). Eligible blocks always get a Preview/Code toggle in the header. |
 
 ---
 
@@ -50,6 +51,15 @@ When enabled, each block run in a note accumulates into a per-note in-memory ses
 
 ### Execution timeout *(5–300 s, default 30 s)*
 Maximum time a single block can run before the process is automatically killed. Raise this for long-running scripts (data processing, ML training).
+
+### Interactive plots *(on by default)*
+Render Plotly figures as interactive HTML widgets (zoom, pan, hover, legend toggles) instead of static images. The static fallback requires the `kaleido` Python package; the interactive path does not. Matplotlib figures are always static images.
+
+### Embed Plotly.js offline *(off by default; shown when interactive plots are on)*
+Bundle the Plotly.js library inline with each interactive plot so it renders without internet access. Produces larger output; when off, the library is loaded from a CDN.
+
+### Matplotlib style *(default `dark_background`)*
+Style applied to all Matplotlib plots before your code runs. Accepts any built-in style name (e.g. `dark_background`, `seaborn-v0_8-darkgrid`) or an absolute path to a `.mplstyle` file. Leave blank for Matplotlib defaults.
 
 ### Working directory
 Sets the current directory (`cwd`) for the spawned process.
@@ -75,6 +85,15 @@ Absolute path to a Python binary or virtualenv. When pointing to a venv binary, 
 
 ### Node.js path
 Absolute path to a Node.js binary. Leave empty to use the system `node`.
+
+### Bash path
+Absolute path to the bash executable used by `bash` blocks. Leave empty to resolve `bash` via PATH (e.g. `/opt/homebrew/bin/bash` on Apple Silicon).
+
+### Zsh path
+Absolute path to the zsh executable used by `zsh` blocks. Leave empty to resolve `zsh` via PATH (typically `/bin/zsh` on macOS). Must point at a zsh-compatible binary — variable tracking emits zsh syntax, so pointing this at bash will fail.
+
+### Shell (sh) path
+Absolute path used by `shell` and `sh` blocks. Defaults to `/bin/sh` (POSIX sh). Point it at a modern bash if you want these blocks to run under bash.
 
 ### Auto-prepend PHP opening tag
 When enabled, CodeSuite adds `<?php` to the temporary execution file for PHP blocks that do not already start with a PHP opening tag. Your note content is not modified.
@@ -158,6 +177,12 @@ print("Never executed by Run All")
 **Comment marker** — add `codesuite:skip` to the **first line** of the block. Any common comment style works: `# …`, `// …`, `-- …`, `% …`, `/* … */`.
 
 Skipped blocks display a small `skip` badge in their toolbar but can still be run individually.
+
+---
+
+## Import & Export
+
+The four import/export commands (Jupyter `.ipynb` import/export, styled HTML and PDF export with outputs) live in the command palette, not the settings tab. The HTML/PDF exporters open a small per-export options dialog — content width, include title, keep code blocks together (PDF), single long page (PDF) — and your last choices are remembered automatically. See the [README](../README.md#import--export) for the full walkthrough.
 
 ---
 
