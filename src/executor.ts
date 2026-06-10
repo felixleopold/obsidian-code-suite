@@ -68,7 +68,10 @@ export interface ExecutionResult {
   stdout: string;
   stderr: string;
   exitCode: number | null;
+  /** Killed by the execution timeout (or output-size cap), not the user. */
   killed: boolean;
+  /** Killed because the user clicked Stop. */
+  cancelled: boolean;
   /** Captured figures in creation order (matplotlib PNGs and Plotly HTML widgets). */
   figures: OutputFigure[];
 }
@@ -316,6 +319,7 @@ export function startExecution(
   args.push(tmpFile);
   let proc: ReturnType<typeof spawn>;
   let killed = false;
+  let cancelled = false;
   let stdout = "";
   let stderr = "";
 
@@ -382,7 +386,7 @@ export function startExecution(
       // Cleanup
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
 
-      resolve({ stdout, stderr, exitCode, killed, figures });
+      resolve({ stdout, stderr, exitCode, killed, cancelled, figures });
     });
 
     proc.on("error", (err: Error) => {
@@ -391,7 +395,7 @@ export function startExecution(
       resolve({
         stdout: "",
         stderr: `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`,
-        exitCode: 1, killed: false, figures: [],
+        exitCode: 1, killed: false, cancelled: false, figures: [],
       });
     });
   });
@@ -399,7 +403,7 @@ export function startExecution(
   return {
     promise,
     cancel: () => {
-      killed = true;
+      cancelled = true;
       proc.kill("SIGKILL");
     },
     writeStdin: (text: string) => {

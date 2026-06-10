@@ -303,6 +303,13 @@ export class CodeFileView extends TextFileView {
       // Flush any partial buffered line (script with no trailing newline)
       if (lineBuffer) { processLine(lineBuffer); lineBuffer = ""; }
 
+      // User clicked Stop — drop an empty panel, keep partial output labelled.
+      if (result.cancelled) {
+        if (!outContent.childNodes.length) this.removeOutput();
+        else outLabel.textContent = "Output (stopped)";
+        return;
+      }
+
       outLabel.textContent = result.killed
         ? "Output (timed out)"
         : result.exitCode === 0

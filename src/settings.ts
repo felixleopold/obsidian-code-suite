@@ -243,7 +243,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   sharedContext: true,
   interactivePlots: true,
   embedPlotlyJs: false,
-  matplotlibStyle: "dark_background",
+  matplotlibStyle: "",
   experimentalTables: false,
   customThemes: [],
   lastNoticeVersion: "",

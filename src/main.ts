@@ -1051,6 +1051,19 @@ export default class CodePlugin extends Plugin {
     this.dropLpWrapperCache(notePath);
     // Drop persisted output snapshots so re-rendered blocks come back empty.
     this.noteOutputs.delete(notePath);
+    // Remove already-rendered output panels still on screen (dropping the cache
+    // and snapshots above doesn't touch the live DOM), and revert any block that
+    // was mid-run back to its idle "Run" pill. Scoped to this note's views.
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView) || view.file?.path !== notePath) continue;
+      view.contentEl.querySelectorAll(".ocode-output").forEach((p) => p.remove());
+      view.contentEl.querySelectorAll<HTMLButtonElement>(".ocode-run-pill.ocode-cancel-pill").forEach((btn) => {
+        setSvgContent(btn.querySelector(".ocode-pill-icon")!, ICON.play);
+        btn.querySelector(".ocode-pill-text")!.textContent = "Run";
+        btn.classList.remove("ocode-cancel-pill");
+      });
+    }
     // Reset all inline $var spans back to their placeholder appearance
     const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
     for (const el of Array.from(els)) {
@@ -1231,16 +1244,6 @@ export default class CodePlugin extends Plugin {
     return entries;
   }
 
-  /**
-   * Skip-state booleans for each executable fenced block in source order —
-   * the view syncSkipBadges aligns against rendered wrappers (#15).
-   */
-  private parseSkipStatesFromSource(source: string): boolean[] {
-    return this.parseRunAllPlan(source)
-      .filter((e) => e.kind === "fence")
-      .map((e) => e.skip);
-  }
-
   /** Queue a lightweight skip-badge DOM sync for already-rendered views. */
   private queueSkipBadgeSync(notePath?: string, delay = 0): void {
     if (this._skipSyncTimer !== null) {
@@ -1269,19 +1272,28 @@ export default class CodePlugin extends Plugin {
   private syncSkipBadges(view: MarkdownView): void {
     const source = view.getViewData();
     if (!source) return;
-    const skipStates = this.parseSkipStatesFromSource(source);
+    // Match wrappers to source blocks by code hash, not by index — the reading
+    // view virtualizes sections, so off-screen blocks have no wrapper and any
+    // positional alignment shifts the skip states onto the wrong blocks (#25).
+    // Duplicate blocks share a hash; their states queue up in source order.
+    const statesByHash = new Map<string, boolean[]>();
+    for (const entry of this.parseRunAllPlan(source)) {
+      if (entry.kind !== "fence" || !entry.hash) continue;
+      let queue = statesByHash.get(entry.hash);
+      if (!queue) statesByHash.set(entry.hash, (queue = []));
+      queue.push(entry.skip);
+    }
     // Scope to the reading view only. Live Preview widgets bake their skip
-    // badge in at build time, and the cursor's block has no widget — including
-    // them here would misalign the source-parsed skip-state index.
+    // badge in at build time, and the cursor's block has no widget.
     const wrappers = Array.from(
       view.contentEl.querySelectorAll<HTMLElement>('.markdown-reading-view .ocode-wrapper[data-ocode-fenced="1"]')
     );
-    let idx = 0;
     for (const wrapper of wrappers) {
-      const shouldSkip = idx < skipStates.length
-        ? skipStates[idx]
+      const queue = statesByHash.get(wrapper.getAttribute("data-ocode-hash") ?? "");
+      // No source entry for this wrapper (stale render mid-edit) — leave it.
+      const shouldSkip = queue && queue.length > 0
+        ? queue.shift()!
         : wrapper.classList.contains("ocode-skip-run-all");
-      idx++;
       const wasMarked = wrapper.classList.contains("ocode-skip-run-all");
       if (shouldSkip === wasMarked) continue;
       if (shouldSkip) {
@@ -1354,6 +1366,12 @@ export default class CodePlugin extends Plugin {
           new Notice("Run all stopped: a block exited with an error.");
           return;
         }
+      }
+      // A manually stopped block halts Run All too (its panel may be gone, so
+      // also treat a now-empty wrapper as a stop signal).
+      if (!label || label.textContent === "Output (stopped)") {
+        new Notice("Run all stopped.");
+        return;
       }
       // Brief pause so the shared-context store is fully committed and any
       // rapid-fire OS process startup races are avoided before the next block.
@@ -2349,7 +2367,12 @@ __ocode_emit_vars
     const fenceInfoStrings: string[] = [];
     const sectionInfo = ctx.getSectionInfo(el);
     if (sectionInfo) {
-      const lines = sectionInfo.text.split("\n");
+      // sectionInfo.text is the WHOLE file, not just this section — scanning
+      // it all would make every section's block inherit the attrs of the
+      // first fence in the note. Slice to this section's own lines.
+      const lines = sectionInfo.text
+        .split("\n")
+        .slice(sectionInfo.lineStart, sectionInfo.lineEnd + 1);
       let openFence: string | null = null;  // current open fence chars (``` or ~~~), or null when outside
       for (const line of lines) {
         const m = line.match(/^([`~]{3,})(.*)$/);
@@ -3160,9 +3183,21 @@ __ocode_emit_vars
       this.noteRunQueue.set(sourcePath, queueTail);
       if (prevTail) {
         let cancelledWhileQueued = false;
+        const revertQueuedButton = () => {
+          setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.play);
+          runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
+          runBtn.classList.remove("ocode-cancel-pill");
+        };
         this.runningProcs.set(wrapper, {
-          promise: Promise.resolve({ stdout: "", stderr: "", exitCode: null, killed: true, figures: [] }),
-          cancel: () => { cancelledWhileQueued = true; },
+          promise: Promise.resolve({ stdout: "", stderr: "", exitCode: null, killed: false, cancelled: true, figures: [] }),
+          // Cancelling a queued block must revert the pill immediately — the wait
+          // on prevTail below can outlive the click, so deferring the UI update
+          // there leaves the button stuck on "Queued" until the prior run ends.
+          cancel: () => {
+            cancelledWhileQueued = true;
+            this.runningProcs.delete(wrapper);
+            revertQueuedButton();
+          },
           writeStdin: () => {},
           closeStdin: () => {},
         });
@@ -3170,15 +3205,12 @@ __ocode_emit_vars
         runBtn.querySelector(".ocode-pill-text")!.textContent = "Queued";
         runBtn.classList.add("ocode-cancel-pill");
         await prevTail;
-        this.runningProcs.delete(wrapper);
         if (cancelledWhileQueued) {
           releaseQueue?.();
           if (this.noteRunQueue.get(sourcePath) === queueTail) this.noteRunQueue.delete(sourcePath);
-          setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.play);
-          runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
-          runBtn.classList.remove("ocode-cancel-pill");
           return;
         }
+        this.runningProcs.delete(wrapper);
       }
     }
 
@@ -3395,6 +3427,16 @@ __ocode_emit_vars
 
       // Process finished — remove input bar
       inputBar.remove();
+
+      // User clicked Stop. Don't surface a "timed out" result: if nothing was
+      // produced, drop the panel entirely so a stop reads as "nothing"; keep
+      // any partial output under a clear label. Cancelled runs never persist
+      // or accumulate into the shared session.
+      if (result.cancelled) {
+        if (!outContent.childNodes.length) outputPanel.remove();
+        else outLabel.textContent = "Output (stopped)";
+        return;
+      }
 
       // Update label
       outLabel.textContent = result.killed

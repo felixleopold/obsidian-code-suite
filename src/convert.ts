@@ -105,10 +105,23 @@ function detectNotebookLang(nb: Notebook): string {
 }
 
 /**
+ * Read a code cell's own language, if it carries one. Multi-language exports tag
+ * each code cell with `metadata.vscode.languageId` (the VS Code convention) so a
+ * notebook mixing e.g. Python + JavaScript round-trips with each fence intact.
+ * Returns "" when the cell has no per-cell language (use the notebook default).
+ */
+function cellLang(cell: NotebookCell): string {
+  const vscode = (cell.metadata as { vscode?: { languageId?: string } } | undefined)?.vscode;
+  const id = vscode?.languageId;
+  return id ? notebookLangToFence(id) : "";
+}
+
+/**
  * Convert a parsed notebook into CodeSuite-flavoured markdown. Code cells
- * become fenced blocks in the notebook's language; markdown cells pass through
- * verbatim; raw cells are emitted as plain text. Cell *outputs are dropped* —
- * the note imports "unrun" so the user re-runs blocks in CodeSuite.
+ * become fenced blocks in the cell's own language (falling back to the
+ * notebook's kernel language); markdown cells pass through verbatim; raw cells
+ * are emitted as plain text. Cell *outputs are dropped* — the note imports
+ * "unrun" so the user re-runs blocks in CodeSuite.
  */
 export function ipynbToMarkdown(nb: Notebook): { markdown: string; lang: string } {
   const lang = detectNotebookLang(nb);
@@ -119,7 +132,7 @@ export function ipynbToMarkdown(nb: Notebook): { markdown: string; lang: string 
     if (cell.cell_type === "code") {
       // Skip wholly-empty code cells so we don't litter the note with blank fences.
       if (src.trim() === "") continue;
-      parts.push("```" + lang + "\n" + src + "\n```");
+      parts.push("```" + (cellLang(cell) || lang) + "\n" + src + "\n```");
     } else {
       // markdown + raw cells: pass through as note prose.
       if (src.trim() === "") continue;
@@ -236,10 +249,11 @@ function pickTargetLang(
 /**
  * Convert a CodeSuite/Obsidian markdown note into a Jupyter notebook.
  *
- * The notebook is single-kernel (Jupyter's model), so only code blocks in the
- * note's dominant executable language become code cells. Blocks in other
- * languages, `vars` blocks, and non-executable fences stay inside markdown
- * cells verbatim, preserving their fences. No outputs are emitted.
+ * The notebook's kernelspec is the note's dominant executable language, but
+ * *every* executable code block becomes a code cell — blocks in a non-dominant
+ * language carry their own `metadata.vscode.languageId` so editors render and
+ * round-trip them in the right language. `vars` blocks and non-executable
+ * fences stay inside markdown cells verbatim. No outputs are emitted.
  */
 export function markdownToIpynb(
   markdown: string,
@@ -266,17 +280,22 @@ export function markdownToIpynb(
     resolveLang,
     (line) => mdBuf.push(line),
     (b) => {
-      const isTargetCode =
+      const isCode =
         b.rawLang !== "" &&
         b.rawLang !== "vars" &&
-        isExec(b.canonical) &&
-        b.canonical === target;
+        isExec(b.canonical);
 
-      if (isTargetCode) {
+      if (isCode) {
         flushMd();
+        // Tag non-dominant languages so editors render them correctly and the
+        // notebook round-trips back to the right fence on import. The kernel
+        // language stays clean (no redundant tag).
+        const metadata = b.canonical === target
+          ? {}
+          : { vscode: { languageId: b.canonical } };
         cells.push({
           cell_type: "code",
-          metadata: {},
+          metadata,
           execution_count: null,
           outputs: [],
           source: toSourceArray(b.body.join("\n")),

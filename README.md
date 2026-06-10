@@ -62,7 +62,7 @@ Run code directly from a code block — no terminal, no switching apps.
 - **Live streaming** — stdout and stderr appear as the process runs, not after it finishes
 - **Interactive stdin** — an input bar appears automatically when your code calls `input()` or reads from stdin
 - **Password masking** — `sudo` is detected automatically; the input bar masks characters for sensitive prompts
-- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted without a display server. Matplotlib figures render as static images; Plotly figures render as interactive HTML widgets (zoom, pan, hover, legend toggles). Click a plot for full-screen view; hover an image for copy/download buttons. Toggle interactivity and offline Plotly.js embedding in settings
+- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted without a display server. Matplotlib figures render as static images; Plotly figures render as interactive HTML widgets (zoom, pan, hover, legend toggles). Click a plot for full-screen view; hover an image for copy/download buttons. Toggle interactivity and offline Plotly.js embedding in settings. By default plots use Matplotlib's own look — to theme every plot (e.g. to match a dark vault), set **Settings → Python → Matplotlib style** to a built-in style name such as `dark_background` or `seaborn-v0_8-darkgrid`, or an absolute path to a `.mplstyle` file
 - **Virtual environment support** — point the Python path to a venv binary; CodeSuite sets `VIRTUAL_ENV` and prepends `bin/` to `PATH` so all venv packages are available across every language block
 - **PHP snippet mode** — PHP blocks can omit the opening `<?php` tag; CodeSuite adds it only to the temporary execution file
 - **Shell startup support** — Bash/Zsh can run as login shells, and Bash/Zsh/Shell blocks can source one or more startup files before your snippet runs
@@ -234,6 +234,8 @@ The following features are on the roadmap. Track progress or vote on the linked 
 | # | Feature | Issue |
 |---|---------|-------|
 | 1 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+
+> Shipped in 1.9.0: multi-language Jupyter export ([#5](https://github.com/felixleopold/obsidian-code-suite/issues/5)) — every executable code block now becomes a code cell (not just the dominant language); non-dominant blocks carry `metadata.vscode.languageId` so VS Code renders and round-trips them correctly. Quality fixes: cancellation polish, skip-badge alignment by code hash, fence-attribute isolation, and Matplotlib style default corrected to blank.
 
 > Shipped in 1.8.0: better plot support ([#12](https://github.com/felixleopold/obsidian-code-suite/issues/12)) — interactive Plotly widgets (zoom, pan, hover, legend toggles) instead of static images, click-to-expand full-screen view for every plot and image, and a per-image hover toolbar with copy and download. New settings: **Interactive plots** and **Embed Plotly.js offline**.
 
