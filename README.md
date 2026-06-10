@@ -12,13 +12,13 @@ VS Code–quality syntax highlighting, live code execution with streaming output
 
 | | Feature | What it does |
 |---|---|---|
-| 🎨 | **Syntax highlighting** | Shiki (the VS Code engine) — 65+ themes, import any VS Code `.json` theme, in Reading view, Live Preview *and* Source mode |
-| ▶️ | **Live code execution** | Run Python, JS/TS, Bash, Go, Ruby, PHP, and 8 more — output streams live, with interactive stdin and cancel |
-| 📈 | **Inline graphs** | `plt.show()` / `fig.show()` render below the block — Matplotlib as images, Plotly as interactive widgets |
-| 🔗 | **Notebook variables** | Shared state across blocks; declare note-wide `vars`; reference any value inline in prose with `` `$varname` `` |
-| 📎 | **Embedded files** | `![[script.py]]` becomes a collapsible, highlighted, runnable block; open vault code files in a lightweight editor |
-| 🔁 | **Jupyter import/export** | Convert `.ipynb` notebooks to/from notes — round-trips multi-language blocks correctly |
-| 📄 | **HTML / PDF export** | Export a note with its code outputs (text, images, plots) to a self-contained, theme-matched file |
+| 🎨 | [**Syntax highlighting**](#-highlight) | Shiki (the VS Code engine) — 65+ themes, import any VS Code `.json` theme, in Reading view, Live Preview *and* Source mode |
+| ▶️ | [**Live code execution**](#run) | Run Python, JS/TS, Bash, Go, Ruby, PHP, and 8 more — output streams live, with interactive stdin and cancel |
+| 📈 | [**Inline graphs**](#run) | `plt.show()` / `fig.show()` render below the block — Matplotlib as images, Plotly as interactive widgets |
+| 🔗 | [**Notebook variables**](#notebook-mode) | Shared state across blocks; declare note-wide `vars`; reference any value inline in prose with `` `$varname` `` |
+| 📎 | [**Embedded files**](#embed-render) | `![[script.py]]` becomes a collapsible, highlighted, runnable block; open vault code files in a lightweight editor |
+| 🔁 | [**Jupyter import/export**](#share) | Convert `.ipynb` notebooks to/from notes — round-trips multi-language blocks correctly |
+| 📄 | [**HTML / PDF export**](#share) | Export a note with its code outputs (text, images, plots) to a self-contained, theme-matched file |
 
 ---
 
@@ -37,6 +37,8 @@ Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses 
 - **Full chrome in Live Preview** — code blocks and `![[file.py]]` embeds render with the same header, Run/Copy buttons, live output, line numbers, and collapse as Reading view. The block your cursor is in reveals its raw source for editing; every other block shows the rendered chrome, with running output preserved as you move around
 
 ---
+
+<a id="run"></a>
 
 # ▶️ Run
 
@@ -78,7 +80,9 @@ Run code directly from a code block — no terminal, no switching apps.
 
 </details>
 
-## Notebook mode: shared variables & Run All
+<a id="notebook-mode"></a>
+
+## 🔗 Notebook mode: shared variables & Run All
 
 <!-- PLAN: demo-notebook.gif — define a variable in a vars block, run two Python blocks that reference it, show `$varname` updating inline in the note text, then click Run All. ~15 s. -->
 <!-- ![Shared variables and Run All](assets/demo-notebook.gif) -->
@@ -86,7 +90,7 @@ Run code directly from a code block — no terminal, no switching apps.
 Each note maintains an in-memory execution session — notebook-style shared state, scoped per note and held in memory.
 
 - **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python, Bash, and Zsh)
-- **Live cross-language variables** — a shared variable changed by one block is visible to later blocks in *any* language, in execution order. Set `count = 42` in Python and a later Bash block sees `42`; change it in Bash and the next Python block sees the new value. Scalars and JSON structures cross languages; rich objects (functions, DataFrames) stay within their language. See [Variable typing & the execution model](docs/configuration.md#variable-typing).
+- **Live cross-language variables** — a shared variable changed by one block is visible to later blocks in *any* language, in execution order. Set `count = 42` in Python and a later Bash block sees `42`; change it in Bash and the next Python block sees the new value. Scalars and JSON structures cross languages; rich objects (functions, DataFrames) stay within their language. See [Variable typing & the execution model](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/configuration.md#variable-typing).
 - **Inline `$varname` substitution** — write `` `$result` `` anywhere in your note; it updates live in Reading view after each run
 - **Run All** — runs every executable block top-to-bottom, stopping on the first error; the view scrolls along and highlights the executing block. Skip a block with a `skip` fence tag or a `codesuite:skip` comment marker
 - **Queued runs** — with shared context on, clicking Run on several blocks queues them in click order; a queued block's button shows **Queued** (click again to cancel)
@@ -123,9 +127,11 @@ A `vars` block in the body wins if both define the same key.
 
 </details>
 
-State is per-note, lives only in memory, and resets when Obsidian is closed. For the full details on variable types, `:type` hints, multiline strings, cross-language propagation, and the execution model, see **[docs/variables-and-execution.md](docs/variables-and-execution.md)**.
+State is per-note, lives only in memory, and resets when Obsidian is closed. For the full details on variable types, `:type` hints, multiline strings, cross-language propagation, and the execution model, see **[docs/variables-and-execution.md](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/variables-and-execution.md)**.
 
 ---
+
+<a id="embed-render"></a>
 
 # 📎 Embed & render
 
@@ -169,6 +175,8 @@ Render an `html` code block as live HTML instead of showing its source.
 </details>
 
 ---
+
+<a id="share"></a>
 
 # 🔁 Share: import & export
 
@@ -217,8 +225,8 @@ Open **Settings → CodeSuite** to configure themes, code execution, environment
 
 | | |
 |---|---|
-| [Variables & Execution](docs/variables-and-execution.md) | How to run code, declare variables, use `$varname`, cross-language propagation, practical patterns |
-| [Configuration Reference](docs/configuration.md) | Every setting, option, and environment knob |
+| [Variables & Execution](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/variables-and-execution.md) | How to run code, declare variables, use `$varname`, cross-language propagation, practical patterns |
+| [Configuration Reference](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/configuration.md) | Every setting, option, and environment knob |
 
 ---
 
