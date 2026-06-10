@@ -1,8 +1,12 @@
 import {
+  App,
+  Component,
   Plugin,
   MarkdownPostProcessorContext,
+  MarkdownRenderer,
   MarkdownView,
   Modal,
+  Setting,
   TFile,
   TFolder,
   Notice,
@@ -23,6 +27,15 @@ import {
 } from "./settings";
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 import { buildFigureEl } from "./output-view";
+import {
+  type Notebook,
+  type ExportOptions,
+  type ExportWidthMode,
+  DEFAULT_EXPORT_OPTIONS,
+  ipynbToMarkdown,
+  markdownToIpynb,
+  buildExportHtml,
+} from "./convert";
 import {
   type VarValue,
   type VarEntry,
@@ -69,6 +82,23 @@ const ICON = {
 };
 
 const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
+
+/** Minimal Electron surface used by import/export (reached via window.require). */
+interface ElectronDialog {
+  showOpenDialog?: (o: { properties?: string[]; filters?: { name: string; extensions: string[] }[] }) =>
+    Promise<{ canceled: boolean; filePaths: string[] }>;
+  showSaveDialog?: (o: { defaultPath?: string; filters?: { name: string; extensions: string[] }[] }) =>
+    Promise<{ canceled: boolean; filePath?: string }>;
+}
+interface ElectronBrowserWindow {
+  loadFile: (p: string) => Promise<void>;
+  webContents: {
+    printToPDF: (o: Record<string, unknown>) => Promise<Uint8Array>;
+    executeJavaScript: (code: string) => Promise<unknown>;
+  };
+  destroy: () => void;
+}
+type ElectronBrowserWindowCtor = new (opts: Record<string, unknown>) => ElectronBrowserWindow;
 
 /**
  * Detect the "skip from Run All" marker on the first non-empty line of a code
@@ -270,6 +300,14 @@ export default class CodePlugin extends Plugin {
    * { varName → { value, lang } }.
    */
   private noteLiveVars: Map<string, Map<string, { value: VarValue; lang: string }>> = new Map();
+  /**
+   * Static HTML snapshots of executed block outputs. Maps note path → block
+   * source → the finished `.ocode-output` panel's outerHTML. Lets outputs
+   * survive Obsidian's reading-view section eviction (re-attached on render)
+   * and lets HTML/PDF export capture every run output, not just visible ones.
+   * In-memory only; cleared on unload or Clear Session.
+   */
+  private noteOutputs: Map<string, Map<string, string>> = new Map();
   /** Tracks which MarkdownView instances have already had view-header actions added. */
   private viewActionsAdded = new WeakSet<MarkdownView>();
   /** All action buttons added to view headers — removed in onunload so plugin reloads don't duplicate them. */
@@ -327,6 +365,43 @@ export default class CodePlugin extends Plugin {
         id: "import-code-file-as-alias",
         name: "Import code file as alias\u2026",
         callback: () => { void this.importCodeFileAsAlias(); },
+      });
+
+      // \u2500\u2500\u2500 Import / export / conversion (#5) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+      this.addCommand({
+        id: "import-jupyter-notebook",
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- "Jupyter" is a proper noun
+        name: "Import Jupyter notebook (.ipynb)\u2026",
+        callback: () => { void this.importNotebook(); },
+      });
+      this.addCommand({
+        id: "export-note-to-jupyter",
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- "Jupyter" is a proper noun
+        name: "Export note to Jupyter notebook (.ipynb)",
+        checkCallback: (checking) => {
+          const file = this.app.workspace.getActiveFile();
+          const ok = !!file && file.extension === "md";
+          if (ok && !checking) void this.exportNotebook();
+          return ok;
+        },
+      });
+      this.addCommand({
+        id: "export-note-to-html",
+        name: "Export note to HTML (with outputs)",
+        checkCallback: (checking) => {
+          const ok = this.getRenderedPreview() !== null;
+          if (ok && !checking) void this.exportRenderedNote("html");
+          return ok;
+        },
+      });
+      this.addCommand({
+        id: "export-note-to-pdf",
+        name: "Export note to PDF (with outputs)",
+        checkCallback: (checking) => {
+          const ok = this.getRenderedPreview() !== null;
+          if (ok && !checking) void this.exportRenderedNote("pdf");
+          return ok;
+        },
       });
     }
 
@@ -919,6 +994,8 @@ export default class CodePlugin extends Plugin {
     this.noteLiveVars.delete(notePath);
     // Drop cached Live Preview wrappers (with their stale output panels).
     this.dropLpWrapperCache(notePath);
+    // Drop persisted output snapshots so re-rendered blocks come back empty.
+    this.noteOutputs.delete(notePath);
     // Reset all inline $var spans back to their placeholder appearance
     const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
     for (const el of Array.from(els)) {
@@ -1651,6 +1728,471 @@ __ocode_emit_vars
     });
   }
 
+  // ─── Import / export / conversion (#5) ────────────────────────
+
+  /** Reach Electron's dialog module (renderer remote), or null if unavailable. */
+  private getDialog(): ElectronDialog | null {
+    const nodeRequire = (window as unknown as { require?: (id: string) => unknown }).require;
+    if (!nodeRequire) return null;
+    try {
+      const electron = nodeRequire("electron") as { remote?: { dialog?: ElectronDialog }; dialog?: ElectronDialog };
+      const d = electron?.remote?.dialog ?? electron?.dialog;
+      if (d) return d;
+    } catch { /* electron unavailable — try @electron/remote */ }
+    try {
+      const remote = nodeRequire("@electron/remote") as { dialog?: ElectronDialog };
+      return remote?.dialog ?? null;
+    } catch { return null; }
+  }
+
+  /** Reach Electron's BrowserWindow constructor (renderer remote), or null. */
+  private getBrowserWindow(): ElectronBrowserWindowCtor | null {
+    const nodeRequire = (window as unknown as { require?: (id: string) => unknown }).require;
+    if (!nodeRequire) return null;
+    try {
+      const electron = nodeRequire("electron") as { remote?: { BrowserWindow?: ElectronBrowserWindowCtor } };
+      const bw = electron?.remote?.BrowserWindow;
+      if (bw) return bw;
+    } catch { /* electron unavailable — try @electron/remote */ }
+    try {
+      const remote = nodeRequire("@electron/remote") as { BrowserWindow?: ElectronBrowserWindowCtor };
+      return remote?.BrowserWindow ?? null;
+    } catch { return null; }
+  }
+
+  /** Native open dialog filtered to the given extensions; null if cancelled/unavailable. */
+  private async pickOpenFile(name: string, extensions: string[]): Promise<string | null> {
+    const dialog = this.getDialog();
+    if (!dialog?.showOpenDialog) {
+      new Notice("File picker is unavailable in this environment.");
+      return null;
+    }
+    const res = await dialog.showOpenDialog({ properties: ["openFile"], filters: [{ name, extensions }] });
+    if (res.canceled || !res.filePaths.length) return null;
+    return res.filePaths[0];
+  }
+
+  /**
+   * Write an export to disk. Offers a native save dialog when available;
+   * otherwise falls back to writing at `defaultAbsPath` (inside the vault).
+   */
+  private async saveExport(
+    defaultAbsPath: string,
+    name: string,
+    extensions: string[],
+    data: string | Uint8Array,
+  ): Promise<void> {
+    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
+    const fs = nodeRequire("fs") as typeof import("fs");
+    const dialog = this.getDialog();
+    let out = defaultAbsPath;
+    if (dialog?.showSaveDialog) {
+      const res = await dialog.showSaveDialog({ defaultPath: defaultAbsPath, filters: [{ name, extensions }] });
+      if (res.canceled || !res.filePath) return; // user cancelled
+      out = res.filePath;
+    }
+    try {
+      fs.writeFileSync(out, data);
+      new Notice(`Exported → ${out}`);
+    } catch (err) {
+      new Notice(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Import a Jupyter notebook as a new (unrun) CodeSuite markdown note. */
+  private async importNotebook(): Promise<void> {
+    if (!Platform.isDesktop) { new Notice("Importing notebooks is desktop-only."); return; }
+    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
+    const fs = nodeRequire("fs") as typeof import("fs");
+    const path = nodeRequire("path") as typeof import("path");
+
+    const src = await this.pickOpenFile("Jupyter notebook", ["ipynb"]);
+    if (!src) return;
+
+    let nb: Notebook;
+    try {
+      nb = JSON.parse(fs.readFileSync(src, "utf8")) as Notebook;
+    } catch (err) {
+      new Notice(`Could not read notebook: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    if (!nb || !Array.isArray(nb.cells)) { new Notice("Not a valid .ipynb notebook."); return; }
+
+    const { markdown } = ipynbToMarkdown(nb);
+
+    // Land the note beside the active file (or in vault root), basename from the ipynb.
+    const stem = path.basename(src).replace(/\.ipynb$/i, "");
+    const activeFile = this.app.workspace.getActiveFile();
+    const folder = activeFile?.parent && activeFile.parent.path !== "/" ? activeFile.parent.path + "/" : "";
+    let target = `${folder}${stem}.md`;
+    let n = 1;
+    while (this.app.vault.getAbstractFileByPath(target)) target = `${folder}${stem}-${n++}.md`;
+
+    try {
+      const file = await this.app.vault.create(target, markdown);
+      await this.app.workspace.getLeaf("tab").openFile(file);
+      new Notice(`Imported notebook → ${target}`);
+    } catch (err) {
+      new Notice(`Failed to create note: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  /** Export the active note's code blocks + prose to an (unrun) Jupyter notebook. */
+  private async exportNotebook(): Promise<void> {
+    const file = this.app.workspace.getActiveFile();
+    if (!file || file.extension !== "md") return;
+    const markdown = await this.app.vault.read(file);
+    const nb = markdownToIpynb(
+      markdown,
+      (raw) => this.highlighter.resolveLanguage(raw),
+      (lang) => isExecutable(lang),
+    );
+    const json = JSON.stringify(nb, null, 1);
+    const defaultPath = this.exportDefaultPath(file, "ipynb");
+    await this.saveExport(defaultPath, "Jupyter notebook", ["ipynb"], json);
+  }
+
+  /** Absolute on-disk path next to the note, with the given extension. */
+  private exportDefaultPath(file: TFile, ext: string): string {
+    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
+    const path = nodeRequire("path") as typeof import("path");
+    const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
+    const folder = file.parent && file.parent.path !== "/" ? file.parent.path : "";
+    return path.join(vaultPath, folder, `${file.basename}.${ext}`);
+  }
+
+  /**
+   * Locate a MarkdownView for the active file that is currently rendered in
+   * reading view — the only place where executed code outputs live in the DOM.
+   */
+  private getRenderedPreview(): { view: MarkdownView; previewEl: HTMLElement } | null {
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const wantFile = active?.file ?? this.app.workspace.getActiveFile();
+    const candidates: MarkdownView[] = [];
+    if (active) candidates.push(active);
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view instanceof MarkdownView && !candidates.includes(leaf.view)) candidates.push(leaf.view);
+    });
+    for (const view of candidates) {
+      if (wantFile && view.file?.path !== wantFile.path) continue;
+      if (view.getMode() !== "preview") continue;
+      const previewEl = view.contentEl.querySelector<HTMLElement>(".markdown-preview-view");
+      if (previewEl) return { view, previewEl };
+    }
+    return null;
+  }
+
+  /** Export the rendered note (with current outputs) to HTML or PDF. */
+  private async exportRenderedNote(format: "html" | "pdf"): Promise<void> {
+    if (!Platform.isDesktop) { new Notice("Export is desktop-only."); return; }
+    const found = this.getRenderedPreview();
+    if (!found || !found.view.file) {
+      new Notice("Open the note in reading view (and run its code blocks) before exporting.");
+      return;
+    }
+    const { view, previewEl } = found;
+    const file = view.file!;
+
+    const options = await this.promptExportOptions(format);
+    if (!options) return; // user cancelled
+    await this.persistExportOptions(options);
+
+    const html = await this.buildNoteHtml(previewEl, file, format, options);
+
+    if (format === "html") {
+      await this.saveExport(this.exportDefaultPath(file, "html"), "HTML", ["html"], html);
+    } else {
+      await this.exportPdf(html, this.exportDefaultPath(file, "pdf"), options);
+    }
+  }
+
+  /** Show the per-export options modal, seeded from the last-used choices. */
+  private promptExportOptions(format: "html" | "pdf"): Promise<ExportOptions | null> {
+    const seed: ExportOptions = {
+      widthMode: this.settings.exportWidthMode ?? DEFAULT_EXPORT_OPTIONS.widthMode,
+      keepCodeBlocksWhole: this.settings.exportKeepCodeBlocksWhole ?? DEFAULT_EXPORT_OPTIONS.keepCodeBlocksWhole,
+      singlePage: this.settings.exportSinglePage ?? DEFAULT_EXPORT_OPTIONS.singlePage,
+      includeTitle: this.settings.exportIncludeTitle ?? DEFAULT_EXPORT_OPTIONS.includeTitle,
+    };
+    return new Promise((resolve) => {
+      new ExportOptionsModal(this.app, format, seed, resolve).open();
+    });
+  }
+
+  /** Remember the chosen export options for next time. */
+  private async persistExportOptions(o: ExportOptions): Promise<void> {
+    this.settings.exportWidthMode = o.widthMode;
+    this.settings.exportKeepCodeBlocksWhole = o.keepCodeBlocksWhole;
+    this.settings.exportSinglePage = o.singlePage;
+    this.settings.exportIncludeTitle = o.includeTitle;
+    await this.saveSettings();
+  }
+
+  /** Build a self-contained, themed HTML document from a rendered preview clone. */
+  private async buildNoteHtml(previewEl: HTMLElement, file: TFile, format: "html" | "pdf", options: ExportOptions): Promise<string> {
+    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
+    const fs = nodeRequire("fs") as typeof import("fs");
+    const path = nodeRequire("path") as typeof import("path");
+
+    // Reading view *virtualizes*: only the sections near the viewport actually
+    // live in the DOM, so cloning previewEl drops everything scrolled out of
+    // view. Render the full note from source instead — that guarantees every
+    // section is present — then graft in the execution outputs that the live
+    // (partial) preview is currently showing.
+    const markdown = await this.app.vault.read(file);
+    const full = activeDocument.createElement("div");
+    full.className = "markdown-preview-view ocode-export";
+
+    // Short-lived component owns the render's child lifecycles; unloaded below.
+    const comp = new Component();
+    comp.load();
+    try {
+      await MarkdownRenderer.render(this.app, markdown, full, file.path, comp);
+
+      this.graftLiveOutputs(previewEl, full);
+      this.cleanExportClone(full);
+      this.inlineImages(full, fs, path);
+
+      const pluginCss = await this.readPluginCss();
+      const themeVars = this.captureThemeVars();
+      const singlePage = format === "pdf" && options.singlePage;
+      let bodyClass = this.captureBodyClass();
+      if (singlePage) bodyClass += " ocode-singlepage";
+      // PDF always matches the current reading-view width (the width dropdown is
+      // HTML-only); "full width" on a fixed/endless page breaks the layout.
+      const contentWidth = format === "pdf"
+        ? this.captureContentWidth(previewEl)
+        : this.resolveContentWidth(previewEl, options.widthMode);
+
+      return buildExportHtml({
+        title: file.basename,
+        bodyHtml: full.innerHTML,
+        pluginCss,
+        themeVars,
+        bodyClass,
+        contentWidth,
+        keepBlocksWhole: format === "pdf" && options.keepCodeBlocksWhole,
+        singlePage,
+        paginated: format === "pdf" && !singlePage,
+        includeTitle: options.includeTitle,
+      });
+    } finally {
+      comp.unload();
+    }
+  }
+
+  /** Resolve the requested width mode to a max-width in px (0 = full width). */
+  private resolveContentWidth(previewEl: HTMLElement, mode: ExportWidthMode): number {
+    if (mode === "full") return 0;
+    if (mode === "current") return this.captureContentWidth(previewEl);
+    // "default": Obsidian's readable-line-length width, independent of the
+    // current window size. Falls back to 700px (Obsidian's own default).
+    const v = activeWindow.getComputedStyle(activeDocument.body).getPropertyValue("--file-line-width").trim();
+    const n = parseFloat(v);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 700;
+  }
+
+  /**
+   * The reading view's content column width (px), so the export matches the
+   * width the user sees in Obsidian. Reads the `.markdown-preview-sizer` box
+   * minus its horizontal padding; returns 0 (full width) when unavailable.
+   */
+  private captureContentWidth(previewEl: HTMLElement): number {
+    const sizer = previewEl.querySelector<HTMLElement>(".markdown-preview-sizer");
+    if (!sizer) return 0;
+    const cs = activeWindow.getComputedStyle(sizer);
+    const w = sizer.clientWidth - parseFloat(cs.paddingLeft || "0") - parseFloat(cs.paddingRight || "0");
+    return w > 0 ? Math.round(w) : 0;
+  }
+
+  /**
+   * The live <body> classes the export needs to reproduce the reading view:
+   * the active theme plus CodeSuite's own setting-scoped body classes (wrap /
+   * wide), which the wrapping and width rules in styles.css are scoped to.
+   */
+  private captureBodyClass(): string {
+    const keep = Array.from(activeDocument.body.classList).filter((c) =>
+      c === "theme-dark" || c === "theme-light" || c.startsWith("ocode-")
+    );
+    if (!keep.some((c) => c === "theme-dark" || c === "theme-light")) {
+      keep.push(activeDocument.body.classList.contains("theme-dark") ? "theme-dark" : "theme-light");
+    }
+    return keep.join(" ");
+  }
+
+  /**
+   * Copy execution outputs from the live (virtualized) preview into the freshly
+   * rendered, complete document. Code blocks are matched by their rendered code
+   * text, FIFO per identical block, so duplicate snippets keep their own output.
+   */
+  private graftLiveOutputs(live: HTMLElement, full: HTMLElement): void {
+    const codeKey = (w: Element): string =>
+      (w.querySelector("pre.shiki code")?.textContent ?? "").trim();
+
+    const queues = new Map<string, HTMLElement[]>();
+    for (const w of Array.from(live.querySelectorAll(".ocode-wrapper"))) {
+      const out = w.querySelector<HTMLElement>(".ocode-output");
+      const key = codeKey(w);
+      if (!out || !key) continue;
+      const q = queues.get(key);
+      if (q) q.push(out); else queues.set(key, [out]);
+    }
+    if (queues.size === 0) return;
+
+    for (const w of Array.from(full.querySelectorAll(".ocode-wrapper"))) {
+      if (w.querySelector(".ocode-output")) continue;
+      const q = queues.get(codeKey(w));
+      const out = q?.shift();
+      if (out) w.appendChild(out.cloneNode(true));
+    }
+  }
+
+  /** Strip reading-view scaffolding + interactive chrome from an export clone. */
+  private cleanExportClone(root: HTMLElement): void {
+    const drop = [
+      ".markdown-preview-pusher", ".mod-header", ".mod-footer",
+      ".ocode-btn-group", ".ocode-pill", ".ocode-input-bar",
+      ".edit-block-button", ".collapse-indicator",
+    ];
+    for (const sel of drop) {
+      for (const el of Array.from(root.querySelectorAll(sel))) el.remove();
+    }
+    // Expand collapsed blocks so all code is visible in the static document.
+    for (const el of Array.from(root.querySelectorAll(".ocode-collapsed"))) el.classList.remove("ocode-collapsed");
+    for (const el of Array.from(root.querySelectorAll(".ocode-hidden"))) el.classList.remove("ocode-hidden");
+  }
+
+  /** Convert vault/app:// image sources to inline data-URIs (matplotlib already is). */
+  private inlineImages(root: HTMLElement, fs: typeof import("fs"), path: typeof import("path")): void {
+    const mime: Record<string, string> = {
+      ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+      ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp", ".bmp": "image/bmp",
+    };
+    for (const img of Array.from(root.querySelectorAll("img"))) {
+      const src = img.getAttribute("src") || "";
+      if (!src || src.startsWith("data:")) continue;
+      try {
+        const u = new URL(src);
+        let p = decodeURIComponent(u.pathname);
+        if (/^\/[A-Za-z]:\//.test(p)) p = p.slice(1); // Windows drive paths: /C:/… → C:/…
+        const buf = fs.readFileSync(p);
+        const m = mime[path.extname(p).toLowerCase()] || "application/octet-stream";
+        img.setAttribute("src", `data:${m};base64,${buf.toString("base64")}`);
+        img.removeAttribute("srcset");
+      } catch { /* leave external/unreadable images untouched */ }
+    }
+  }
+
+  /** Read the plugin's own styles.css so the export carries CodeSuite styling. */
+  private async readPluginCss(): Promise<string> {
+    const dir = this.manifest.dir;
+    if (!dir) return "";
+    const cssPath = `${dir}/styles.css`;
+    try {
+      if (await this.app.vault.adapter.exists(cssPath)) {
+        return await this.app.vault.adapter.read(cssPath);
+      }
+    } catch { /* styles.css unreadable — export still works, just less styled */ }
+    return "";
+  }
+
+  /** Snapshot the theme custom properties the export CSS relies on. */
+  private captureThemeVars(): string {
+    const names = [
+      "--ocode-bg", "--ocode-fg", "--ocode-header-bg", "--ocode-border",
+      "--ocode-output-bg", "--ocode-muted", "--ocode-line-num",
+      "--background-primary", "--background-secondary", "--background-modifier-border",
+      "--text-normal", "--text-muted", "--text-accent", "--code-background",
+      "--font-monospace", "--font-text",
+    ];
+    const rootStyle = activeWindow.getComputedStyle(activeDocument.documentElement);
+    const bodyStyle = activeWindow.getComputedStyle(activeDocument.body);
+    const lines: string[] = [];
+    for (const v of names) {
+      const val = (rootStyle.getPropertyValue(v) || bodyStyle.getPropertyValue(v)).trim();
+      if (val) lines.push(`  ${v}: ${val};`);
+    }
+    const font = (bodyStyle.getPropertyValue("--font-text") || bodyStyle.fontFamily).trim();
+    if (font) lines.push(`  --export-font: ${font};`);
+    return `:root {\n${lines.join("\n")}\n}`;
+  }
+
+  /** Render HTML to PDF in a hidden Electron window via webContents.printToPDF. */
+  private async exportPdf(html: string, defaultPath: string, options: ExportOptions): Promise<void> {
+    const BrowserWindow = this.getBrowserWindow();
+    if (!BrowserWindow) {
+      new Notice("PDF export needs Electron. Export to HTML and print to PDF from a browser instead.");
+      return;
+    }
+    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
+    const fs = nodeRequire("fs") as typeof import("fs");
+    const os = nodeRequire("os") as typeof import("os");
+    const path = nodeRequire("path") as typeof import("path");
+
+    // Pick the destination up front (matching the other exporters).
+    const dialog = this.getDialog();
+    let out = defaultPath;
+    if (dialog?.showSaveDialog) {
+      const res = await dialog.showSaveDialog({ defaultPath, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+      if (res.canceled || !res.filePath) return;
+      out = res.filePath;
+    }
+
+    const tmpHtml = path.join(os.tmpdir(), `codesuite-export-${Date.now()}.html`);
+    let win: ElectronBrowserWindow | null = null;
+    try {
+      fs.writeFileSync(tmpHtml, html);
+      win = new BrowserWindow({ show: false, width: 820, height: 1160, webPreferences: { sandbox: true } });
+      await win.loadFile(tmpHtml);
+
+      // Margins 0 so the dark themed background bleeds to the paper edge.
+      const printOpts: Record<string, unknown> = {
+        printBackground: true,
+        pageSize: "A4",
+        margins: { top: 0, bottom: 0, left: 0, right: 0 },
+      };
+
+      if (options.singlePage) {
+        // One tall page, no breaks. Measure the FULL rendered document height via
+        // the root element's bounding box — that's the true content height even
+        // though the offscreen window's viewport is short (scrollHeight there can
+        // collapse to ~viewport, which paginated the page into many short pages).
+        // Wait for fonts + every inlined image to load first so the height is final.
+        const dims = await win.webContents.executeJavaScript(`
+          (async () => {
+            try { await document.fonts.ready; } catch { /* fonts API unavailable */ }
+            await Promise.all(Array.from(document.images).map((img) =>
+              img.complete ? null : new Promise((res) => { img.onload = img.onerror = () => res(null); })
+            ));
+            await new Promise((r) => setTimeout(r, 50));
+            const r = document.documentElement.getBoundingClientRect();
+            return { w: Math.ceil(r.width), h: Math.ceil(r.height) };
+          })()
+        `) as { w: number; h: number };
+        // Modern Electron (Obsidian runs Chrome 142+) takes pageSize in INCHES,
+        // not microns. 96 CSS px = 1 inch. PDF caps a page at 200 inches. A single
+        // explicit pageSize (with margins 0, already set) means no page breaks;
+        // the dark body/html background fills it and ocode-singlepage pads it.
+        const wIn = (dims && dims.w > 0 ? dims.w : 820) / 96;
+        const hIn = (dims && dims.h > 0 ? dims.h : 1160) / 96;
+        printOpts.pageSize = {
+          width: Number(wIn.toFixed(3)),
+          height: Number(Math.min(hIn, 200).toFixed(3)),
+        };
+      }
+
+      const pdf = await win.webContents.printToPDF(printOpts);
+
+      fs.writeFileSync(out, pdf);
+      new Notice(`Exported → ${out}`);
+    } catch (err) {
+      new Notice(`PDF export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      if (win) { try { win.destroy(); } catch { /* window already closed */ } }
+      try { fs.unlinkSync(tmpHtml); } catch { /* temp file already gone */ }
+    }
+  }
+
   // ─── Code Block Processing ────────────────────────────────────
 
   private processCodeBlocks(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
@@ -2155,6 +2697,12 @@ __ocode_emit_vars
       wrapper.setAttribute("data-ocode-fenced", "1");
     }
 
+    // Re-attach a previously-run output (this session) so it survives reading-
+    // view section eviction and is present for HTML/PDF export.
+    if (!fileName && isExecutable(lang) && sourcePath) {
+      this.restoreBlockOutput(sourcePath, code, wrapper);
+    }
+
     // ─── HTML live preview ───
     // Render the block's HTML alongside its source and add a Preview/Code
     // toggle. `htmlPreview` is non-null only for preview-eligible html blocks.
@@ -2340,6 +2888,23 @@ __ocode_emit_vars
       `a{color:${accent}}`;
     return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${base}</style></head>` +
       `<body>${code}${resizeShim}</body></html>`;
+  }
+
+  /** Store a finished output panel's HTML, keyed by note path + block source. */
+  private saveBlockOutput(notePath: string, code: string, panel: HTMLElement): void {
+    let byCode = this.noteOutputs.get(notePath);
+    if (!byCode) { byCode = new Map(); this.noteOutputs.set(notePath, byCode); }
+    byCode.set(code, panel.outerHTML);
+  }
+
+  /** Re-attach a saved output snapshot to a freshly rendered block, if one exists. */
+  private restoreBlockOutput(notePath: string, code: string, wrapper: HTMLElement): void {
+    if (wrapper.querySelector(".ocode-output")) return;
+    const html = this.noteOutputs.get(notePath)?.get(code);
+    if (!html) return;
+    const parsed = new DOMParser().parseFromString(html, "text/html");
+    const panel = parsed.querySelector(".ocode-output");
+    if (panel) wrapper.appendChild(activeDocument.adoptNode(panel));
   }
 
   /**
@@ -2688,6 +3253,10 @@ __ocode_emit_vars
         outContent.classList.add("ocode-no-output");
       }
 
+      // Persist a static snapshot of the finished output so it survives reading-
+      // view section eviction and is picked up by HTML/PDF export.
+      if (sourcePath) this.saveBlockOutput(sourcePath, code, outputPanel);
+
       // ─── Accumulate into session on clean exit ───
       if (useSharedCtx && result.exitCode === 0) {
         const notePath = sourcePath;
@@ -2860,5 +3429,87 @@ class ShellAliasNoticeModal extends Modal {
 
   onClose(): void {
     this.contentEl.empty();
+  }
+}
+
+/**
+ * Per-export options dialog for HTML/PDF export. Width applies to both formats;
+ * the code-block split mode and single-page toggle are PDF-only. Resolves with
+ * the chosen options, or `null` if the user cancels / dismisses the modal.
+ */
+class ExportOptionsModal extends Modal {
+  private options: ExportOptions;
+  private submitted = false;
+
+  constructor(
+    app: App,
+    private format: "html" | "pdf",
+    seed: ExportOptions,
+    private resolve: (result: ExportOptions | null) => void,
+  ) {
+    super(app);
+    this.options = { ...seed };
+  }
+
+  onOpen(): void {
+    const { contentEl, titleEl } = this;
+    titleEl.setText(this.format === "pdf" ? "Export to PDF" : "Export to HTML");
+
+    if (this.format === "html") {
+      // Width is HTML-only. PDF always matches the current reading-view width
+      // (a fixed page can't sensibly honour "full width" — it overflows).
+      new Setting(contentEl)
+        .setName("Content width")
+        .setDesc("How wide the document content column should be.")
+        .addDropdown((dd) => {
+          dd.addOption("default", "Obsidian default (readable line length)");
+          dd.addOption("current", "Match current view");
+          dd.addOption("full", "Full width");
+          dd.setValue(this.options.widthMode);
+          dd.onChange((v) => { this.options.widthMode = v as ExportWidthMode; });
+        });
+    }
+
+    new Setting(contentEl)
+      .setName("Include note title")
+      .setDesc("Add the note name as a heading at the top of the document.")
+      .addToggle((t) => {
+        t.setValue(this.options.includeTitle);
+        t.onChange((v) => { this.options.includeTitle = v; });
+      });
+
+    if (this.format === "pdf") {
+      new Setting(contentEl)
+        .setName("Keep code blocks together")
+        .setDesc("Avoid splitting a code block across pages. A block taller than a page still splits so nothing is clipped.")
+        .addToggle((t) => {
+          t.setValue(this.options.keepCodeBlocksWhole);
+          t.onChange((v) => { this.options.keepCodeBlocksWhole = v; });
+        });
+
+      new Setting(contentEl)
+        .setName("Single long page")
+        // eslint-disable-next-line obsidianmd/ui/sentence-case -- "A4" is a paper-size proper noun
+        .setDesc("Output one continuous page with no page breaks instead of paginated A4.")
+        .addToggle((t) => {
+          t.setValue(this.options.singlePage);
+          t.onChange((v) => { this.options.singlePage = v; });
+        });
+    }
+
+    const buttonRow = contentEl.createDiv({ cls: "modal-button-container" });
+    const cancelBtn = buttonRow.createEl("button", { text: "Cancel" });
+    cancelBtn.addEventListener("click", () => this.close());
+    const exportBtn = buttonRow.createEl("button", { text: "Export", cls: "mod-cta" });
+    exportBtn.addEventListener("click", () => {
+      this.submitted = true;
+      this.resolve({ ...this.options });
+      this.close();
+    });
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+    if (!this.submitted) this.resolve(null);
   }
 }

@@ -199,6 +199,14 @@ export interface CodePluginSettings {
    * to users upgrading across them; not user-facing.
    */
   lastNoticeVersion: string;
+  /**
+   * Last-used HTML/PDF export options. Seeds the per-export options modal so
+   * the user's previous choices are remembered. Not edited in the settings tab.
+   */
+  exportWidthMode: "default" | "current" | "full";
+  exportKeepCodeBlocksWhole: boolean;
+  exportSinglePage: boolean;
+  exportIncludeTitle: boolean;
 }
 
 export const DEFAULT_SETTINGS: CodePluginSettings = {
@@ -239,6 +247,10 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   experimentalTables: false,
   customThemes: [],
   lastNoticeVersion: "",
+  exportWidthMode: "current",
+  exportKeepCodeBlocksWhole: true,
+  exportSinglePage: false,
+  exportIncludeTitle: false,
 };
 
 /** Parse extra env string (KEY=VALUE per line) into Record */

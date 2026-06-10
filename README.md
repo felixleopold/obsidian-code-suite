@@ -162,6 +162,32 @@ Command palette → **Import code file as alias…** opens a native file picker 
 
 ---
 
+## Import & Export
+
+Move work between CodeSuite and the Jupyter/notebook ecosystem, or share a polished copy of a note. All four commands live in the command palette (desktop only).
+
+### Jupyter notebooks (`.ipynb`)
+
+- **Import Jupyter notebook (.ipynb)…** — pick a notebook and CodeSuite creates a new note next to your active file. Code cells become fenced code blocks in the notebook's language; markdown cells become note prose. Notebooks import **unrun** — cell outputs are dropped so you re-run blocks in CodeSuite (where you control execution).
+- **Export note to Jupyter notebook (.ipynb)** — converts the active note back into a notebook. The notebook is single-kernel, so code blocks in the note's dominant executable language become code cells; blocks in other languages, `vars` blocks, and prose stay in markdown cells. Cells are exported **without** outputs.
+
+### Styled HTML & PDF (with outputs)
+
+- **Export note to HTML (with outputs)**
+- **Export note to PDF (with outputs)** (rendered via Electron's print engine)
+
+Both produce a self-contained file that matches what you see in Obsidian — same Shiki theme, CodeSuite styling, and **code outputs** (text, images, plots).
+
+Each export opens a small **options dialog** (your last choices are remembered):
+
+- **Content width** (HTML + PDF) — *Obsidian default* (the readable-line-length width), *Match current view* (the width the note is shown at right now), or *Full width* (no column cap).
+- **Keep code blocks together** (PDF) — avoid splitting a code block across a page break. A block taller than a page still splits, so nothing is ever clipped. Turn off for the old split-anywhere behaviour.
+- **Single long page** (PDF) — emit one continuous page with no page breaks instead of paginated A4.
+
+> **Outputs come from the live render.** Open the note in **reading view** and run the blocks you want shown (individually or with **Run All**), *then* export. Whatever output is currently on screen is captured as-is; nothing is written back into your `.md`. If the note isn't in reading view, the command is unavailable.
+
+---
+
 ## Installation
 
 ### Community Plugins *(recommended)*
@@ -206,10 +232,11 @@ The following features are on the roadmap. Track progress or vote on the linked 
 
 | # | Feature | Issue |
 |---|---------|-------|
-| 1 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
-| 2 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+| 1 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
 
 > Shipped in 1.8.0: better plot support ([#12](https://github.com/felixleopold/obsidian-code-suite/issues/12)) — interactive Plotly widgets (zoom, pan, hover, legend toggles) instead of static images, click-to-expand full-screen view for every plot and image, and a per-image hover toolbar with copy and download. New settings: **Interactive plots** and **Embed Plotly.js offline**.
+
+> Shipped in 1.8.0: import/export ([#5](https://github.com/felixleopold/obsidian-code-suite/issues/5)) — Jupyter notebook `.ipynb` conversion (import unrun, export without outputs) and styled HTML/PDF export with live code outputs.
 
 > Shipped in 1.8.0: HTML live preview — `html` blocks (and `![[file.html]]` embeds) render as live HTML in a sandboxed iframe with a Preview/Code toggle; full documents with `<style>`/`<script>` work. Controlled by the **Render HTML blocks** setting or a per-block `preview`/`source` flag.
 
