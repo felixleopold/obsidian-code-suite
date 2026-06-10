@@ -170,7 +170,7 @@ Move work between CodeSuite and the Jupyter/notebook ecosystem, or share a polis
 ### Jupyter notebooks (`.ipynb`)
 
 - **Import Jupyter notebook (.ipynb)…** — pick a notebook and CodeSuite creates a new note next to your active file. Code cells become fenced code blocks in the notebook's language; markdown cells become note prose. Notebooks import **unrun** — cell outputs are dropped so you re-run blocks in CodeSuite (where you control execution).
-- **Export note to Jupyter notebook (.ipynb)** — converts the active note back into a notebook. The notebook is single-kernel, so code blocks in the note's dominant executable language become code cells; blocks in other languages, `vars` blocks, and prose stay in markdown cells. Cells are exported **without** outputs.
+- **Export note to Jupyter notebook (.ipynb)** — converts the active note back into a notebook. Every executable code block becomes a code cell; blocks in a non-dominant language carry a `metadata.vscode.languageId` tag so VS Code renders each cell in the right language and the notebook round-trips correctly back to the right fence on re-import. `vars` blocks and non-executable fences stay in markdown cells. Cells are exported **without** outputs.
 
 ### Styled HTML & PDF (with outputs)
 
