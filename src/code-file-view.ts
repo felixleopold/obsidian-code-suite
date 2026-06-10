@@ -13,6 +13,7 @@
 import { TextFileView, WorkspaceLeaf } from "obsidian";
 import type CodePlugin from "./main";
 import { startExecution, isExecutable, type RunningProcess } from "./executor";
+import { buildFigureEl } from "./output-view";
 
 export const CODE_FILE_VIEW_TYPE = "codesuite-code-file-view";
 
@@ -257,7 +258,7 @@ export class CodeFileView extends TextFileView {
     clearBtn.setAttribute("aria-label", "Clear output");
     clearBtn.addEventListener("click", () => this.removeOutput());
 
-    const outContent = panel.createEl("pre", { cls: "ocode-output-content" });
+    const outContent = panel.createDiv({ cls: "ocode-output-content" });
 
     // Swap Run → Stop
     setSvgContent(this.runBtn.querySelector(".ocode-pill-icon")!, ICON.stop);
@@ -266,10 +267,26 @@ export class CodeFileView extends TextFileView {
 
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
 
+    let lineBuffer = "";
+    const SENTINEL_RE = /^OCODE_FIG_(\d+)$/;
+    const processLine = (line: string) => {
+      const m = SENTINEL_RE.exec(line);
+      if (m) {
+        const placeholder = outContent.createDiv({ cls: "ocode-fig-placeholder" });
+        placeholder.dataset.figIdx = m[1];
+        outContent.scrollTop = outContent.scrollHeight;
+        return;
+      }
+      outContent.createSpan({ cls: "ocode-stdout", text: line + "\n" });
+      outContent.scrollTop = outContent.scrollHeight;
+    };
+
     const proc = startExecution(this.content, lang, this.plugin.settings, {
       onStdout: (data) => {
-        outContent.appendChild(createSpan({ cls: "ocode-stdout", text: data }));
-        outContent.scrollTop = outContent.scrollHeight;
+        lineBuffer += data;
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop()!;
+        for (const line of lines) processLine(line);
       },
       onStderr: (data) => {
         const span = createSpan({ cls: "ocode-stderr" });
@@ -283,34 +300,37 @@ export class CodeFileView extends TextFileView {
     try {
       const result = await proc.promise;
 
+      // Flush any partial buffered line (script with no trailing newline)
+      if (lineBuffer) { processLine(lineBuffer); lineBuffer = ""; }
+
       outLabel.textContent = result.killed
         ? "Output (timed out)"
         : result.exitCode === 0
         ? "Output"
         : `Output (exit: ${result.exitCode})`;
 
-      // Icon-only copy-output button.
-      const copyOutBtn = this.makePill("", ICON.copy, outHeader, () => {
-        void navigator.clipboard.writeText(outContent.textContent ?? "").then(() => {
-          setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.check);
-          window.setTimeout(() => {
-            setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
-          }, 2000);
-        });
-      }, "ocode-copy-out-pill");
-      outHeader.insertBefore(copyOutBtn, clearBtn);
-
-      if (result.images.length > 0) {
-        const imgContainer = panel.createDiv({ cls: "ocode-output-images" });
-        for (const base64 of result.images) {
-          const img = imgContainer.createEl("img");
-          img.src = `data:image/png;base64,${base64}`;
-          img.className = "ocode-output-img";
-        }
-        panel.insertBefore(imgContainer, outContent);
+      // Replace figure placeholders with actual image/widget elements.
+      for (const placeholder of Array.from(outContent.querySelectorAll<HTMLElement>(".ocode-fig-placeholder"))) {
+        const idx = parseInt(placeholder.dataset.figIdx ?? "0", 10);
+        const fig = result.figures.find((f) => f.figureIndex === idx);
+        if (fig) { placeholder.replaceWith(buildFigureEl(fig, this.app)); }
+        else { placeholder.remove(); }
       }
 
-      if (!outContent.childNodes.length && result.images.length === 0) {
+      // Copy-output button — only shown when there is actual text in the panel.
+      if (outContent.textContent?.trim()) {
+        const copyOutBtn = this.makePill("", ICON.copy, outHeader, () => {
+          void navigator.clipboard.writeText(outContent.textContent ?? "").then(() => {
+            setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.check);
+            window.setTimeout(() => {
+              setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
+            }, 2000);
+          });
+        }, "ocode-copy-out-pill");
+        outHeader.insertBefore(copyOutBtn, clearBtn);
+      }
+
+      if (!outContent.childNodes.length) {
         outContent.textContent = "(no output)";
         outContent.classList.add("ocode-no-output");
       }

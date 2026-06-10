@@ -8,7 +8,7 @@
 
 - **Shiki syntax highlighting** — 65+ built-in themes, import any VS Code `.json` theme, auto light/dark switching, full color in Reading view *and* the editor
 - **Live code execution** — Python, JS/TS, Bash, PowerShell, PHP, Go, Ruby, and more; output streams character-by-character; interactive stdin, password masking, cancel mid-run
-- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; Matplotlib and Plotly render below the block without a display server
+- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; Matplotlib renders as a static image and Plotly renders as a fully interactive widget (zoom, pan, hover), all below the block without a display server. Click any plot to open it full screen, or copy/download images from the hover toolbar
 - **Notebook mode** — shared execution context across blocks, `vars` blocks, `code_vars:` frontmatter, inline `` `$varname` `` substitution, **Run All** (with `skip` fence-tag opt-out) and **Clear Session**
 - **HTML live preview** — render `html` blocks as live HTML instead of source, with a one-click Preview/Code toggle; set the default globally or per block with a `preview`/`source` fence flag
 - **Embedded code files** — `![[script.py]]` renders as a collapsible, syntax-highlighted, executable block
@@ -62,7 +62,7 @@ Run code directly from a code block — no terminal, no switching apps.
 - **Live streaming** — stdout and stderr appear as the process runs, not after it finishes
 - **Interactive stdin** — an input bar appears automatically when your code calls `input()` or reads from stdin
 - **Password masking** — `sudo` is detected automatically; the input bar masks characters for sensitive prompts
-- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; graphs render as inline images without a display server
+- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted without a display server. Matplotlib figures render as static images; Plotly figures render as interactive HTML widgets (zoom, pan, hover, legend toggles). Click a plot for full-screen view; hover an image for copy/download buttons. Toggle interactivity and offline Plotly.js embedding in settings
 - **Virtual environment support** — point the Python path to a venv binary; CodeSuite sets `VIRTUAL_ENV` and prepends `bin/` to `PATH` so all venv packages are available across every language block
 - **PHP snippet mode** — PHP blocks can omit the opening `<?php` tag; CodeSuite adds it only to the temporary execution file
 - **Shell startup support** — Bash/Zsh can run as login shells, and Bash/Zsh/Shell blocks can source one or more startup files before your snippet runs
@@ -207,8 +207,9 @@ The following features are on the roadmap. Track progress or vote on the linked 
 | # | Feature | Issue |
 |---|---------|-------|
 | 1 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
-| 2 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
-| 3 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+| 2 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+
+> Shipped in 1.8.0: better plot support ([#12](https://github.com/felixleopold/obsidian-code-suite/issues/12)) — interactive Plotly widgets (zoom, pan, hover, legend toggles) instead of static images, click-to-expand full-screen view for every plot and image, and a per-image hover toolbar with copy and download. New settings: **Interactive plots** and **Embed Plotly.js offline**.
 
 > Shipped in 1.8.0: HTML live preview — `html` blocks (and `![[file.html]]` embeds) render as live HTML in a sandboxed iframe with a Preview/Code toggle; full documents with `<style>`/`<script>` work. Controlled by the **Render HTML blocks** setting or a per-block `preview`/`source` flag.
 

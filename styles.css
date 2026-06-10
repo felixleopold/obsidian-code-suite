@@ -224,20 +224,14 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   user-select: none;
 }
 
+/* Output content — grows to fit all text and figures */
 .ocode-output .ocode-output-content {
   margin: 0;
-  padding: 10px 16px;
+  padding: 0;
   font-family: inherit;
   font-size: 13px;
   line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 400px;
-  overflow-y: auto;
   color: var(--ocode-fg, #ebdbb2);
-  background: none;
-  border: none;
-  border-radius: 0;
 }
 
 /* Hide empty output content area */
@@ -245,12 +239,29 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   padding: 0;
 }
 
+/* Text spans (stdout / stderr / stdin-echo) are inline; padding lives here */
+.ocode-output .ocode-output-content > .ocode-stdout,
+.ocode-output .ocode-output-content > .ocode-stderr,
+.ocode-output .ocode-output-content > .ocode-stdin-echo,
+.ocode-output .ocode-output-content > .ocode-no-output {
+  display: block;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 0;
+}
+
+/* First text child gets top padding; last gets bottom padding */
+.ocode-output .ocode-output-content > :first-child:not(.ocode-output-item) { padding-top: 10px; }
+.ocode-output .ocode-output-content > :last-child:not(.ocode-output-item)  { padding-bottom: 10px; }
+.ocode-output .ocode-output-content > :not(.ocode-output-item) { padding-left: 16px; padding-right: 16px; }
+.ocode-output .ocode-output-content > .ocode-output-item { margin: 8px 0; }
+
 .ocode-stdout { color: var(--ocode-fg, #ebdbb2); }
 /* Stderr is orange by default — many programs (brew, npm, etc.) write
    informational/progress text to stderr even on success. It only turns red
    when the process actually exits with a non-zero code. */
 .ocode-stderr { color: #fe8019; }
-.ocode-output-content.ocode-has-error .ocode-stderr { color: #fb4934; }
+.ocode-output-content.ocode-has-error > .ocode-stderr { color: #fb4934; }
 .ocode-no-output { color: var(--ocode-line-num, #504945); font-style: italic; }
 
 .ocode-stdin-echo {
@@ -272,7 +283,7 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   border-color: rgba(251, 73, 52, 0.5);
 }
 
-/* ─── Image output ────────────────────────────── */
+/* ─── Image & widget output ───────────────────── */
 .ocode-output-images {
   padding: 12px 16px;
   display: flex;
@@ -283,12 +294,98 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   overflow-y: auto;
 }
 
+.ocode-output-widgets {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Wraps a single image/widget so its toolbar can float in the corner. */
+.ocode-output-item {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+}
+
 .ocode-output-img {
   max-width: 100%;
   max-height: 500px;
   object-fit: contain;
   border-radius: 4px;
+  cursor: zoom-in;
+}
+
+.ocode-output-widget {
+  width: 100%;
+  height: 520px;
   border: 1px solid var(--ocode-border, #3c3836);
+  border-radius: 4px;
+  background: #fff;
+}
+
+/* Per-item toolbar — hidden until the item is hovered. */
+.ocode-output-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  z-index: 1;
+}
+
+.ocode-output-item:hover .ocode-output-toolbar {
+  opacity: 1;
+}
+
+.ocode-output-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid var(--ocode-border, #3c3836);
+  background: var(--ocode-header-bg, #282828);
+  color: var(--ocode-fg, #ebdbb2);
+  cursor: pointer;
+}
+
+.ocode-output-tool:hover {
+  background: var(--ocode-bg, #1d2021);
+}
+
+/* ─── Full-screen output modal ────────────────── */
+.ocode-fullscreen-modal {
+  width: 92vw;
+  height: 90vh;
+  max-width: 92vw;
+}
+
+.ocode-fullscreen-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+
+.ocode-fullscreen-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.ocode-fullscreen-widget {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
 }
 
 /* ─── Stdin input bar ─────────────────────────── */
@@ -953,7 +1050,8 @@ body.ocode-lp-lnum
 /* Code body and output text stay selectable/copyable. */
 .cm-content .ocode-wrapper pre.shiki,
 .cm-content .ocode-wrapper pre.shiki code,
-.cm-content .ocode-wrapper .ocode-output-content {
+.cm-content .ocode-wrapper .ocode-output-content,
+.cm-content .ocode-wrapper .ocode-output-content * {
   user-select: text;
   -webkit-user-select: text;
 }

@@ -171,6 +171,23 @@ export interface CodePluginSettings {
   /** User-imported VS Code themes */
   customThemes: CustomTheme[];
   /**
+   * Render Plotly figures as interactive HTML widgets (zoom/pan/hover preserved)
+   * instead of static PNG images. PNG fallback (the old behavior) needs the
+   * `kaleido` package; the interactive path does not.
+   */
+  interactivePlots: boolean;
+  /**
+   * Embed plotly.js inline in interactive plot output so it works offline.
+   * Larger output; when false, plotly.js is loaded from a CDN (needs internet).
+   */
+  embedPlotlyJs: boolean;
+  /**
+   * Matplotlib style applied before user code runs. Accepts any matplotlib
+   * built-in style name (e.g. `dark_background`, `seaborn-v0_8`) or an
+   * absolute path to a `.mplstyle` file. Leave blank to use matplotlib defaults.
+   */
+  matplotlibStyle: string;
+  /**
    * Experimental: expose markdown tables to code as variables via a
    * `%% codesuite: <name> [as <shape>] %%` directive (or a `var | value`
    * header). Off by default.
@@ -216,6 +233,9 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   enableCodeFileView: true,
   codeImportsFolder: "CodeSuiteImports",
   sharedContext: true,
+  interactivePlots: true,
+  embedPlotlyJs: false,
+  matplotlibStyle: "dark_background",
   experimentalTables: false,
   customThemes: [],
   lastNoticeVersion: "",

@@ -60,13 +60,17 @@ function prependPhpOpenTag(code: string): string {
   return code.slice(0, bodyStart) + "<?php\n" + body;
 }
 
+export type OutputFigure =
+  | { kind: "image"; data: string; figureIndex: number }
+  | { kind: "widget"; html: string; figureIndex: number };
+
 export interface ExecutionResult {
   stdout: string;
   stderr: string;
   exitCode: number | null;
   killed: boolean;
-  /** Base64-encoded PNG images (from matplotlib savefig, etc.) */
-  images: string[];
+  /** Captured figures in creation order (matplotlib PNGs and Plotly HTML widgets). */
+  figures: OutputFigure[];
 }
 
 /** Handle to a running process — allows cancel + stdin */
@@ -85,7 +89,16 @@ export interface RunningProcess {
  * For Python: wrap code to save matplotlib/plotly figures to temp files
  * so we can capture them as images.
  */
-function wrapPythonForGraphs(code: string, imgDir: string): string {
+function wrapPythonForGraphs(
+  code: string,
+  imgDir: string,
+  interactivePlots: boolean,
+  embedPlotlyJs: boolean,
+  matplotlibStyle: string,
+): string {
+  const styleLines = matplotlibStyle
+    ? `    try:\n        __plt.style.use(${JSON.stringify(matplotlibStyle)})\n    except Exception:\n        pass\n`
+    : "";
   // Inject at the top: override plt.show() and fig.show() to save to files
   const preamble = `
 import sys as __sys
@@ -93,37 +106,50 @@ import os as __os
 __ocode_img_dir = ${JSON.stringify(imgDir)}
 __os.makedirs(__ocode_img_dir, exist_ok=True)
 __ocode_img_counter = [0]
+__ocode_plotly_interactive = ${interactivePlots ? "True" : "False"}
+__ocode_plotly_embed = ${embedPlotlyJs ? "True" : "False"}
 
 # Patch matplotlib
 try:
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as __plt
-    __orig_show = __plt.show
+${styleLines}    __orig_show = __plt.show
     def __patched_show(*a, **kw):
         __ocode_img_counter[0] += 1
-        __fname = __os.path.join(__ocode_img_dir, f"fig_{__ocode_img_counter[0]}.png")
-        __plt.savefig(__fname, dpi=150, bbox_inches='tight', facecolor='#1d2021', edgecolor='none')
+        __idx = __ocode_img_counter[0]
+        __fname = __os.path.join(__ocode_img_dir, f"fig_{__idx}.png")
+        __plt.savefig(__fname, dpi=150, bbox_inches='tight')
         __plt.close('all')
+        print(f"OCODE_FIG_{__idx}", flush=True)
     __plt.show = __patched_show
 except ImportError:
     pass
 
-# Patch plotly
+# Patch plotly — capture as interactive HTML (preserves zoom/pan/hover) or
+# fall back to a static PNG when interactive plots are disabled.
+def __ocode_save_plotly(fig):
+    __ocode_img_counter[0] += 1
+    __idx = __ocode_img_counter[0]
+    if __ocode_plotly_interactive:
+        __fname = __os.path.join(__ocode_img_dir, f"fig_{__idx}.html")
+        import plotly.io as __pio_w
+        __jsmode = True if __ocode_plotly_embed else 'cdn'
+        __pio_w.write_html(fig, __fname, include_plotlyjs=__jsmode, full_html=True, config={'responsive': True})
+    else:
+        __fname = __os.path.join(__ocode_img_dir, f"fig_{__idx}.png")
+        fig.write_image(__fname, width=800, height=500)
+    print(f"OCODE_FIG_{__idx}", flush=True)
 try:
     import plotly.io as __pio
     __orig_pio_show = __pio.show
     def __patched_pio_show(fig, *a, **kw):
-        __ocode_img_counter[0] += 1
-        __fname = __os.path.join(__ocode_img_dir, f"fig_{__ocode_img_counter[0]}.png")
-        fig.write_image(__fname, width=800, height=500)
+        __ocode_save_plotly(fig)
     __pio.show = __patched_pio_show
     import plotly.graph_objects as __pgo
     __orig_pgo_show = __pgo.Figure.show
     def __patched_pgo_show(self, *a, **kw):
-        __ocode_img_counter[0] += 1
-        __fname = __os.path.join(__ocode_img_dir, f"fig_{__ocode_img_counter[0]}.png")
-        self.write_image(__fname, width=800, height=500)
+        __ocode_save_plotly(self)
     __pgo.Figure.show = __patched_pgo_show
 except ImportError:
     pass
@@ -174,7 +200,7 @@ export function startExecution(
   if (!Platform.isDesktop) {
     const result: ExecutionResult = {
       stdout: "", stderr: "Code execution is only available on desktop.",
-      exitCode: 1, killed: false, images: [],
+      exitCode: 1, killed: false, figures: [],
     };
     return {
       promise: Promise.resolve(result),
@@ -188,7 +214,7 @@ export function startExecution(
   if (!runtime) {
     const result: ExecutionResult = {
       stdout: "", stderr: `No runtime for: ${lang}`,
-      exitCode: 1, killed: false, images: [],
+      exitCode: 1, killed: false, figures: [],
     };
     return {
       promise: Promise.resolve(result),
@@ -217,7 +243,7 @@ export function startExecution(
   // For Python: wrap code to capture graphs
   let execCode = code;
   if (lang === "python") {
-    execCode = wrapPythonForGraphs(code, imgDir);
+    execCode = wrapPythonForGraphs(code, imgDir, settings.interactivePlots, settings.embedPlotlyJs, settings.matplotlibStyle);
   }
 
   if (lang === "php" && settings.autoPrependPhpOpenTag) {
@@ -330,24 +356,33 @@ export function startExecution(
     proc.on("close", (exitCode: number | null) => {
       window.clearTimeout(timer);
 
-      // Collect generated images
-      const images: string[] = [];
+      // Collect figures keyed by counter index so sentinels in stdout can be
+      // matched to the right file even if some saves failed.
+      const figureMap = new Map<number, OutputFigure>();
       try {
         if (fs.existsSync(imgDir)) {
-          const files = fs.readdirSync(imgDir).sort();
-          for (const f of files) {
-            if (f.endsWith(".png")) {
-              const data = fs.readFileSync(path.join(imgDir, f));
-              images.push(data.toString("base64"));
+          for (const f of fs.readdirSync(imgDir)) {
+            const m = /^fig_(\d+)\.(png|html)$/.exec(f);
+            if (!m) continue;
+            const figureIndex = parseInt(m[1], 10);
+            if (m[2] === "png") {
+              const data = fs.readFileSync(path.join(imgDir, f)).toString("base64");
+              figureMap.set(figureIndex, { kind: "image", data, figureIndex });
+            } else {
+              const html = fs.readFileSync(path.join(imgDir, f), "utf-8");
+              figureMap.set(figureIndex, { kind: "widget", html, figureIndex });
             }
           }
         }
-      } catch { /* image collection is best-effort */ }
+      } catch { /* figure collection is best-effort */ }
+      const figures = Array.from(figureMap.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([, fig]) => fig);
 
       // Cleanup
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
 
-      resolve({ stdout, stderr, exitCode, killed, images });
+      resolve({ stdout, stderr, exitCode, killed, figures });
     });
 
     proc.on("error", (err: Error) => {
@@ -356,7 +391,7 @@ export function startExecution(
       resolve({
         stdout: "",
         stderr: `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`,
-        exitCode: 1, killed: false, images: [],
+        exitCode: 1, killed: false, figures: [],
       });
     });
   });
