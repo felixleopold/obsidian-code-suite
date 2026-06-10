@@ -109,6 +109,12 @@ export interface CodePluginSettings {
   wrapCodeInReadingView: boolean;
   enableExecution: boolean;
   renderEmbeddedFiles: boolean;
+  /**
+   * When true, `html` code blocks render as a live HTML preview by default
+   * instead of showing their source. Per-block `preview`/`source` fence flags
+   * override this. Either way an eligible html block gets a Preview/Code toggle.
+   */
+  renderHtmlBlocks: boolean;
   collapseEmbeds: boolean;
   wideCodeBlocks: boolean;
   /**
@@ -188,6 +194,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   wrapCodeInReadingView: true,
   enableExecution: true,
   renderEmbeddedFiles: true,
+  renderHtmlBlocks: false,
   collapseEmbeds: true,
   wideCodeBlocks: false,
   showClearSessionButton: true,

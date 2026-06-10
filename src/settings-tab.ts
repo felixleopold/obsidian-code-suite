@@ -242,6 +242,22 @@ export class CodeSettingTab extends PluginSettingTab {
         });
       });
 
+    new Setting(containerEl)
+      .setName("Render HTML blocks")
+      .setDesc(
+        "Show html code blocks as a live preview by default instead of their source. " +
+        "Override per block with a `preview` or `source` flag on the fence (e.g. ```html preview). " +
+        "Either way the block gets a Preview/Code toggle."
+      )
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.renderHtmlBlocks);
+        t.onChange(async (v) => {
+          this.plugin.settings.renderHtmlBlocks = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshRenderedBlocks();
+        });
+      });
+
     // ─── Code Execution ──────────────────────────
     new Setting(containerEl).setName("Code execution").setHeading();
 

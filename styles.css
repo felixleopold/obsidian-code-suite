@@ -329,6 +329,36 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   padding: 4px 8px;
 }
 
+/* ─── HTML live preview ───────────────────────── */
+/* The rendered preview pane lives beside the source body; the toggle (and the
+   .ocode-show-preview class) swaps which one is visible. Hidden by default. */
+.ocode-html-render {
+  display: none;
+  border-top: 1px solid var(--ocode-border, #3c3836);
+  background-color: var(--ocode-bg, #1a1a1a);
+}
+
+/* Sandboxed iframe that renders the HTML; height is set from its resize message. */
+.ocode-html-frame {
+  display: block;
+  width: 100%;
+  height: 60px;
+  border: 0;
+  background: transparent;
+}
+
+.ocode-wrapper.ocode-show-preview pre.shiki { display: none; }
+.ocode-wrapper.ocode-show-preview .ocode-html-render { display: block; }
+
+/* A collapsed block hides the preview too (source hides via .ocode-hidden). */
+.ocode-wrapper.ocode-collapsed .ocode-html-render { display: none; }
+
+/* Highlight the toggle while the preview is showing. */
+.ocode-wrapper.ocode-show-preview .ocode-html-toggle {
+  color: var(--ocode-fg, #ebdbb2);
+  border-color: var(--ocode-fg, #ebdbb2);
+}
+
 /* ─── Utility classes ─────────────────────────── */
 .ocode-hidden { display: none; }
 .ocode-hidden-input { display: none; }

@@ -63,6 +63,8 @@ const ICON = {
   close: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   send: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
   reload: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`,
+  eye: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+  code: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
 };
 
 const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
@@ -280,6 +282,12 @@ export default class CodePlugin extends Plugin {
   private _skipSyncTimer: number | null = null;
   /** True when no persisted data existed at load — i.e. a genuinely fresh install. */
   private _isFreshInstall = false;
+  /** Monotonic id for html-preview iframes — used to match their resize messages. */
+  private _frameSeq = 0;
+  /** Live html-preview iframes by token, sized by the shared resize listener. */
+  private _htmlFrames = new Map<string, HTMLIFrameElement>();
+  /** True once the single shared `message` listener for frame resizes is installed. */
+  private _htmlFrameListenerInstalled = false;
 
   async onload() {
     await this.loadSettings();
@@ -567,6 +575,23 @@ export default class CodePlugin extends Plugin {
   }
 
   /**
+   * Re-render all open notes so a rendering-related setting change (e.g. the
+   * html-preview default) takes effect immediately. Drops cached Live Preview
+   * wrappers, forces the block-widget field to rebuild, and re-renders reading
+   * views — without the full highlighter teardown {@link refreshHighlighter} does.
+   */
+  refreshRenderedBlocks(): void {
+    this.lpWrapperCache.clear();
+    this.forceLpRebuild();
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.getMode() === "preview") {
+        view.previewMode.rerender(true);
+      }
+    });
+  }
+
+  /**
    * Debounced entry point for auto-theme switching.
    * css-change fires several times per mode switch; we coalesce them into one
    * actual switch by resetting the timer on every call.
@@ -744,6 +769,7 @@ export default class CodePlugin extends Plugin {
       s.inlineCollapsedByDefault,
       s.collapseEmbeds,
       s.renderEmbeddedFiles,
+      s.renderHtmlBlocks,
     ].join("|");
   }
 
@@ -783,10 +809,11 @@ export default class CodePlugin extends Plugin {
         const forceSkip = attrs.has("skip");
         const forceCollapsed: boolean | null =
           attrs.has("collapsed") ? true : attrs.has("expanded") ? false : null;
+        const htmlPreview = this.htmlPreviewState(rawLang, attrs);
 
         const isVars = rawLang === "vars";
         const resolvedLang = isVars ? "vars" : this.highlighter.resolveLanguage(block.lang);
-        const key = `${this.lpBlockKey(resolvedLang, block.code)}\0${forceSkip}\0${forceCollapsed}\0${sig}`;
+        const key = `${this.lpBlockKey(resolvedLang, block.code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${sig}`;
         // Register the key BEFORE the cursor check so a block being edited (or
         // running) is never pruned out from under its live output / process.
         liveKeys.add(key);
@@ -800,7 +827,7 @@ export default class CodePlugin extends Plugin {
             isVars
               ? this.buildVarsWrapper(code, notePath)
               : this.buildCodeBlockWrapper(
-                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed,
+                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed, htmlPreview,
                 )
           );
 
@@ -813,7 +840,7 @@ export default class CodePlugin extends Plugin {
 
       // ─── Embedded code files: `![[file.py]]` on its own line ───
       if (this.settings.renderEmbeddedFiles) {
-        const embedRe = /^!\[\[([^\]|]+?\.[a-zA-Z0-9]+)(?:\|[^\]]*)?\]\]$/;
+        const embedRe = /^!\[\[([^\]|]+?\.[a-zA-Z0-9]+)(?:\|([^\]]*))?\]\]$/;
         for (let i = 1; i <= doc.lines; i++) {
           const line = doc.line(i);
           const m = line.text.trim().match(embedRe);
@@ -823,13 +850,15 @@ export default class CodePlugin extends Plugin {
           const file = this.app.metadataCache.getFirstLinkpathDest(m[1], notePath);
           if (!(file instanceof TFile)) continue;
 
-          const key = `embed\0${file.path}\0${sig}`;
+          const alias = m[2] ?? null;
+          const htmlPreview = this.embedHtmlPreview(ext, alias);
+          const key = `embed\0${file.path}\0${htmlPreview}\0${sig}`;
           liveKeys.add(key);
           if (overlapsSelection(line.from, line.to)) continue;
           const resolve = (): HTMLElement | null =>
             this.getCachedLpWrapper(notePath, key, () => {
               const container = createDiv({ cls: "ocode-embed-container" });
-              void this.populateEmbedContainer(container, file, ext, notePath);
+              void this.populateEmbedContainer(container, file, ext, notePath, alias);
               return container;
             });
           items.push({
@@ -1708,8 +1737,9 @@ __ocode_emit_vars
 
       const lang = this.highlighter.resolveLanguage(rawLang);
       const code = codeEl.textContent || "";
+      const htmlPreview = this.htmlPreviewState(rawLang, blockAttrs);
 
-      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed);
+      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview);
     }
   }
 
@@ -1954,6 +1984,34 @@ __ocode_emit_vars
     if (changed) this.updateInlineVarRefs(notePath, varStore);
   }
 
+  /**
+   * Decide whether an `html` fence should render as a live preview.
+   * Returns `null` for a plain code block with no preview toggle (non-html, or
+   * html with the feature off and no explicit flag — preserves the default of
+   * just showing the source). Returns a boolean when the block is preview-
+   * eligible (so it gets a Preview/Code toggle): `true` = start in preview,
+   * `false` = start in source. Per-block `preview`/`render` and `source`/`raw`/
+   * `code` fence flags override the `renderHtmlBlocks` setting.
+   */
+  private htmlPreviewState(rawLang: string, attrs: Set<string>): boolean | null {
+    if (rawLang.toLowerCase() !== "html") return null;
+    if (attrs.has("preview") || attrs.has("render")) return true;
+    if (attrs.has("source") || attrs.has("raw") || attrs.has("code")) return false;
+    return this.settings.renderHtmlBlocks ? true : null;
+  }
+
+  /** Split an embed alias (`![[file.html|preview]]`) into lowercased flag tokens. */
+  private parseAliasFlags(alias?: string | null): Set<string> {
+    return new Set(
+      (alias ?? "").split(/[\s|]+/).map((w) => w.toLowerCase()).filter(Boolean)
+    );
+  }
+
+  /** Preview state for an embedded code file, honouring a `preview`/`source` alias flag. */
+  private embedHtmlPreview(ext: string, alias?: string | null): boolean | null {
+    return this.htmlPreviewState(this.highlighter.resolveExtension(ext), this.parseAliasFlags(alias));
+  }
+
   private renderCodeBlock(
     originalPre: HTMLElement,
     code: string,
@@ -1963,9 +2021,10 @@ __ocode_emit_vars
     sourcePath?: string,
     forceSkip = false,
     forceCollapsed: boolean | null = null,
+    htmlPreview: boolean | null = null,
   ) {
     const wrapper = this.buildCodeBlockWrapper(
-      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed,
+      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed, htmlPreview,
     );
     if (wrapper) originalPre.replaceWith(wrapper);
   }
@@ -1984,6 +2043,7 @@ __ocode_emit_vars
     sourcePath?: string,
     forceSkip = false,
     forceCollapsed: boolean | null = null,
+    htmlPreview: boolean | null = null,
   ): HTMLElement | null {
     // Strip a single trailing newline so Shiki doesn't emit a dangling empty
     // `.line` span — that's what made every block render one line too tall (#24).
@@ -2076,7 +2136,9 @@ __ocode_emit_vars
     // collapse handler in renderEmbeddedFile, so we don't duplicate it here.
     // Per-block `collapsed` / `expanded` attributes override the global default.
     if (!fileName) {
-      const enabled = this.settings.inlineCollapsible || forceCollapsed !== null;
+      // HTML preview blocks are always collapsible via the header so the
+      // rendered output (which can be tall) can be folded away like a code body.
+      const enabled = this.settings.inlineCollapsible || forceCollapsed !== null || htmlPreview !== null;
       if (enabled) {
         const initiallyCollapsed = forceCollapsed ?? this.settings.inlineCollapsedByDefault;
         this.makeCollapsible(wrapper, initiallyCollapsed);
@@ -2090,7 +2152,192 @@ __ocode_emit_vars
     if (!fileName && isExecutable(lang)) {
       wrapper.setAttribute("data-ocode-fenced", "1");
     }
+
+    // ─── HTML live preview ───
+    // Render the block's HTML alongside its source and add a Preview/Code
+    // toggle. `htmlPreview` is non-null only for preview-eligible html blocks.
+    if (htmlPreview !== null) {
+      this.addHtmlPreview(wrapper, code, htmlPreview);
+    }
     return wrapper;
+  }
+
+  /**
+   * Add a live HTML preview pane and a Preview/Code toggle pill to an html code
+   * block wrapper. The source `pre` and the preview pane coexist; the toggle
+   * (and the `ocode-show-preview` class) swaps which one is visible.
+   *
+   * The HTML renders inside a sandboxed `<iframe srcdoc>` (`sandbox="allow-
+   * scripts"`, no `allow-same-origin`): full documents work — `<head>`/`<style>`
+   * apply and `<script>` runs — but the frame has an opaque origin, so its code
+   * cannot reach the vault, the parent DOM, Obsidian's API, or `require`. Styles
+   * are scoped to the frame, and ids resolve within it. The frame is built
+   * lazily on first preview so its scripts don't run until shown and its height
+   * can be measured against real layout.
+   */
+  private addHtmlPreview(wrapper: HTMLElement, code: string, startInPreview: boolean): void {
+    wrapper.classList.add("ocode-html-block");
+
+    const pane = createDiv({ cls: "ocode-html-render" });
+    // Place the preview directly after the source body so collapse/line-number
+    // chrome above it is unaffected.
+    const shikiPre = wrapper.querySelector("pre.shiki") ?? wrapper.querySelector("pre");
+    if (shikiPre) shikiPre.insertAdjacentElement("afterend", pane);
+    else wrapper.appendChild(pane);
+
+    // Build the frame only once the pane has real layout width. The post-
+    // processor constructs this DOM *detached*, so at `apply(startInPreview)`
+    // time the pane measures 0px wide — and anything the user's scripts size
+    // against the viewport (width:100% SVGs, cards) renders permanently tiny
+    // if the iframe loads then. A parent-side ResizeObserver fires as soon as
+    // the pane is attached, visible, and sized; we build exactly once, then
+    // disconnect.
+    let frameBuilt = false;
+    const ensureFrame = () => {
+      if (frameBuilt) return;
+      frameBuilt = true;
+      if (pane.offsetWidth > 0) {
+        this.buildHtmlFrame(pane, code);
+        return;
+      }
+      const ro = new ResizeObserver(() => {
+        if (pane.offsetWidth === 0) return;
+        ro.disconnect();
+        this.buildHtmlFrame(pane, code);
+      });
+      ro.observe(pane);
+    };
+
+    const apply = (preview: boolean) => {
+      // Visibility before build: a hidden (display:none) pane never gets
+      // width, so the observer in ensureFrame would never fire.
+      wrapper.classList.toggle("ocode-show-preview", preview);
+      if (preview) ensureFrame();
+      const icon = toggle.querySelector(".ocode-pill-icon");
+      const text = toggle.querySelector(".ocode-pill-text");
+      // The pill shows the action it performs, i.e. the *other* view.
+      if (icon) setSvgContent(icon, preview ? ICON.code : ICON.eye);
+      if (text) text.textContent = preview ? "Code" : "Preview";
+    };
+
+    const toggle = this.createPillButton("Preview", ICON.eye, () => {
+      apply(!wrapper.classList.contains("ocode-show-preview"));
+    }, "ocode-html-toggle");
+
+    // Sits to the right of Copy, mirroring where the Run pill goes.
+    const btnGroup = wrapper.querySelector(".ocode-btn-group");
+    if (btnGroup) btnGroup.appendChild(toggle);
+    else wrapper.querySelector(".ocode-header")?.appendChild(toggle);
+
+    apply(startInPreview);
+  }
+
+  /**
+   * Build the sandboxed preview iframe into `pane`. Wraps a fragment in a
+   * theme-aware host document (so bare markup picks up Obsidian's font/colors)
+   * or renders a full document as-is, then appends a tiny resize shim that
+   * posts the content height back so the iframe can auto-size. The shim runs in
+   * the sandbox alongside the user's scripts — it can only message the parent,
+   * not touch it.
+   */
+  private buildHtmlFrame(pane: HTMLElement, code: string): void {
+    const token = `ocode-frame-${++this._frameSeq}`;
+    const iframe = createEl("iframe");
+    iframe.className = "ocode-html-frame";
+    // No allow-same-origin → the frame is an opaque origin and cannot reach the
+    // vault, parent DOM, Obsidian APIs, or require. allow-scripts lets the
+    // user's own (and our resize) script run, sandboxed.
+    iframe.setAttribute("sandbox", "allow-scripts");
+    // The frame is sized to its content from the resize shim, so it never needs
+    // its own scrollbar. `scrolling="no"` is deprecated but still the only way
+    // to suppress an iframe scrollbar cross-origin (the inner doc can't be
+    // styled from here); the modern equivalent overflow lives in the srcdoc.
+    iframe.setAttribute("scrolling", "no");
+    iframe.srcdoc = this.buildHtmlSrcdoc(code, token);
+    pane.appendChild(iframe);
+
+    // The sandboxed frame can't be read cross-origin, so it reports its own
+    // height via postMessage. All frames share one window listener (installed
+    // lazily, cleaned up by registerDomEvent on unload) keyed by token —
+    // one listener per note full of html blocks, not one per block.
+    this._htmlFrames.set(token, iframe);
+    if (!this._htmlFrameListenerInstalled) {
+      this._htmlFrameListenerInstalled = true;
+      this.registerDomEvent(activeWindow, "message", (e: MessageEvent) => {
+        this.onHtmlFrameMessage(e);
+      });
+    }
+  }
+
+  /** Shared resize handler for all html-preview iframes. */
+  private onHtmlFrameMessage(e: MessageEvent): void {
+    const data = e.data as { __ocodeFrame?: string; height?: number } | null;
+    if (!data || typeof data.__ocodeFrame !== "string" || typeof data.height !== "number") return;
+    const iframe = this._htmlFrames.get(data.__ocodeFrame);
+    if (!iframe) return;
+    if (!iframe.isConnected) {
+      // Block was re-rendered or pruned; drop the stale entry.
+      this._htmlFrames.delete(data.__ocodeFrame);
+      return;
+    }
+    // Only the frame itself may report its height.
+    if (e.source !== iframe.contentWindow) return;
+    // Size to content with no upper clamp — capping forces clipped content
+    // (the frame never scrolls), which we never want. +2 covers fractional
+    // layout heights the shim's ceil can still undershoot across DPI scales.
+    iframe.style.height = `${Math.ceil(Math.max(data.height, 24)) + 2}px`;
+  }
+
+  /** Assemble the iframe `srcdoc`: theme-wrapped fragment or verbatim full document, plus the resize shim. */
+  private buildHtmlSrcdoc(code: string, token: string): string {
+    // The frame auto-sizes to content, so full-viewport layout idioms
+    // (height:100%/min-height:100vh) are meaningless inside it and create a
+    // feedback loop: viewport-height-driven content can never report a height
+    // other than the current frame height. Force html/body to wrap content;
+    // overflow:hidden suppresses any inner scrollbar (we size, never scroll).
+    const heightFix =
+      `<style>html,body{height:auto !important;min-height:0 !important;` +
+      `overflow:hidden !important}</style>`;
+    // Measure the body, never documentElement.scrollHeight — that is clamped
+    // to at least the viewport, so it tracks the frame height we set and the
+    // size can never converge. Re-measure on load, on body resize, and on any
+    // DOM mutation (script-built content like charts/SVGs appears long after
+    // load), coalesced through one rAF so mutation bursts post once.
+    const resizeShim =
+      `<script>(function(){var q=false;` +
+      `var post=function(){q=false;var b=document.body;if(!b)return;` +
+      `var h=Math.max(b.scrollHeight,b.offsetHeight,Math.ceil(b.getBoundingClientRect().height));` +
+      `parent.postMessage({__ocodeFrame:${JSON.stringify(token)},height:h},"*")};` +
+      `var sched=function(){if(q)return;q=true;requestAnimationFrame(post)};` +
+      `addEventListener("load",sched);` +
+      `try{new ResizeObserver(sched).observe(document.body)}catch(e){}` +
+      `try{new MutationObserver(sched).observe(document.body,` +
+      `{subtree:true,childList:true,attributes:true,characterData:true})}catch(e){}` +
+      `sched();setTimeout(sched,250);setTimeout(sched,1000)})();</` + `script>`;
+
+    // A full document styles itself — render it verbatim, then append the
+    // height override and resize shim.
+    if (/<!doctype html|<html[\s>]/i.test(code)) {
+      return code + heightFix + resizeShim;
+    }
+
+    // Fragment: host it in a minimal document seeded with the current Obsidian
+    // theme's font/colors so it doesn't fall back to browser defaults.
+    const cs = activeWindow.getComputedStyle(activeDocument.body);
+    const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
+    const isDark = activeDocument.body.classList.contains("theme-dark");
+    const fg = v("--text-normal", isDark ? "#dcddde" : "#222");
+    const bg = v("--background-primary", isDark ? "#1e1e1e" : "#fff");
+    const accent = v("--text-accent", "#7f6df2");
+    const font = v("--font-text", "-apple-system, system-ui, sans-serif");
+    const base =
+      `:root{color-scheme:${isDark ? "dark" : "light"}}` +
+      `html,body{margin:0;height:auto;min-height:0;overflow:hidden}` +
+      `body{padding:8px;background:${bg};color:${fg};` +
+      `font-family:${font};font-size:14px;line-height:1.5}` +
+      `a{color:${accent}}`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${base}</style></head>` +
+      `<body>${code}${resizeShim}</body></html>`;
   }
 
   /**
@@ -2524,17 +2771,18 @@ __ocode_emit_vars
       const file = this.app.metadataCache.getFirstLinkpathDest(src, ctx.sourcePath);
       if (!file || !(file instanceof TFile)) continue;
 
-      void this.renderEmbeddedFile(embed as HTMLElement, file, ext, ctx.sourcePath);
+      // The alias (`![[file.html|preview]]`) lands in the embed's `alt` attribute.
+      void this.renderEmbeddedFile(embed as HTMLElement, file, ext, ctx.sourcePath, embed.getAttribute("alt"));
     }
   }
 
-  private async renderEmbeddedFile(embedEl: HTMLElement, file: TFile, ext: string, sourcePath?: string) {
+  private async renderEmbeddedFile(embedEl: HTMLElement, file: TFile, ext: string, sourcePath?: string, alias?: string | null) {
     // Replace the .internal-embed element with a plain container so
     // Obsidian's click-to-open handler is completely severed.
     const container = createDiv();
     container.className = "ocode-embed-container";
     embedEl.replaceWith(container);
-    await this.populateEmbedContainer(container, file, ext, sourcePath);
+    await this.populateEmbedContainer(container, file, ext, sourcePath, alias);
   }
 
   /**
@@ -2544,11 +2792,12 @@ __ocode_emit_vars
    * embed widget. The read is async, so callers get a synchronously-returned
    * (empty) container that fills in once the file is read.
    */
-  private async populateEmbedContainer(container: HTMLElement, file: TFile, ext: string, sourcePath?: string) {
+  private async populateEmbedContainer(container: HTMLElement, file: TFile, ext: string, sourcePath?: string, alias?: string | null) {
     const code = await this.app.vault.read(file);
     const lang = this.highlighter.resolveExtension(ext);
+    const htmlPreview = this.embedHtmlPreview(ext, alias);
 
-    const wrapper = this.buildCodeBlockWrapper(code, lang, lang, file.name, sourcePath);
+    const wrapper = this.buildCodeBlockWrapper(code, lang, lang, file.name, sourcePath, false, null, htmlPreview);
     if (!wrapper) return;
     container.empty();
     container.appendChild(wrapper);

@@ -10,6 +10,7 @@
 - **Live code execution** — Python, JS/TS, Bash, PowerShell, PHP, Go, Ruby, and more; output streams character-by-character; interactive stdin, password masking, cancel mid-run
 - **Inline graphs** — `plt.show()` and `fig.show()` are intercepted; Matplotlib and Plotly render below the block without a display server
 - **Notebook mode** — shared execution context across blocks, `vars` blocks, `code_vars:` frontmatter, inline `` `$varname` `` substitution, **Run All** (with `skip` fence-tag opt-out) and **Clear Session**
+- **HTML live preview** — render `html` blocks as live HTML instead of source, with a one-click Preview/Code toggle; set the default globally or per block with a `preview`/`source` fence flag
 - **Embedded code files** — `![[script.py]]` renders as a collapsible, syntax-highlighted, executable block
 - **Code files in the file explorer** — open `.py`, `.js`, `.sh`, … straight from the vault in a lightweight editor with Run + live output, or symlink an external file into your vault with **Import code file as alias…**
 - **Environment management** — combine a shared `.env` file with per-vault overrides, source shell startup files, run Bash/Zsh as a login shell, or pin exact interpreter paths for bash, zsh, and sh
@@ -122,6 +123,31 @@ Embed any code file from your vault with `![[file.py]]` and get a full syntax-hi
 
 ---
 
+## HTML Live Preview
+
+Render an `html` code block as live HTML instead of showing its source.
+
+````markdown
+```html preview
+<div style="padding:8px;border-radius:6px;background:#83a598;color:#1d2021">
+  Rendered inline ✨
+</div>
+```
+````
+
+- **Per-block flags** override the default on the fence info string:
+  - `preview` (or `render`) — force the live preview
+  - `source` (or `raw` / `code`) — force the source view
+- **Global default** — toggle **Render HTML blocks** in settings to preview every `html` block automatically (no flag needed).
+- **Preview/Code toggle** — eligible blocks get a header pill (to the right of Copy) to flip between the rendered output and the source at any time; click the header to collapse.
+- **Embedded `.html` files** — pass the same flag in the embed alias: `![[page.html|preview]]` or `![[page.html|source]]`.
+
+- **Full documents** — `<head>`, `<style>`, and `<script>` all work; a `<!DOCTYPE html>` page renders as-is, a bare fragment inherits your Obsidian theme's font and colors.
+
+> The HTML renders in a **sandboxed iframe** (`sandbox="allow-scripts"`, no same-origin). Scripts run and styles apply, but only inside the frame — they **cannot** reach your vault, the rest of the app, or Obsidian's API. The frame auto-sizes to its content.
+
+---
+
 ## Vault Code Files & External Aliases
 
 Enable **Settings → CodeSuite → Show code files in the file explorer** (on by default) and Obsidian will surface every supported code extension (`.py`, `.js`, `.ts`, `.sh`, `.go`, `.rb`, `.lua`, `.rs`, `.cpp`, `.swift`, …) in the file explorer. Opening one gives you:
@@ -183,6 +209,8 @@ The following features are on the roadmap. Track progress or vote on the linked 
 | 1 | **Import / export** — round-trip conversion to/from `.ipynb`; export notes as styled HTML and PDF (including outputs) | [#5](https://github.com/felixleopold/obsidian-code-suite/issues/5) |
 | 2 | **Better plot support** — interactive Plotly graphs (zoom, hover, pan) and a full-screen mode for all plot outputs | [#12](https://github.com/felixleopold/obsidian-code-suite/issues/12) |
 | 3 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+
+> Shipped in 1.8.0: HTML live preview — `html` blocks (and `![[file.html]]` embeds) render as live HTML in a sandboxed iframe with a Preview/Code toggle; full documents with `<style>`/`<script>` work. Controlled by the **Render HTML blocks** setting or a per-block `preview`/`source` flag.
 
 > Shipped in 1.7.0: full code-block chrome in Live Preview — header, Run/Copy, live output, line numbers, collapse, and `![[file.py]]` embeds now render in Live Preview (not just Reading view); the cursor's block reveals raw source for editing, and a per-block DOM cache keeps streaming output alive as you move the cursor.
 
