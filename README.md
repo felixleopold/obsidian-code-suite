@@ -235,6 +235,8 @@ The following features are on the roadmap. Track progress or vote on the linked 
 |---|---------|-------|
 | 1 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
 
+> Shipped in 1.9.1: lint compliance — replaced banned `obsidianmd/ui/sentence-case` rule disables with an `ignoreRegex` allowlist, and removed a CSS `!important` in favor of higher selector specificity.
+>
 > Shipped in 1.9.0: multi-language Jupyter export ([#5](https://github.com/felixleopold/obsidian-code-suite/issues/5)) — every executable code block now becomes a code cell (not just the dominant language); non-dominant blocks carry `metadata.vscode.languageId` so VS Code renders and round-trips them correctly. Quality fixes: cancellation polish, skip-badge alignment by code hash, fence-attribute isolation, and Matplotlib style default corrected to blank.
 
 > Shipped in 1.8.0: better plot support ([#12](https://github.com/felixleopold/obsidian-code-suite/issues/12)) — interactive Plotly widgets (zoom, pan, hover, legend toggles) instead of static images, click-to-expand full-screen view for every plot and image, and a per-image hover toolbar with copy and download. New settings: **Interactive plots** and **Embed Plotly.js offline**.

@@ -419,13 +419,11 @@ export default class CodePlugin extends Plugin {
       // \u2500\u2500\u2500 Import / export / conversion (#5) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
       this.addCommand({
         id: "import-jupyter-notebook",
-        // eslint-disable-next-line obsidianmd/ui/sentence-case -- "Jupyter" is a proper noun
         name: "Import Jupyter notebook (.ipynb)\u2026",
         callback: () => { void this.importNotebook(); },
       });
       this.addCommand({
         id: "export-note-to-jupyter",
-        // eslint-disable-next-line obsidianmd/ui/sentence-case -- "Jupyter" is a proper noun
         name: "Export note to Jupyter notebook (.ipynb)",
         checkCallback: (checking) => {
           const file = this.app.workspace.getActiveFile();
@@ -3744,7 +3742,6 @@ class ExportOptionsModal extends Modal {
 
       new Setting(contentEl)
         .setName("Single long page")
-        // eslint-disable-next-line obsidianmd/ui/sentence-case -- "A4" is a paper-size proper noun
         .setDesc("Output one continuous page with no page breaks instead of paginated A4.")
         .addToggle((t) => {
           t.setValue(this.options.singlePage);

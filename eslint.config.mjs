@@ -46,6 +46,8 @@ const OBSIDIAN_GLOBALS = {
 const SENTENCE_CASE_IGNORES = [
   "Shiki",
   "Python",
+  "Jupyter",
+  "A4",
   "JavaScript",
   "TypeScript",
   "Bash",

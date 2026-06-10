@@ -690,8 +690,8 @@ body.ocode-lp-lnum
    as a copy button). When the cursor enters a block our chrome widget is dropped
    and this native flair paints in the corner — the "Python top-right" flash. We
    render our own header/Copy, so suppress it everywhere in the editor. */
-.cm-s-obsidian .code-block-flair {
-  display: none !important;
+.cm-s-obsidian .code-block-flair.code-block-flair {
+  display: none;
 }
 
 /* Inline code in editor */
