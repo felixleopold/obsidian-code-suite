@@ -11,6 +11,7 @@ import {
   TFolder,
   Notice,
   Platform,
+  setIcon,
   editorInfoField,
   editorLivePreviewField,
 } from "obsidian";
@@ -361,6 +362,12 @@ export default class CodePlugin extends Plugin {
   private viewActionsAdded = new WeakSet<MarkdownView>();
   /** All action buttons added to view headers — removed in onunload so plugin reloads don't duplicate them. */
   private viewActionEls: HTMLElement[] = [];
+  /**
+   * In-flight Run All passes, keyed by view. Lets the header button toggle:
+   * a second click while a pass is running cancels it (stops the live block and
+   * breaks the loop). `current` is the wrapper of the block running right now.
+   */
+  private activeRunAll = new WeakMap<MarkdownView, { cancelled: boolean; current: HTMLElement | null }>();
 
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
@@ -372,8 +379,8 @@ export default class CodePlugin extends Plugin {
     "catppuccin-mocha",
     "dracula",
     // light themes
-    "catppuccin-latte",
-    "rose-pine-dawn",
+    // "catppuccin-latte",
+    // "rose-pine-dawn",
   ];
   private _demoThemeIdx = 0;
   /** Debounce timer for auto-theme switching (css-change can fire many times per mode switch) */
@@ -1197,12 +1204,30 @@ export default class CodePlugin extends Plugin {
     }
 
     if (this.settings.enableExecution && Platform.isDesktop) {
-      this.viewActionEls.push(
-        view.addAction("play-circle", "Run all code blocks", () => {
-          void this.runAllBlocks(view);
-        })
-      );
+      const runAllEl = view.addAction("play-circle", "Run all code blocks", () => {
+        // Toggle: cancel an in-flight pass, otherwise start one.
+        if (this.activeRunAll.has(view)) this.cancelRunAll(view);
+        else void this.runAllBlocks(view, runAllEl);
+      });
+      this.viewActionEls.push(runAllEl);
     }
+  }
+
+  /** Flip the Run All header button between its idle and running (cancel) look. */
+  private setRunAllButtonState(btnEl: HTMLElement | undefined, running: boolean): void {
+    if (!btnEl) return;
+    setIcon(btnEl, running ? "stop-circle" : "play-circle");
+    btnEl.setAttribute("aria-label", running ? "Cancel run all" : "Run all code blocks");
+    btnEl.classList.toggle("ocode-run-all-active", running);
+  }
+
+  /** Cancel an in-flight Run All: stop the live block (its stop ends the loop) and flag the pass. */
+  private cancelRunAll(view: MarkdownView): void {
+    const ctl = this.activeRunAll.get(view);
+    if (!ctl) return;
+    ctl.cancelled = true;
+    const cancelBtn = ctl.current?.querySelector<HTMLButtonElement>(".ocode-run-pill.ocode-cancel-pill");
+    cancelBtn?.click();
   }
 
   /**
@@ -1360,7 +1385,7 @@ export default class CodePlugin extends Plugin {
    * located (scrolling its section into render if needed), brought into view
    * so progress is visible, run, and awaited.
    */
-  private async runAllBlocks(view: MarkdownView): Promise<void> {
+  private async runAllBlocks(view: MarkdownView, btnEl?: HTMLElement): Promise<void> {
     if (view.getMode() !== "preview") {
       new Notice("Switch to reading view to run all code blocks.");
       return;
@@ -1374,49 +1399,64 @@ export default class CodePlugin extends Plugin {
     // Sync badges first so the visual state is correct before we start running.
     this.syncSkipBadges(view);
 
+    // Register the pass so the header button can cancel it mid-run.
+    const ctl = { cancelled: false, current: null as HTMLElement | null };
+    this.activeRunAll.set(view, ctl);
+    this.setRunAllButtonState(btnEl, true);
+
     const used = new Set<HTMLElement>();
     let ran = 0;
     let missing = 0;
-    for (const entry of runnable) {
-      const wrapper = await this.locateRunAllWrapper(view, entry, used);
-      if (!wrapper) { missing++; continue; }
-      used.add(wrapper);
-      const btn = wrapper.querySelector<HTMLButtonElement>(".ocode-run-pill");
-      if (!btn) continue;                                          // execution disabled / not runnable
-      if (btn.classList.contains("ocode-cancel-pill")) continue;   // already running or queued
-      // Embedded files aren't in skipStates — honour their DOM skip class.
-      if (entry.kind === "embed" && wrapper.classList.contains("ocode-skip-run-all")) continue;
+    try {
+      for (const entry of runnable) {
+        if (ctl.cancelled) { new Notice("Run all stopped."); return; }
+        const wrapper = await this.locateRunAllWrapper(view, entry, used);
+        if (!wrapper) { missing++; continue; }
+        used.add(wrapper);
+        const btn = wrapper.querySelector<HTMLButtonElement>(".ocode-run-pill");
+        if (!btn) continue;                                          // execution disabled / not runnable
+        if (btn.classList.contains("ocode-cancel-pill")) continue;   // already running or queued
+        // Embedded files aren't in skipStates — honour their DOM skip class.
+        if (entry.kind === "embed" && wrapper.classList.contains("ocode-skip-run-all")) continue;
 
-      // Follow progress: keep the running block in view (it also carries the
-      // ocode-running highlight while its process is live).
-      wrapper.scrollIntoView({ block: "center" });
-      btn.click();
-      ran++;
-      // runCode runs synchronously up to its first await, so runningProcs.set()
-      // is already called by the time btn.click() returns. Poll for completion.
-      await this.waitForBlockCompletion(wrapper);
-      // Stop Run All if the block exited with an error so later blocks don't
-      // run against incomplete shared context and produce confusing failures.
-      const label = wrapper.querySelector<HTMLElement>(".ocode-output-label");
-      if (label) {
-        const t = label.textContent ?? "";
-        if (t.startsWith("Output (exit:") || t === "Output (timed out)") {
-          new Notice("Run all stopped: a block exited with an error.");
+        // Follow progress: keep the running block in view (it also carries the
+        // ocode-running highlight while its process is live).
+        wrapper.scrollIntoView({ block: "center" });
+        ctl.current = wrapper;
+        btn.click();
+        ran++;
+        // runCode runs synchronously up to its first await, so runningProcs.set()
+        // is already called by the time btn.click() returns. Poll for completion.
+        await this.waitForBlockCompletion(wrapper);
+        ctl.current = null;
+        // Cancelled mid-block: the stop click above ended this block; bail out.
+        if (ctl.cancelled) { new Notice("Run all stopped."); return; }
+        // Stop Run All if the block exited with an error so later blocks don't
+        // run against incomplete shared context and produce confusing failures.
+        const label = wrapper.querySelector<HTMLElement>(".ocode-output-label");
+        if (label) {
+          const t = label.textContent ?? "";
+          if (t.startsWith("Output (exit:") || t === "Output (timed out)") {
+            new Notice("Run all stopped: a block exited with an error.");
+            return;
+          }
+        }
+        // A manually stopped block halts Run All too (its panel may be gone, so
+        // also treat a now-empty wrapper as a stop signal).
+        if (!label || label.textContent === "Output (stopped)") {
+          new Notice("Run all stopped.");
           return;
         }
+        // Brief pause so the shared-context store is fully committed and any
+        // rapid-fire OS process startup races are avoided before the next block.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
       }
-      // A manually stopped block halts Run All too (its panel may be gone, so
-      // also treat a now-empty wrapper as a stop signal).
-      if (!label || label.textContent === "Output (stopped)") {
-        new Notice("Run all stopped.");
-        return;
-      }
-      // Brief pause so the shared-context store is fully committed and any
-      // rapid-fire OS process startup races are avoided before the next block.
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 500));
+      if (ran === 0) new Notice("All code blocks are currently running.");
+      else if (missing > 0) new Notice(`Run all: ${missing} block${missing === 1 ? "" : "s"} could not be located and ${missing === 1 ? "was" : "were"} skipped.`);
+    } finally {
+      this.activeRunAll.delete(view);
+      this.setRunAllButtonState(btnEl, false);
     }
-    if (ran === 0) new Notice("All code blocks are currently running.");
-    else if (missing > 0) new Notice(`Run all: ${missing} block${missing === 1 ? "" : "s"} could not be located and ${missing === 1 ? "was" : "were"} skipped.`);
   }
 
   /**
@@ -1524,7 +1564,9 @@ export default class CodePlugin extends Plugin {
    * Layering (this order is what makes the live cross-language namespace work):
    *   1. `preSeeds`  — declared vars (vars block / frontmatter / table), the
    *                    *initial* values, injected before replay.
-   *   2. replay      — the current language's earlier blocks, run with output
+   *   2. replay      — the current language's accumulated session blocks
+   *                    (including this block's own earlier run, so later blocks
+   *                    that depend on it still resolve), run with output
    *                    suppressed so they re-establish functions/imports/vars.
    *   3. `postSeeds` — values *changed by other languages*, injected after
    *                    replay so they win over this language's own earlier
@@ -3273,9 +3315,12 @@ __ocode_emit_vars
     }
     const effectiveSeeds: Record<string, VarValue> = { ...preSeeds, ...postSeeds };
     if (useSharedCtx) {
-      // Exclude the current block from its own replay so re-running it doesn't
-      // double-apply (the block runs once, after replaying the blocks before it).
-      const prevBlocks = (this.noteContexts.get(sourcePath)?.get(lang) ?? []).filter((b) => b !== code);
+      // Replay the full accumulated session, including this block's own earlier
+      // run. Dropping it would break later blocks that depend on its definitions
+      // (e.g. Run All, then re-run block 1: the replay of block 3 would hit a
+      // NameError before block 1 ever executes). Running once in the suppressed
+      // replay and once visibly matches notebook re-run semantics.
+      const prevBlocks = this.noteContexts.get(sourcePath)?.get(lang) ?? [];
       const hasSeed    = Object.keys(preSeeds).length > 0 || Object.keys(postSeeds).length > 0;
       if (prevBlocks.length > 0 || hasSeed) {
         execCode = this.buildSharedContextCode(lang, prevBlocks, code, preSeeds, postSeeds);
@@ -3377,8 +3422,19 @@ __ocode_emit_vars
       outContent.scrollTop = outContent.scrollHeight;
     };
 
+    // Blank stdout lines are held back and only flushed when real content
+    // follows. The var postamble prints "\n__OCODE_VARS__=…" to guarantee its
+    // marker starts on a fresh line; when user output already ends with a
+    // newline that spacer becomes a spurious empty line, which used to render
+    // as a trailing blank line (and made truly output-less runs look non-empty).
+    let pendingBlankLines = 0;
+    const flushBlankLines = () => {
+      for (; pendingBlankLines > 0; pendingBlankLines--) appendStdout("\n");
+    };
+
     const processStdoutLine = (line: string) => {
       if (useSharedCtx && line.startsWith("__OCODE_VARS__=")) {
+        pendingBlankLines = 0; // drop the postamble's spacer newline
         try {
           const vars = JSON.parse(line.slice("__OCODE_VARS__=".length)) as Record<string, unknown>;
           this.recordRuntimeVars(sourcePath, lang, vars, effectiveSeeds);
@@ -3386,6 +3442,11 @@ __ocode_emit_vars
         } catch { /* ignore parse failures */ }
         return;
       }
+      if (line === "") {
+        pendingBlankLines++;
+        return;
+      }
+      flushBlankLines();
       const sentinelMatch = SENTINEL_RE.exec(line);
       if (sentinelMatch) {
         // Insert a placeholder; replaced with the real figure after execution.
@@ -3533,10 +3594,12 @@ __ocode_emit_vars
         }
       }
 
-      // If no output at all
+      // If no output at all, collapse the panel to just the header so a clean
+      // run still reads as "ran fine" without an empty content box.
       if (!outContent.childNodes.length) {
-        outContent.textContent = "(no output)";
-        outContent.classList.add("ocode-no-output");
+        if (result.exitCode === 0 && !result.killed) outLabel.textContent = "Output (none)";
+        outContent.remove();
+        outputPanel.classList.add("ocode-output-headeronly");
       }
 
       // Persist a static snapshot of the finished output so it survives reading-

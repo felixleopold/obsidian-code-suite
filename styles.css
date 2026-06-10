@@ -239,6 +239,16 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   padding: 0;
 }
 
+/* Output-less run: panel is just the header, so drop its divider line */
+.ocode-output-headeronly .ocode-output-header {
+  border-bottom: none;
+}
+
+/* Run All header button while a pass is active (click again to cancel) */
+.view-action.ocode-run-all-active {
+  color: var(--text-error, #e06c75);
+}
+
 /* Text spans (stdout / stderr / stdin-echo) are inline; padding lives here */
 .ocode-output .ocode-output-content > .ocode-stdout,
 .ocode-output .ocode-output-content > .ocode-stderr,

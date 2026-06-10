@@ -20,8 +20,6 @@ VS Code–quality syntax highlighting, live code execution with streaming output
 | 🔁 | **Jupyter import/export** | Convert `.ipynb` notebooks to/from notes — round-trips multi-language blocks correctly |
 | 📄 | **HTML / PDF export** | Export a note with its code outputs (text, images, plots) to a self-contained, theme-matched file |
 
-> **A notebook without the baggage** — the power of a Jupyter-style notebook (shared state, inline graphs, run-all), but your note stays a plain Markdown file: no kernel daemon, no `.ipynb`, no JSON blobs in git diffs. Everything runs locally. Already have notebooks? Import and export `.ipynb` both ways.
-
 ---
 
 # 🎨 Highlight
@@ -85,7 +83,7 @@ Run code directly from a code block — no terminal, no switching apps.
 <!-- PLAN: demo-notebook.gif — define a variable in a vars block, run two Python blocks that reference it, show `$varname` updating inline in the note text, then click Run All. ~15 s. -->
 <!-- ![Shared variables and Run All](assets/demo-notebook.gif) -->
 
-Each note maintains an in-memory execution session — notebook-style shared state, but the note itself stays a plain Markdown file with no kernel daemon or `.ipynb` sidecar.
+Each note maintains an in-memory execution session — notebook-style shared state, scoped per note and held in memory.
 
 - **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python, Bash, and Zsh)
 - **Live cross-language variables** — a shared variable changed by one block is visible to later blocks in *any* language, in execution order. Set `count = 42` in Python and a later Bash block sees `42`; change it in Bash and the next Python block sees the new value. Scalars and JSON structures cross languages; rich objects (functions, DataFrames) stay within their language. See [Variable typing & the execution model](docs/configuration.md#variable-typing).
@@ -244,6 +242,7 @@ Track progress or vote on the linked GitHub issues.
 
 **Recent releases**
 
+- **1.9.3** — execution and output-panel fixes: re-running a block after Run All no longer throws a `NameError`, the spurious trailing blank line in output is gone, and output-less runs collapse to a slim `Output (none)` header. New: clicking Run All again while it runs cancels the pass.
 - **1.9.2** — README and listing overhaul: a hero demo GIF, a feature "At a glance" table, the four feature pillars (Highlight / Run / Embed / Share), and a rewritten store description. No functional changes.
 - **1.9.1** — lint compliance: replaced banned `obsidianmd/ui/sentence-case` rule disables with an `ignoreRegex` allowlist, removed a CSS `!important` in favor of higher selector specificity.
 - **1.9.0** — multi-language Jupyter export ([#5](https://github.com/felixleopold/obsidian-code-suite/issues/5)): every executable block becomes a code cell; non-dominant blocks carry `metadata.vscode.languageId` so VS Code renders and round-trips them. Quality: cancellation polish, skip-badge alignment by code hash, fence-attribute isolation, Matplotlib style default corrected.

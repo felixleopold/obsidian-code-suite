@@ -6,9 +6,9 @@ This file tracks the text used in the CodeSuite entry on the Obsidian community 
 
 ## Short description (manifest.json `description` field — shown under the plugin name in search results)
 
-> Execute code inside your notes: VS Code-quality Shiki highlighting with 65+ themes, live streaming output, inline Matplotlib and Plotly graphs, shared variables across blocks, Jupyter import and export, plus styled HTML and PDF export with outputs.
+> Execute code inside your notes: Shiki syntax highlighting with 65+ themes, live streaming output, inline Matplotlib and Plotly graphs, shared variables, and styled HTML and PDF export with outputs.
 
-**Character count:** ~247 (limit: 250)
+**Character count:** ~198 (limit: 200)
 
 **Rules it satisfies** (per [submission requirements](https://docs.obsidian.md/Plugins/Releasing/Submission+requirements+for+plugins)): ≤250 chars, ends with a period, no emoji, starts with an action verb ("Run"), correct capitalization for proper nouns (Jupyter, Shiki, HTML, PDF).
 
@@ -16,15 +16,15 @@ This file tracks the text used in the CodeSuite entry on the Obsidian community 
 
 ## About (editable in community.obsidian.md plugin settings — 1000 char limit)
 
-> Execute code inside your notes — a notebook that lives in plain Markdown. No kernel, no `.ipynb`, no server: your note stays a plain-text file you can version, diff, and edit anywhere.
->
-> VS Code–quality syntax highlighting (Shiki, 65+ built-in themes, import any VS Code .json theme) in Reading view, Live Preview, and Source mode — every token, pixel-perfect.
->
-> Run Python, JS/TS, Bash, PowerShell, PHP, Go, Ruby, and more with live stdout/stderr streaming, interactive stdin, and Matplotlib/Plotly graphs rendered inline.
->
-> Share state across blocks: variables, imports, and functions carry over between runs, across languages. Reference any value inline in your prose with `$varname` — it updates live. Hit Run All to execute the whole note in one click.
->
-> Embed vault code files with `![[script.py]]` as executable blocks. Import and export Jupyter `.ipynb` notebooks, and export any note to styled HTML or PDF with code outputs included.
+Execute code inside your notes: a notebook that lives in plain Markdown. No kernel, no `.ipynb`, no server: your note stays a plain-text file you can version, diff, and edit anywhere.
+
+VS Code–quality syntax highlighting (Shiki, 65+ built-in themes, import any VS Code .json theme) in Reading view, Live Preview, and Source mode — every token, pixel-perfect.
+
+Run Python, JS/TS, Bash, PowerShell, PHP, Go, Ruby, and more with live stdout/stderr streaming, interactive stdin, and Matplotlib/Plotly graphs rendered inline.
+
+Share state across blocks: variables, imports, and functions carry over between runs, across languages. Reference any value inline in your prose with `$varname` — it updates live. Hit Run All to execute the whole note in one click.
+
+Embed vault code files with `![[script.py]]` as executable blocks. Import and export Jupyter `.ipynb` notebooks, and export any note to styled HTML or PDF with code outputs included.
 
 **Character count:** ~835 (limit: 1000)
 

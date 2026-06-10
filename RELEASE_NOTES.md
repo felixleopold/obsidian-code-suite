@@ -1,12 +1,15 @@
-Documentation release — a reworked README and store listing to make the plugin's features easier to discover. No functional changes.
+Execution and output-panel fixes, plus a cancellable Run All.
 
 ## What's New
 
-- **Hero demo GIF** at the top of the README showing theme switching, live execution, and inline `$var` substitution in one clip.
-- **"At a glance" feature table** — the seven headline features (highlighting, execution, inline graphs, notebook variables, embedded files, Jupyter import/export, HTML/PDF export) summarized up front.
-- **Restructured README** into four feature pillars — Highlight, Run, Embed, Share — with deeper detail tucked into collapsible sections so the page is easier to scan.
-- **Rewritten store description** that leads with code execution and surfaces the Jupyter import/export and styled HTML/PDF export.
+- **Cancel Run All** — clicking the Run All header button again while a pass is running now stops the current block and ends the pass. The button turns into a stop control while active.
+
+## Bug Fixes
+
+- **Re-running a block after Run All no longer throws** — the shared-context replay used to drop the block's own earlier run, so re-running an early block replayed later blocks first and hit a `NameError` for variables that block defines. The full accumulated session is now replayed in order.
+- **No more trailing blank line in output** — the internal variable-snapshot marker printed a spacer newline that surfaced as an empty line after a run.
+- **Output-less runs read as "ran fine"** — a successful block with no output now collapses to a slim `Output (none)` header instead of showing an empty output box.
 
 ## Upgrade Notes
 
-- No behavior changes. Documentation and listing only.
+- No settings or behavior changes beyond the fixes above.
