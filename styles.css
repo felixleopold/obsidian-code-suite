@@ -271,7 +271,10 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
    informational/progress text to stderr even on success. It only turns red
    when the process actually exits with a non-zero code. */
 .ocode-stderr { color: #fe8019; }
-.ocode-output-content.ocode-has-error > .ocode-stderr { color: #fb4934; }
+/* Failure is signalled on the header label, not by recolouring stderr — stderr
+   can mix intentional messages with the actual error and we can't tell them
+   apart, so we never paint it red (see #29). */
+.ocode-output-label.ocode-output-failed { color: #fb4934; }
 .ocode-no-output { color: var(--ocode-line-num, #504945); font-style: italic; }
 
 .ocode-stdin-echo {
@@ -280,17 +283,18 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
 }
 
 /* ─── Copy Error pill (output header) ─────────── */
-.ocode-wrapper .ocode-copy-err-pill {
-  color: #fb4934;
-  border-color: rgba(251, 73, 52, 0.3);
+/* stderr copy pill — tinted to match the orange stderr text it copies. */
+.ocode-wrapper .ocode-copy-stderr-pill {
+  color: #fe8019;
+  border-color: rgba(254, 128, 25, 0.3);
   font-size: 10px;
   padding: 1px 8px;
 }
 
-.ocode-wrapper .ocode-copy-err-pill:hover {
-  background-color: rgba(251, 73, 52, 0.12);
-  color: #fb4934;
-  border-color: rgba(251, 73, 52, 0.5);
+.ocode-wrapper .ocode-copy-stderr-pill:hover {
+  background-color: rgba(254, 128, 25, 0.12);
+  color: #fe8019;
+  border-color: rgba(254, 128, 25, 0.5);
 }
 
 /* ─── Image & widget output ───────────────────── */

@@ -54,7 +54,7 @@ Each run spawns a **fresh process** — there is no long-lived kernel. All state
 - When your code reads from `stdin` (e.g. Python's `input()`), an input bar appears below the output.
 - `sudo` is detected automatically and the input bar masks characters.
 - `plt.show()` and `fig.show()` are intercepted — Matplotlib and Plotly graphs render as inline images without a display server.
-- A **Copy output** button appears when the run finishes. A non-zero exit code turns the panel red.
+- When the run finishes, copy buttons appear in the output header, split by stream: **Copy output** (stdout) shows when there is stdout, and **Copy stderr** shows when there is stderr. stderr is always orange — it carries warnings *and* errors, which can't be told apart within one stream — and a non-zero exit is shown by a red **`Output (exit: N)`** badge in the header rather than by recolouring the text.
 
 > Interpreter paths, timeout, working directory, and environment variables are configured under [Settings → CodeSuite → Code execution](configuration.md#code-execution).
 

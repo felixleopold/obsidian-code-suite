@@ -3161,7 +3161,7 @@ __ocode_emit_vars
     adopted.querySelector(".ocode-copy-out-pill")?.addEventListener("click", () => {
       void navigator.clipboard.writeText(content?.textContent ?? "");
     });
-    adopted.querySelector(".ocode-copy-err-pill")?.addEventListener("click", () => {
+    adopted.querySelector(".ocode-copy-stderr-pill")?.addEventListener("click", () => {
       const err = Array.from(adopted.querySelectorAll(".ocode-stderr")).map((s) => s.textContent ?? "").join("");
       void navigator.clipboard.writeText(err.trim());
     });
@@ -3538,20 +3538,35 @@ __ocode_emit_vars
       }
 
       // Update label
+      const failed = !result.killed && result.exitCode !== 0 && result.exitCode !== null;
       outLabel.textContent = result.killed
         ? "Output (timed out)"
         : result.exitCode === 0
         ? "Output"
         : `Output (exit: ${result.exitCode})`;
 
-      // When the process failed, colour stderr red so it stands out as an error.
-      // On success, stderr stays orange (it may carry informational/progress text).
-      if (!result.killed && result.exitCode !== 0 && result.exitCode !== null) {
-        outContent.classList.add("ocode-has-error");
+      // stderr is coloured by stream, not by exit code. A failed run's stderr is
+      // often a mix of intentional messages and the actual error, and the two
+      // are indistinguishable within the single stream — so we never repaint
+      // stderr red (it would mislabel ordinary stderr as an error, #29). stderr
+      // stays orange; failure is signalled by the red exit badge in the header.
+      if (result.killed || failed) {
+        outLabel.classList.add("ocode-output-failed");
       }
 
-      // Copy-output button — only shown when there is actual text in the panel.
-      if (outContent.textContent?.trim()) {
+      // Copy buttons are split by stream — stdout vs stderr is the only
+      // distinction we can reliably make (warnings and errors share stderr, with
+      // no marker between them), so we expose one button per stream and never
+      // claim to separate stderr further.
+      // Strip the sudo password prompt line from stderr — it's not output.
+      const errorText = stderrText.replace(/^Password:\s*/m, "").trim();
+      const hasStdout = Array.from(outContent.querySelectorAll<HTMLElement>(".ocode-stdout"))
+        .some((s) => (s.textContent ?? "").trim() !== "");
+
+      // Copy-all-output: only when there's stdout to copy. With no stdout the
+      // panel is nothing but stderr, which the stderr pill below already copies
+      // — showing this too would just duplicate it (#29).
+      if (hasStdout && outContent.textContent?.trim()) {
         const copyOutBtn = this.createPillButton("", ICON.copy, () => {
           const text = outContent.textContent || "";
           void navigator.clipboard.writeText(text).then(() => {
@@ -3560,14 +3575,14 @@ __ocode_emit_vars
               setSvgContent(copyOutBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
             }, 2000);
           });
-        });
-        copyOutBtn.classList.add("ocode-copy-out-pill");
+        }, "ocode-copy-out-pill");
+        copyOutBtn.title = "Copy output";
         outHeader.insertBefore(copyOutBtn, clearBtn);
       }
 
-      // Add copy-error button if there was meaningful stderr
-      // Strip the sudo password prompt line — it's not an error
-      const errorText = stderrText.replace(/^Password:\s*/m, "").trim();
+      // Copy-stderr: shown whenever there's stderr, tinted orange to match the
+      // stderr text. It copies *all* stderr — warnings and errors alike — since
+      // there is no reliable way to tell them apart within the one stream (#29).
       if (errorText) {
         const copyErrBtn = this.createPillButton("", ICON.copy, () => {
           void navigator.clipboard.writeText(errorText).then(() => {
@@ -3576,8 +3591,8 @@ __ocode_emit_vars
               setSvgContent(copyErrBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
             }, 2000);
           });
-        });
-        copyErrBtn.classList.add("ocode-copy-err-pill");
+        }, "ocode-copy-stderr-pill");
+        copyErrBtn.title = "Copy stderr";
         // Insert before the clear button
         outHeader.insertBefore(copyErrBtn, clearBtn);
       }
