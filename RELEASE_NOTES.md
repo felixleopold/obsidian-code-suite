@@ -1,10 +1,17 @@
-Clearer code-output handling: no more duplicate copy buttons, and warnings are no longer mislabeled as errors (#29).
+Adds opt-in "baked outputs" for sharing notes with code output in contexts where the recipient can't run code.
+
+## What's New
+
+- **Bake outputs into note** — new opt-in feature (Settings → CodeSuite → Sharing) that serializes code block output into the note markdown. Run your code, then use the **Bake code outputs into note (for sharing)** command to insert a `codesuite-output` block after each source block. The baked output renders as a styled panel in reading view and live preview; other Markdown renderers (including the NoteColab web viewer) fall back to a labelled code block.
+- **Clear baked outputs from note** — companion command that removes all baked blocks and their associated image files. Fully reversible.
+- **No note bloat** — figures (e.g. matplotlib plots) are written as image files to a configurable vault folder (`CodeSuite/baked-outputs` by default) and referenced by name, not inlined. An *Inline images instead of files* toggle is available if you prefer a fully self-contained note.
+- **Stale detection** — the baked panel shows a `stale` badge when the code above it has changed since the output was baked, prompting a re-run and re-bake.
+- **Orphan sweep** — re-baking after edits writes fresh image files and automatically deletes the old ones.
 
 ## Bug Fixes
 
-- **No more duplicate copy buttons on error output ([#29](https://github.com/felixleopold/obsidian-code-suite/issues/29))** — when a run's only output was on stderr, the *copy output* and *copy error* buttons copied the exact same text. Copy buttons are now split by stream: a neutral **Copy output** appears only when there's stdout, and an orange **Copy stderr** handles stderr — so you never get two buttons copying the same thing.
-- **Warnings are no longer shown as errors ([#29](https://github.com/felixleopold/obsidian-code-suite/issues/29))** — stderr used to be repainted red whenever a run's exit code was non-zero, which mislabeled intentional warnings and progress messages as errors (and, on a mixed run, lumped them in with the real error). stderr now stays orange regardless of exit code — it's diagnostics, and a warning can't be reliably told apart from an error within the same stream. Failure is signaled by a red **`Output (exit: N)`** badge in the header instead.
+- Fixed two missing `cancelled: false` fields in early-return `ExecutionResult` objects in the mobile and missing-runtime paths.
 
 ## Upgrade Notes
 
-- No settings changes. The output panel may now show two copy buttons (**Copy output** and **Copy stderr**) where a failed run previously showed two identical ones — each now copies a distinct stream.
+- Baked outputs is off by default and changes nothing for existing users. Enable it under **Settings → CodeSuite → Sharing (baked outputs)** only if you share notes and want recipients to see your code output.
