@@ -203,6 +203,20 @@ Both produce a self-contained file that matches what you see in Obsidian — sam
 
 > **Outputs come from the live render.** Open the note in **reading view** and run the blocks you want shown (individually or with **Run All**), *then* export. Whatever output is on screen is captured as-is; nothing is written back into your `.md`. If the note isn't in reading view, the command is unavailable.
 
+**Bake outputs into the note (for sharing)** *(advanced — off by default)*
+
+HTML/PDF export produces a *separate* file. **Baking** instead writes the output **into the note's markdown**, so it survives anywhere the raw `.md` is read — most importantly in **shared notes** (e.g. via NoteColab), where the recipient opens the note in a web viewer that has no CodeSuite to re-run your code. Without baking, a shared note shows your code but no output.
+
+Enable it under **Settings → CodeSuite → Sharing (baked outputs)**. Most users never need this; leaving it off changes nothing. Once on, two commands appear:
+
+- **Bake code outputs into note (for sharing)** — for every code block you've run, serializes its current output into a hidden ` ```codesuite-output ` block placed right after it. Run your blocks first, then bake.
+- **Clear baked outputs from note** — removes every baked block and its figure files. Fully reversible.
+
+CodeSuite renders baked blocks as normal output panels (reading view **and** live preview); other markdown renderers fall back to a labelled code block. Two things are handled deliberately:
+
+- **No note bloat** — figures (e.g. matplotlib plots) are written as image **files** in a configurable folder (default `CodeSuite/baked-outputs`) and referenced by name, not inlined as base64. A *Inline images instead of files* toggle is available if you'd rather keep the note self-contained at the cost of size. (Interactive Plotly widgets have no static image form, so they're always inlined.)
+- **No stale media** — figure filenames embed a hash of their source code, so re-baking after an edit writes fresh files and the old ones are swept automatically. The baked panel also shows a **`stale`** badge when the code above it has changed since the output was baked — re-run and re-bake to refresh.
+
 ---
 
 ## Installation

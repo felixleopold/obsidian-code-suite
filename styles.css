@@ -277,6 +277,30 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
 .ocode-output-label.ocode-output-failed { color: #fb4934; }
 .ocode-no-output { color: var(--ocode-line-num, #504945); font-style: italic; }
 
+/* ─── Baked outputs ───────────────────────────────────────────────
+   Output serialized into the note by the opt-in "Bake outputs" feature.
+   Renders as a normal output panel, distinguished by small header badges:
+   "baked" marks it as saved-to-note, "stale" warns the code above changed. */
+.ocode-baked-badge,
+.ocode-baked-stale {
+  flex: 0 0 auto;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+  user-select: none;
+}
+.ocode-baked-badge {
+  color: var(--ocode-muted, #928374);
+  border: 1px solid var(--ocode-border, #3c3836);
+}
+.ocode-baked-stale {
+  color: #1a1a1a;
+  background-color: #fabd2f;
+  font-weight: 600;
+}
+
 .ocode-stdin-echo {
   color: #83a598;
   font-style: italic;

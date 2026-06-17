@@ -12,6 +12,7 @@ import {
   Notice,
   Platform,
   setIcon,
+  normalizePath,
   editorInfoField,
   editorLivePreviewField,
 } from "obsidian";
@@ -21,7 +22,7 @@ import { RangeSetBuilder, StateField, StateEffect, Prec } from "@codemirror/stat
 import type { Extension, Text, EditorState } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import { CodeSettingTab } from "./settings-tab";
-import { startExecution, isExecutable, type RunningProcess } from "./executor";
+import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
 import {
   type CodePluginSettings,
   DEFAULT_SETTINGS,
@@ -29,6 +30,20 @@ import {
 } from "./settings";
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 import { buildFigureEl } from "./output-view";
+import {
+  type BakedOutput,
+  type BakedFigure,
+  BAKED_OUTPUT_LANG,
+  codeHash,
+  makeBakedOutput,
+  parseBakedOutput,
+  applyBakedOutputs,
+  clearBakedOutputs,
+  collectBakedImageFiles,
+  precedingCodeHash,
+  bakedImageName,
+  bakedImagePrefix,
+} from "./baked-output";
 import {
   type Notebook,
   type ExportOptions,
@@ -141,11 +156,28 @@ function stripFenceIndent(line: string, indent: string): string {
   return line.slice(i);
 }
 
-/** Tiny stable hash (djb2) used to match source code blocks to rendered wrappers. */
-function codeHash(s: string): string {
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
-  return h.toString(36);
+/** Decode a base64 string to an ArrayBuffer (for writing baked image files). */
+function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+/**
+ * A code block's output captured at run time, kept as data so it can be both
+ * re-rendered and serialized into the note by the "Bake outputs" command. Figures
+ * are held as raw {@link OutputFigure}s; baking turns images into files (or inline
+ * base64) and inlines widgets. See baked-output.ts.
+ */
+interface CapturedOutput {
+  /** Hash of the trimmed source (matches the wrapper's data-ocode-hash). */
+  hash: string;
+  exit: number | null;
+  label: string;
+  stdout: string;
+  stderr: string;
+  figures: OutputFigure[];
 }
 
 /** One runnable unit in a Run All pass, parsed from the note source. */
@@ -358,6 +390,13 @@ export default class CodePlugin extends Plugin {
    * In-memory only; cleared on unload or Clear Session.
    */
   private noteOutputs: Map<string, Map<string, string>> = new Map();
+  /**
+   * Structured snapshots of executed block outputs, captured alongside
+   * {@link noteOutputs} but kept as data (text + raw figures) rather than DOM, so
+   * the "Bake outputs into note" command can serialize them into the markdown.
+   * Maps note path → block source → captured output. In-memory only.
+   */
+  private noteOutputData: Map<string, Map<string, CapturedOutput>> = new Map();
   /** Tracks which MarkdownView instances have already had view-header actions added. */
   private viewActionsAdded = new WeakSet<MarkdownView>();
   /** All action buttons added to view headers — removed in onunload so plugin reloads don't duplicate them. */
@@ -591,6 +630,30 @@ export default class CodePlugin extends Plugin {
           this.clearNoteSession(file.path);
           new Notice("Execution session cleared.");
         }
+      },
+    });
+
+    // Commands: bake / clear baked outputs (opt-in — see CodePluginSettings.bakedOutputs).
+    // Gated by the setting so they only appear in the palette for users who have
+    // turned the feature on; both require an active markdown note.
+    this.addCommand({
+      id: "bake-outputs-into-note",
+      name: "Bake code outputs into note (for sharing)",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!this.settings.bakedOutputs || !file || file.extension !== "md") return false;
+        if (!checking) void this.bakeOutputsIntoNote(file);
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "clear-baked-outputs",
+      name: "Clear baked outputs from note",
+      checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!this.settings.bakedOutputs || !file || file.extension !== "md") return false;
+        if (!checking) void this.clearBakedOutputsFromNote(file);
+        return true;
       },
     });
 
@@ -961,9 +1024,35 @@ export default class CodePlugin extends Plugin {
       const items: { from: number; to: number; deco: Decoration }[] = [];
 
       // ─── Fenced code blocks (and ```vars) ───
+      // Hash of the most recent non-baked block, so a baked-output block can tell
+      // whether the code above it changed since the output was baked.
+      let prevCodeHash: string | null = null;
       for (const block of scanFencedBlocks(doc)) {
         const rawLang = (block.lang || "").toLowerCase();
         if (PASSTHROUGH_LANGS.has(rawLang)) continue;
+
+        // Baked-output blocks (opt-in): render the saved output as a read-only
+        // panel widget. Leave prevCodeHash untouched so the staleness check keys
+        // off the code block, not the baked block.
+        if (this.settings.bakedOutputs && rawLang === BAKED_OUTPUT_LANG) {
+          const output = parseBakedOutput(block.code);
+          if (output) {
+            const stale = prevCodeHash !== null && prevCodeHash !== output.hash;
+            const key = `baked\0${output.hash}\0${stale}\0${block.code}\0${sig}`;
+            liveKeys.add(key);
+            if (!overlapsSelection(block.openFrom, block.closeTo)) {
+              const resolve = (): HTMLElement | null =>
+                this.getCachedLpWrapper(notePath, key, () =>
+                  this.buildBakedOutputWrapper(output, notePath, stale));
+              items.push({
+                from: block.openFrom,
+                to: block.closeTo,
+                deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(key, resolve) }),
+              });
+            }
+          }
+          continue;
+        }
 
         const attrs = new Set(
           block.info.split(/\s+/).slice(1).map((w) => w.toLowerCase()).filter(Boolean)
@@ -981,6 +1070,7 @@ export default class CodePlugin extends Plugin {
         const code = block.indent
           ? block.innerLines.map((l) => stripFenceIndent(l.text, block.indent)).join("\n")
           : block.code;
+        prevCodeHash = codeHash(code.trim());
         // Visual indent in editor columns, so the widget lines up with its list.
         const indentCols = this.indentColumns(block.indent, state.tabSize);
         const key = `${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${indentCols}\0${sig}`;
@@ -1096,6 +1186,7 @@ export default class CodePlugin extends Plugin {
     this.dropLpWrapperCache(notePath);
     // Drop persisted output snapshots so re-rendered blocks come back empty.
     this.noteOutputs.delete(notePath);
+    this.noteOutputData.delete(notePath);
     // Remove already-rendered output panels still on screen (dropping the cache
     // and snapshots above doesn't touch the live DOM), and revert any block that
     // was mid-run back to its idle "Run" pill. Scoped to this note's views.
@@ -2499,6 +2590,14 @@ __ocode_emit_vars
         continue;
       }
 
+      // Baked-output blocks (opt-in): render the saved output as a panel instead
+      // of a runnable code block. When the feature is off they fall through and
+      // render as a normal (JSON) code block.
+      if (this.settings.bakedOutputs && rawLang.toLowerCase() === BAKED_OUTPUT_LANG) {
+        this.renderBakedOutputBlock(pre, codeEl.textContent || "", ctx, el);
+        continue;
+      }
+
       // Parse space-separated attributes from the fence info string, e.g.:
       //   ```python skip collapsed   → attrs: { "skip", "collapsed" }
       const infoStr = fenceInfoStrings[bi] ?? "";
@@ -2626,6 +2725,246 @@ __ocode_emit_vars
     wrapper.insertBefore(header, wrapper.firstChild);
 
     return wrapper;
+  }
+
+  // ─── Baked outputs ───────────────────────────────────────────
+  // Rendering of `codesuite-output` blocks (the serialized output the "Bake
+  // outputs" command writes into the note). The bake/clear orchestration and
+  // figure-file I/O live further down. See baked-output.ts for the format.
+
+  /** Reading-view: replace a `codesuite-output` <pre> with a rendered output panel. */
+  private renderBakedOutputBlock(
+    originalPre: HTMLElement,
+    body: string,
+    ctx: MarkdownPostProcessorContext,
+    el: HTMLElement,
+  ): void {
+    const output = parseBakedOutput(body);
+    if (!output) return; // malformed — leave the raw code block visible
+    let stale = false;
+    try {
+      const info = ctx.getSectionInfo(el);
+      if (info) {
+        const prevHash = precedingCodeHash(info.text, info.lineStart);
+        stale = prevHash !== null && prevHash !== output.hash;
+      }
+    } catch { /* staleness is best-effort */ }
+    originalPre.replaceWith(this.buildBakedOutputWrapper(output, ctx.sourcePath, stale));
+  }
+
+  /** Build the `ocode-wrapper` holding a baked output panel (shared by reading view + LP). */
+  private buildBakedOutputWrapper(output: BakedOutput, notePath: string, stale: boolean): HTMLElement {
+    const wrapper = createDiv({ cls: "ocode-wrapper ocode-baked-wrapper" });
+    wrapper.appendChild(this.buildBakedOutputPanel(output, notePath, stale));
+    return wrapper;
+  }
+
+  /** Render a baked output as an `.ocode-output` panel (mirrors a live run's panel). */
+  private buildBakedOutputPanel(output: BakedOutput, notePath: string, stale: boolean): HTMLElement {
+    const panel = createDiv({ cls: "ocode-output ocode-output-baked" });
+
+    const header = createDiv({ cls: "ocode-output-header" });
+    const label = createSpan({ cls: "ocode-output-label", text: output.label });
+    if (output.exit !== 0 && output.exit !== null) label.addClass("ocode-output-failed");
+    header.appendChild(label);
+
+    const badge = createSpan({ cls: "ocode-baked-badge", text: "baked" });
+    badge.setAttr("aria-label", "Saved output baked into the note for sharing.");
+    header.appendChild(badge);
+
+    if (stale) {
+      const staleBadge = createSpan({ cls: "ocode-baked-stale", text: "stale" });
+      staleBadge.setAttr("aria-label", "The code above changed since this output was baked. Re-run it and bake again to update.");
+      header.appendChild(staleBadge);
+    }
+    panel.appendChild(header);
+
+    const content = createDiv({ cls: "ocode-output-content" });
+    if (output.stdout) content.appendChild(createSpan({ cls: "ocode-stdout", text: output.stdout }));
+    if (output.stderr) {
+      const errText = output.stderr.endsWith("\n") ? output.stderr : output.stderr + "\n";
+      content.appendChild(createSpan({ cls: "ocode-stderr", text: errText }));
+    }
+    for (const fig of output.figures) {
+      const item = this.buildBakedFigureEl(fig, notePath);
+      if (item) content.appendChild(item);
+    }
+
+    if (content.childNodes.length) panel.appendChild(content);
+    else panel.addClass("ocode-output-headeronly");
+    return panel;
+  }
+
+  /** Build the DOM for one baked figure (external image file, inline image, or widget). */
+  private buildBakedFigureEl(fig: BakedFigure, notePath: string): HTMLElement | null {
+    if (fig.kind === "widget") {
+      return buildFigureEl({ kind: "widget", html: fig.html, figureIndex: 0 }, this.app);
+    }
+    // Inline base64 image — reuse the live-output figure element (toolbar + fullscreen).
+    if (fig.data) {
+      return buildFigureEl({ kind: "image", data: fig.data, figureIndex: 0 }, this.app);
+    }
+    // External image file — resolve it in the vault and point an <img> at it.
+    if (fig.file) {
+      const tfile = this.resolveBakedImage(fig.file, notePath);
+      if (!tfile) return null; // file missing — skip silently
+      const item = createDiv({ cls: "ocode-output-item" });
+      item.createEl("img", {
+        cls: "ocode-output-img",
+        attr: { src: this.app.vault.getResourcePath(tfile), alt: fig.file },
+      });
+      return item;
+    }
+    return null;
+  }
+
+  /** The configured baked-outputs folder, normalized (with a sane fallback). */
+  private bakedFolder(): string {
+    return normalizePath(this.settings.bakedOutputsFolder || DEFAULT_SETTINGS.bakedOutputsFolder);
+  }
+
+  /** Resolve a baked image filename to its TFile (folder path first, then link resolution). */
+  private resolveBakedImage(filename: string, notePath: string): TFile | null {
+    const direct = this.app.vault.getAbstractFileByPath(normalizePath(`${this.bakedFolder()}/${filename}`));
+    if (direct instanceof TFile) return direct;
+    const resolved = this.app.metadataCache.getFirstLinkpathDest(filename, notePath);
+    return resolved instanceof TFile ? resolved : null;
+  }
+
+  /**
+   * Serialize every captured output for the active note into `codesuite-output`
+   * blocks (the "Bake outputs" command). Figures are written as external image
+   * files by default — keeping the markdown small — and stale image files from a
+   * previous bake are swept. See baked-output.ts for the on-disk format.
+   */
+  private async bakeOutputsIntoNote(file: TFile): Promise<void> {
+    const captured = this.noteOutputData.get(file.path);
+    if (!captured || captured.size === 0) {
+      new Notice("No code outputs to bake yet — run the note's code blocks first.");
+      return;
+    }
+
+    // Materialize each captured output into a serializable BakedOutput, writing
+    // image figures to files (unless the inline-images escape hatch is on).
+    const byHash = new Map<string, BakedOutput>();
+    try {
+      for (const cap of captured.values()) {
+        const figures: BakedFigure[] = [];
+        let imageIndex = 0;
+        for (const fig of cap.figures) {
+          if (fig.kind === "widget") {
+            figures.push({ kind: "widget", html: fig.html });
+            continue;
+          }
+          if (!fig.data) continue;
+          imageIndex++;
+          if (this.settings.bakedOutputsInlineImages) {
+            figures.push({ kind: "image", data: fig.data });
+          } else {
+            const name = bakedImageName(file.basename, file.path, cap.hash, imageIndex);
+            await this.writeBakedImage(name, fig.data);
+            figures.push({ kind: "image", file: name });
+          }
+        }
+        byHash.set(cap.hash, makeBakedOutput({
+          hash: cap.hash, exit: cap.exit, label: cap.label,
+          stdout: cap.stdout, stderr: cap.stderr, figures,
+        }));
+      }
+    } catch (e) {
+      new Notice(`Failed to write baked figures: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+
+    const original = await this.app.vault.read(file);
+    const updated = applyBakedOutputs(original, byHash);
+    if (updated !== original) await this.app.vault.modify(file, updated);
+
+    // Sweep image files for this note that the (re)baked content no longer uses.
+    await this.sweepOrphanBakedImages(file, collectBakedImageFiles(updated));
+
+    // The output now lives in the baked block — drop the live rendered output so
+    // it isn't shown twice (live panel + baked panel).
+    this.clearLiveOutputs(file.path);
+
+    new Notice(`Baked ${byHash.size} output${byHash.size === 1 ? "" : "s"} into the note.`);
+  }
+
+  /**
+   * Remove a note's live (non-baked) output so baking doesn't leave a duplicate
+   * of the output it just wrote into the markdown: drop the reading-view snapshot
+   * cache (so re-renders don't restore it) and the cached LP wrappers (so they
+   * rebuild without their appended panel), strip any live panels already on
+   * screen, and force an LP rebuild. The structured snapshot (noteOutputData) and
+   * the execution session are kept, so re-baking and re-running still work.
+   */
+  private clearLiveOutputs(notePath: string): void {
+    this.noteOutputs.delete(notePath);
+    this.dropLpWrapperCache(notePath);
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView) || view.file?.path !== notePath) continue;
+      // Reading view virtualizes: only sections near the viewport are in the DOM,
+      // so removing on-screen panels would leave scrolled-out ones behind. Force a
+      // full preview re-render instead — every section rebuilds from the cleared
+      // cache (no live panel restored) and the baked blocks render in their place.
+      view.previewMode?.rerender(true);
+    }
+    this.forceLpRebuild();
+  }
+
+  /** Remove all baked-output blocks from the active note and delete their image files. */
+  private async clearBakedOutputsFromNote(file: TFile): Promise<void> {
+    const original = await this.app.vault.read(file);
+    const { content, removedFiles } = clearBakedOutputs(original);
+    if (content === original) {
+      new Notice("No baked outputs to clear.");
+      return;
+    }
+    await this.app.vault.modify(file, content);
+
+    let deleted = 0;
+    for (const name of new Set(removedFiles)) {
+      const tfile = this.resolveBakedImage(name, file.path);
+      if (tfile) {
+        try { await this.app.fileManager.trashFile(tfile); deleted++; } catch { /* best-effort */ }
+      }
+    }
+    new Notice(`Cleared baked outputs${deleted ? ` (+${deleted} image${deleted === 1 ? "" : "s"})` : ""}.`);
+  }
+
+  /** Write a base64 PNG into the baked-outputs folder, creating the folder if needed. */
+  private async writeBakedImage(name: string, base64: string): Promise<void> {
+    const folder = this.bakedFolder();
+    await this.ensureFolder(folder);
+    const path = normalizePath(`${folder}/${name}`);
+    const bytes = base64ToArrayBuffer(base64);
+    const existing = this.app.vault.getAbstractFileByPath(path);
+    if (existing instanceof TFile) await this.app.vault.modifyBinary(existing, bytes);
+    else await this.app.vault.createBinary(path, bytes);
+  }
+
+  /** Create a (possibly nested) vault folder if it doesn't already exist. */
+  private async ensureFolder(path: string): Promise<void> {
+    let cur = "";
+    for (const part of path.split("/")) {
+      cur = cur ? `${cur}/${part}` : part;
+      if (!this.app.vault.getAbstractFileByPath(cur)) {
+        try { await this.app.vault.createFolder(cur); } catch { /* exists / created concurrently */ }
+      }
+    }
+  }
+
+  /** Delete this note's baked image files that are no longer referenced. */
+  private async sweepOrphanBakedImages(file: TFile, referenced: Set<string>): Promise<void> {
+    const folder = this.app.vault.getAbstractFileByPath(this.bakedFolder());
+    if (!(folder instanceof TFolder)) return;
+    const prefix = bakedImagePrefix(file.basename, file.path);
+    for (const child of folder.children) {
+      if (child instanceof TFile && child.name.startsWith(prefix) && !referenced.has(child.name)) {
+        try { await this.app.fileManager.trashFile(child); } catch { /* best-effort */ }
+      }
+    }
   }
 
   /**
@@ -3145,6 +3484,13 @@ __ocode_emit_vars
     byCode.set(code, panel.outerHTML);
   }
 
+  /** Store a finished output's structured data, keyed by note path + block source. */
+  private saveBlockOutputData(notePath: string, code: string, data: CapturedOutput): void {
+    let byCode = this.noteOutputData.get(notePath);
+    if (!byCode) { byCode = new Map(); this.noteOutputData.set(notePath, byCode); }
+    byCode.set(code, data);
+  }
+
   /** Re-attach a saved output snapshot to a freshly rendered block, if one exists. */
   private restoreBlockOutput(notePath: string, code: string, wrapper: HTMLElement): void {
     if (wrapper.querySelector(".ocode-output")) return;
@@ -3609,6 +3955,11 @@ __ocode_emit_vars
         }
       }
 
+      // Snapshot the visible stdout text now, before the empty-panel branch
+      // below may detach outContent. Used by the "Bake outputs" command.
+      const visibleStdout = Array.from(outContent.querySelectorAll<HTMLElement>(".ocode-stdout"))
+        .map((s) => s.textContent ?? "").join("");
+
       // If no output at all, collapse the panel to just the header so a clean
       // run still reads as "ran fine" without an empty content box.
       if (!outContent.childNodes.length) {
@@ -3619,7 +3970,17 @@ __ocode_emit_vars
 
       // Persist a static snapshot of the finished output so it survives reading-
       // view section eviction and is picked up by HTML/PDF export.
-      if (sourcePath) this.saveBlockOutput(sourcePath, code, outputPanel);
+      if (sourcePath) {
+        this.saveBlockOutput(sourcePath, code, outputPanel);
+        this.saveBlockOutputData(sourcePath, code, {
+          hash: codeHash(code.trim()),
+          exit: result.exitCode,
+          label: outLabel.textContent ?? "Output",
+          stdout: visibleStdout,
+          stderr: errorText,
+          figures: result.figures,
+        });
+      }
 
       // ─── Accumulate into session on clean exit ───
       if (useSharedCtx && result.exitCode === 0) {

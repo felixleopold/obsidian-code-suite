@@ -201,6 +201,30 @@ export interface CodePluginSettings {
    */
   experimentalTables: boolean;
   /**
+   * Advanced / sharing feature, off by default — most users never touch it.
+   * When true, the "Bake code outputs into note" / "Clear baked outputs"
+   * commands become available and CodeSuite renders `codesuite-output` blocks as
+   * output panels (reading view + live preview). Baking writes a code block's
+   * captured output into the note markdown so it survives in contexts that only
+   * see the raw `.md` — most importantly shared notes (NoteColab), where the
+   * recipient's web viewer has no CodeSuite to re-run the code. See baked-output.ts.
+   */
+  bakedOutputs: boolean;
+  /**
+   * Vault folder (relative to root) where baked figures (e.g. matplotlib PNGs)
+   * are written. Keeping figures as external files instead of inlining them as
+   * base64 is what stops baked output from bloating the note. Created on demand.
+   */
+  bakedOutputsFolder: string;
+  /**
+   * Escape hatch: inline baked figures as base64 data directly in the
+   * `codesuite-output` block instead of writing external files. Self-contained
+   * (no extra files in the vault) at the cost of a larger note. Off by default —
+   * external files are the no-bloat path. Plotly widgets are always inlined
+   * regardless, as they have no static image form.
+   */
+  bakedOutputsInlineImages: boolean;
+  /**
    * Last plugin version for which the one-time upgrade notice was shown.
    * Empty on a fresh install. Used to surface breaking-change notices once
    * to users upgrading across them; not user-facing.
@@ -253,6 +277,9 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   matplotlibStyle: "",
   experimentalTables: false,
   customThemes: [],
+  bakedOutputs: false,
+  bakedOutputsFolder: "CodeSuite/baked-outputs",
+  bakedOutputsInlineImages: false,
   lastNoticeVersion: "",
   exportWidthMode: "current",
   exportKeepCodeBlocksWhole: true,

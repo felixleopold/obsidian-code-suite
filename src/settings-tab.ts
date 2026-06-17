@@ -537,5 +537,49 @@ export class CodeSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.experimentalTables);
         t.onChange(async (v) => { this.plugin.settings.experimentalTables = v; await this.plugin.saveSettings(); });
       });
+
+    // ─── Sharing: baked outputs ──────────────────────
+    // Advanced, off by default — most users never need this. Baking writes a
+    // code block's captured output into the note markdown so it shows up in
+    // contexts that only read the raw .md (e.g. notes shared via NoteColab,
+    // whose web viewer has no CodeSuite to re-run the code).
+    new Setting(containerEl).setName("Sharing (baked outputs)").setHeading();
+
+    const bakedDesc = containerEl.createDiv({ cls: "ocode-settings-about" });
+    bakedDesc.createEl("p").textContent =
+      "Normally execution output lives only in memory and never touches your note. The bake command serializes the current output of each code block into a hidden codesuite-output block right after it, so the output survives anywhere the note is read as plain Markdown — most importantly in shared notes, where the recipient can't run your code.";
+    bakedDesc.createEl("p").textContent =
+      "When enabled, two commands appear: \"Bake code outputs into note\" and \"Clear baked outputs from note\". Run your code blocks first, then bake.";
+
+    new Setting(containerEl)
+      .setName("Enable baked outputs")
+      .setDesc("Adds the bake/clear commands and renders baked codesuite-output blocks as output panels. Leave off if you don't share notes with code output.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.bakedOutputs);
+        t.onChange(async (v) => {
+          this.plugin.settings.bakedOutputs = v;
+          await this.plugin.saveSettings();
+          this.display(); // reveal/hide the dependent settings below
+        });
+      });
+
+    if (this.plugin.settings.bakedOutputs) {
+      new Setting(containerEl)
+        .setName("Baked figures folder")
+        .setDesc("Vault-relative folder where baked figures (e.g. matplotlib PNGs) are written. Keeping figures as files instead of inlining them keeps notes small. Created on demand.")
+        .addText((t) => {
+          t.inputEl["placeholder"] = "CodeSuite/baked-outputs";
+          t.setValue(this.plugin.settings.bakedOutputsFolder);
+          t.onChange(async (v) => { this.plugin.settings.bakedOutputsFolder = v.trim(); await this.plugin.saveSettings(); });
+        });
+
+      new Setting(containerEl)
+        .setName("Inline images instead of files")
+        .setDesc("Embed baked figures as base64 directly in the note (self-contained, no extra files) instead of writing image files. Off by default — this makes notes much larger. Interactive Plotly widgets are always inlined regardless.")
+        .addToggle((t) => {
+          t.setValue(this.plugin.settings.bakedOutputsInlineImages);
+          t.onChange(async (v) => { this.plugin.settings.bakedOutputsInlineImages = v; await this.plugin.saveSettings(); });
+        });
+    }
   }
 }

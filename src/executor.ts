@@ -203,7 +203,7 @@ export function startExecution(
   if (!Platform.isDesktop) {
     const result: ExecutionResult = {
       stdout: "", stderr: "Code execution is only available on desktop.",
-      exitCode: 1, killed: false, figures: [],
+      exitCode: 1, killed: false, cancelled: false, figures: [],
     };
     return {
       promise: Promise.resolve(result),
@@ -217,7 +217,7 @@ export function startExecution(
   if (!runtime) {
     const result: ExecutionResult = {
       stdout: "", stderr: `No runtime for: ${lang}`,
-      exitCode: 1, killed: false, figures: [],
+      exitCode: 1, killed: false, cancelled: false, figures: [],
     };
     return {
       promise: Promise.resolve(result),

@@ -64,6 +64,9 @@ const SENTENCE_CASE_IGNORES = [
   "Clear execution session",
   "Extra environment variables",
   "Import code file as alias",
+  "Bake code outputs into note",
+  "Clear baked outputs from note",
+  "Vault",
 ];
 
 export default defineConfig([
