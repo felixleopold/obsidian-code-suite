@@ -53,6 +53,7 @@ const SENTENCE_CASE_IGNORES = [
   "Bash",
   "Node\\.?js",
   "Obsidian",
+  "Electron",
   "VS Code",
   "Plotly(?:\\.js)?",
   "Matplotlib",

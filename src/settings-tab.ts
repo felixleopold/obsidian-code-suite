@@ -258,6 +258,21 @@ export class CodeSettingTab extends PluginSettingTab {
         });
       });
 
+    new Setting(containerEl)
+      .setName("PDF export for HTML blocks")
+      .setDesc(
+        "Add a PDF pill to rendered html blocks to save or print just that block on an A4 page — handy for invoices or other documents. " +
+        "Override per block with a `pdf` or `nopdf` flag on the fence (e.g. ```html pdf); `pdf` alone also renders the block. Desktop only."
+      )
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.htmlBlockPdfExport);
+        t.onChange(async (v) => {
+          this.plugin.settings.htmlBlockPdfExport = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshRenderedBlocks();
+        });
+      });
+
     // ─── Code Execution ──────────────────────────
     new Setting(containerEl).setName("Code execution").setHeading();
 

@@ -122,6 +122,12 @@ export interface CodePluginSettings {
    * override this. Either way an eligible html block gets a Preview/Code toggle.
    */
   renderHtmlBlocks: boolean;
+  /**
+   * When true, rendered `html` blocks get a PDF/print export pill that saves or
+   * prints just that block on an A4 page. Per-block `pdf`/`nopdf` fence flags
+   * override this; `pdf` alone also makes a block render as a preview.
+   */
+  htmlBlockPdfExport: boolean;
   collapseEmbeds: boolean;
   wideCodeBlocks: boolean;
   /**
@@ -251,6 +257,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   enableExecution: true,
   renderEmbeddedFiles: true,
   renderHtmlBlocks: false,
+  htmlBlockPdfExport: false,
   collapseEmbeds: true,
   wideCodeBlocks: false,
   showClearSessionButton: true,

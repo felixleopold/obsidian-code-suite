@@ -172,6 +172,21 @@ Render an `html` code block as live HTML instead of showing its source.
 
 > The HTML renders in a **sandboxed iframe** (`sandbox="allow-scripts"`, no same-origin). Scripts run and styles apply, but only inside the frame — they **cannot** reach your vault, the rest of the app, or Obsidian's API.
 
+**Export a block to PDF (invoices, reports, certificates)** — turn on **PDF export for HTML blocks** in settings and rendered `html` blocks get a **PDF** pill that opens a menu:
+
+- **Save as PDF…** — renders just that block on an A4 page and saves it next to the note (`<note name>.pdf`), ideal for archiving an invoice into its folder
+- **Print…** — opens the system print dialog for the block alone
+
+Both honour the block's own CSS, including `@media print` rules, and lay it out on A4 with comfortable margins. Opt a single block in or out with a `pdf` (or `nopdf`) fence flag — `pdf` alone also renders the block — so you don't need the global setting on:
+
+````markdown
+```html pdf
+<div class="invoice">…</div>
+```
+````
+
+Desktop only (both paths need Electron).
+
 </details>
 
 ---
@@ -264,6 +279,7 @@ Track progress or vote on the linked GitHub issues.
 
 **Recent releases**
 
+- **1.11.0** — PDF export for HTML blocks: rendered `html` blocks get a **PDF** pill to save or print just that block on an A4 page (great for invoices and reports). Opt in globally with **PDF export for HTML blocks**, or per block with a `pdf` / `nopdf` fence flag.
 - **1.9.3** — execution and output-panel fixes: re-running a block after Run All no longer throws a `NameError`, the spurious trailing blank line in output is gone, and output-less runs collapse to a slim `Output (none)` header. New: clicking Run All again while it runs cancels the pass.
 - **1.9.2** — README and listing overhaul: a hero demo GIF, a feature "At a glance" table, the four feature pillars (Highlight / Run / Embed / Share), and a rewritten store description. No functional changes.
 - **1.9.1** — lint compliance: replaced banned `obsidianmd/ui/sentence-case` rule disables with an `ignoreRegex` allowlist, removed a CSS `!important` in favor of higher selector specificity.

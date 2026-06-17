@@ -1,6 +1,7 @@
 import {
   App,
   Component,
+  Menu,
   Plugin,
   MarkdownPostProcessorContext,
   MarkdownRenderer,
@@ -96,6 +97,7 @@ const ICON = {
   reload: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>`,
   eye: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
   code: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`,
+  printer: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>`,
 };
 
 const CODE_FILE_EXTENSIONS = new Set(Object.keys(EXT_TO_LANG));
@@ -111,6 +113,7 @@ interface ElectronBrowserWindow {
   loadFile: (p: string) => Promise<void>;
   webContents: {
     printToPDF: (o: Record<string, unknown>) => Promise<Uint8Array>;
+    print: (o: Record<string, unknown>, cb?: (success: boolean, reason: string) => void) => void;
     executeJavaScript: (code: string) => Promise<unknown>;
   };
   destroy: () => void;
@@ -995,6 +998,7 @@ export default class CodePlugin extends Plugin {
       s.collapseEmbeds,
       s.renderEmbeddedFiles,
       s.renderHtmlBlocks,
+      s.htmlBlockPdfExport,
     ].join("|");
   }
 
@@ -1061,6 +1065,7 @@ export default class CodePlugin extends Plugin {
         const forceCollapsed: boolean | null =
           attrs.has("collapsed") ? true : attrs.has("expanded") ? false : null;
         const htmlPreview = this.htmlPreviewState(rawLang, attrs);
+        const htmlPdf = this.htmlPdfState(rawLang, attrs);
 
         const isVars = rawLang === "vars";
         const resolvedLang = isVars ? "vars" : this.highlighter.resolveLanguage(block.lang);
@@ -1073,7 +1078,7 @@ export default class CodePlugin extends Plugin {
         prevCodeHash = codeHash(code.trim());
         // Visual indent in editor columns, so the widget lines up with its list.
         const indentCols = this.indentColumns(block.indent, state.tabSize);
-        const key = `${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${indentCols}\0${sig}`;
+        const key = `${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${htmlPdf}\0${indentCols}\0${sig}`;
         // Register the key BEFORE the cursor check so a block being edited (or
         // running) is never pruned out from under its live output / process.
         liveKeys.add(key);
@@ -1086,7 +1091,7 @@ export default class CodePlugin extends Plugin {
             const w = isVars
               ? this.buildVarsWrapper(code, notePath)
               : this.buildCodeBlockWrapper(
-                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed, htmlPreview,
+                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf,
                 );
             // Indent the widget to match its list nesting (#27); ch units track
             // the indent's column width closely enough for a clear visual cue.
@@ -2619,8 +2624,9 @@ __ocode_emit_vars
       const lang = this.highlighter.resolveLanguage(rawLang);
       const code = codeEl.textContent || "";
       const htmlPreview = this.htmlPreviewState(rawLang, blockAttrs);
+      const htmlPdf = this.htmlPdfState(rawLang, blockAttrs);
 
-      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview);
+      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf);
     }
   }
 
@@ -3118,7 +3124,26 @@ __ocode_emit_vars
     if (rawLang.toLowerCase() !== "html") return null;
     if (attrs.has("preview") || attrs.has("render")) return true;
     if (attrs.has("source") || attrs.has("raw") || attrs.has("code")) return false;
-    return this.settings.renderHtmlBlocks ? true : null;
+    // An explicit pdf/export flag treats the block as a rendered document.
+    if (attrs.has("pdf") || attrs.has("export")) return true;
+    if (this.settings.renderHtmlBlocks) return true;
+    // The global PDF-export setting gives every html block the preview chrome
+    // (so the export pill has a rendered document to capture) but keeps it
+    // source-first, preserving the renderHtmlBlocks-off default view.
+    if (this.settings.htmlBlockPdfExport) return false;
+    return null;
+  }
+
+  /**
+   * Decide whether a preview-eligible `html` block shows the PDF/print export
+   * pill. Per-block `pdf`/`export` and `nopdf` fence flags override the
+   * `htmlBlockPdfExport` setting, mirroring {@link htmlPreviewState}.
+   */
+  private htmlPdfState(rawLang: string, attrs: Set<string>): boolean {
+    if (rawLang.toLowerCase() !== "html") return false;
+    if (attrs.has("pdf") || attrs.has("export")) return true;
+    if (attrs.has("nopdf")) return false;
+    return this.settings.htmlBlockPdfExport;
   }
 
   /** Split an embed alias (`![[file.html|preview]]`) into lowercased flag tokens. */
@@ -3143,9 +3168,10 @@ __ocode_emit_vars
     forceSkip = false,
     forceCollapsed: boolean | null = null,
     htmlPreview: boolean | null = null,
+    htmlPdf = false,
   ) {
     const wrapper = this.buildCodeBlockWrapper(
-      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed, htmlPreview,
+      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf,
     );
     if (wrapper) originalPre.replaceWith(wrapper);
   }
@@ -3165,6 +3191,7 @@ __ocode_emit_vars
     forceSkip = false,
     forceCollapsed: boolean | null = null,
     htmlPreview: boolean | null = null,
+    htmlPdf = false,
   ): HTMLElement | null {
     // Strip a single trailing newline so Shiki doesn't emit a dangling empty
     // `.line` span — that's what made every block render one line too tall (#24).
@@ -3286,7 +3313,7 @@ __ocode_emit_vars
     // Render the block's HTML alongside its source and add a Preview/Code
     // toggle. `htmlPreview` is non-null only for preview-eligible html blocks.
     if (htmlPreview !== null) {
-      this.addHtmlPreview(wrapper, code, htmlPreview);
+      this.addHtmlPreview(wrapper, code, htmlPreview, htmlPdf, sourcePath);
     }
     return wrapper;
   }
@@ -3304,7 +3331,13 @@ __ocode_emit_vars
    * lazily on first preview so its scripts don't run until shown and its height
    * can be measured against real layout.
    */
-  private addHtmlPreview(wrapper: HTMLElement, code: string, startInPreview: boolean): void {
+  private addHtmlPreview(
+    wrapper: HTMLElement,
+    code: string,
+    startInPreview: boolean,
+    pdfExport = false,
+    sourcePath?: string,
+  ): void {
     wrapper.classList.add("ocode-html-block");
 
     const pane = createDiv({ cls: "ocode-html-render" });
@@ -3358,7 +3391,112 @@ __ocode_emit_vars
     if (btnGroup) btnGroup.appendChild(toggle);
     else wrapper.querySelector(".ocode-header")?.appendChild(toggle);
 
+    // PDF/print export pill (desktop only — both paths need Electron). Opens a
+    // small menu so a single pill covers "save as PDF" and "print" without
+    // adding two buttons to the header.
+    if (pdfExport && Platform.isDesktop) {
+      const exportPill = this.createPillButton("PDF", ICON.printer, () => {
+        const menu = new Menu();
+        menu.addItem((i) =>
+          i.setTitle("Save as PDF…").setIcon("download")
+            .onClick(() => void this.exportHtmlBlockToPdf(code, sourcePath)));
+        menu.addItem((i) =>
+          i.setTitle("Print…").setIcon("printer")
+            .onClick(() => void this.printHtmlBlock(code)));
+        const r = exportPill.getBoundingClientRect();
+        menu.showAtPosition({ x: r.left, y: r.bottom });
+      }, "ocode-pdf-pill");
+      if (btnGroup) btnGroup.appendChild(exportPill);
+      else wrapper.querySelector(".ocode-header")?.appendChild(exportPill);
+    }
+
     apply(startInPreview);
+  }
+
+  /**
+   * Build a standalone A4 document from an html block's source for PDF/print.
+   * A full document (the block already declares `<html>`/`<!doctype>`) renders
+   * verbatim — it styles itself, including any `@media print` rules. A bare
+   * fragment is hosted on a clean white A4 page so the block's own CSS drives
+   * the layout instead of falling back to browser defaults.
+   *
+   * The page margin is baked into the body as padding rather than via `@page`
+   * margins or the print options: that keeps both export paths identical (PDF
+   * prints with zero page margins, the dialog with `marginType: none`) and
+   * survives a block's own `@media print { body { margin: 0 } }`, which only
+   * resets the margin, not the padding.
+   */
+  private buildHtmlBlockDocument(code: string): string {
+    if (/<!doctype html|<html[\s>]/i.test(code)) return code;
+    const base =
+      `@page{size:A4;margin:0}` +
+      `html{background:#fff}` +
+      `body{margin:0;padding:15mm;background:#fff;color:#1b1b1b;` +
+      `font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;` +
+      `font-size:13.5px;line-height:1.55}`;
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${base}</style></head>` +
+      `<body>${code}</body></html>`;
+  }
+
+  /** Resolve the note a block belongs to, for naming/placing its export. */
+  private blockSourceFile(sourcePath?: string): TFile | null {
+    const f = sourcePath
+      ? this.app.vault.getAbstractFileByPath(sourcePath)
+      : this.app.workspace.getActiveFile();
+    return f instanceof TFile ? f : null;
+  }
+
+  /** Export a single html block to an A4 PDF, defaulting beside its note. */
+  private async exportHtmlBlockToPdf(code: string, sourcePath?: string): Promise<void> {
+    if (!Platform.isDesktop) { new Notice("PDF export is desktop-only."); return; }
+    const file = this.blockSourceFile(sourcePath);
+    if (!file) { new Notice("Open the note before exporting its HTML block."); return; }
+    const html = this.buildHtmlBlockDocument(code);
+    // Paginated A4 (not single-page) so a long document flows onto extra pages.
+    await this.exportPdf(html, this.exportDefaultPath(file, "pdf"), {
+      ...DEFAULT_EXPORT_OPTIONS,
+      singlePage: false,
+    });
+  }
+
+  /** Open the system print dialog for a single html block, rendered on A4. */
+  private async printHtmlBlock(code: string): Promise<void> {
+    if (!Platform.isDesktop) { new Notice("Printing is desktop-only."); return; }
+    const BrowserWindow = this.getBrowserWindow();
+    if (!BrowserWindow) {
+      new Notice("Printing needs Electron. Save as PDF or print from a browser instead.");
+      return;
+    }
+    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
+    const fs = nodeRequire("fs") as typeof import("fs");
+    const os = nodeRequire("os") as typeof import("os");
+    const path = nodeRequire("path") as typeof import("path");
+
+    const html = this.buildHtmlBlockDocument(code);
+    const tmpHtml = path.join(os.tmpdir(), `codesuite-print-${Date.now()}.html`);
+    let win: ElectronBrowserWindow | null = null;
+    try {
+      fs.writeFileSync(tmpHtml, html);
+      win = new BrowserWindow({ show: false, width: 820, height: 1160, webPreferences: { sandbox: true } });
+      await win.loadFile(tmpHtml);
+      const w = win;
+      await new Promise<void>((resolve, reject) => {
+        // marginType "none" so the only inset is the document's own 15mm body
+        // padding — matching the zero-margin PDF path. The dialog still lets the
+        // user override margins before printing.
+        w.webContents.print({ printBackground: true, margins: { marginType: "none" } }, (success, reason) => {
+          // A user dismissing the dialog reports failure with a "cancel" reason —
+          // that's not an error, so only reject on a genuine print failure.
+          if (!success && reason && !/cancel/i.test(reason)) reject(new Error(reason));
+          else resolve();
+        });
+      });
+    } catch (err) {
+      new Notice(`Print failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      if (win) { try { win.destroy(); } catch { /* window already closed */ } }
+      try { fs.unlinkSync(tmpHtml); } catch { /* temp file already gone */ }
+    }
   }
 
   /**
