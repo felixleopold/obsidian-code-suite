@@ -273,6 +273,21 @@ export class CodeSettingTab extends PluginSettingTab {
         });
       });
 
+    new Setting(containerEl)
+      .setName("HTML block templating")
+      .setDesc(
+        "Render html blocks that contain {{ … }} as templates — interpolate frontmatter and vars, include shared partials from your imports folder, and loop over lists. " +
+        "Off by default so framework demos that use {{ }} render literally; opt a single block in with a `template` flag on the fence (e.g. ```html template), which always works regardless of this toggle."
+      )
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.htmlTemplating);
+        t.onChange(async (v) => {
+          this.plugin.settings.htmlTemplating = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshRenderedBlocks();
+        });
+      });
+
     // ─── Code Execution ──────────────────────────
     new Setting(containerEl).setName("Code execution").setHeading();
 

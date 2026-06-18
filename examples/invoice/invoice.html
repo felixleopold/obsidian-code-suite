@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  .inv {
+    font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #1b1b1b;
+    font-size: 13.5px;
+    line-height: 1.55;
+    padding: 12mm 14mm;
+    background: #fff;
+  }
+  .inv header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #1b1b1b;
+    padding-bottom: 10px;
+  }
+  .inv .biz { font-weight: 700; font-size: 15px; }
+  .inv .biz small { display: block; font-weight: 400; color: #555; font-size: 11.5px; }
+  .inv .meta { text-align: right; font-size: 12px; color: #444; }
+  .inv h1 { font-size: 22px; margin: 22px 0 4px; }
+  .inv .to { margin: 14px 0 20px; }
+  .inv .to .label { color: #777; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th, td { padding: 7px 6px; border-bottom: 1px solid #e2e2e2; }
+  th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #777; }
+  td.r, th.r { text-align: right; white-space: nowrap; }
+  tfoot td { border-bottom: none; padding-top: 12px; }
+  .total { font-weight: 700; font-size: 16px; }
+  .legal { margin-top: 26px; padding-top: 12px; border-top: 1px solid #e2e2e2; color: #555; font-size: 11.5px; }
+  .legal .iban { font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+  <div class="inv">
+    <header>
+      <div class="biz">
+        {{ biz.biz_legal_name }}
+        <small>{{ biz.biz_street }} · {{ biz.biz_zip_city }}</small>
+        <small>{{ biz.biz_email }}{{#if biz.biz_vat_id }} · UID {{ biz.biz_vat_id }}{{/if}}</small>
+      </div>
+      <div class="meta">
+        <div>Rechnungsdatum: {{ issue_date | date }}</div>
+        {{#if due_date }}<div>Fällig: {{ due_date | date }}</div>{{/if}}
+        {{#if service_period }}<div>Leistungszeitraum: {{ service_period }}</div>{{/if}}
+      </div>
+    </header>
+
+    <h1>Rechnung {{ invoice_number }}</h1>
+
+    <div class="to">
+      <div class="label">Rechnung an</div>
+      <div><strong>{{ client_name }}</strong></div>
+      <div>{{ client_address }}</div>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Beschreibung</th><th class="r">Betrag</th></tr>
+      </thead>
+      <tbody>
+        {{#each items}}
+        <tr>
+          <td>{{ this.description }}</td>
+          <td class="r">{{ this.amount | eur }}</td>
+        </tr>
+        {{/each}}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td class="r total">Gesamt</td>
+          <td class="r total">{{ amount_net | eur }}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="legal">
+      {{ biz.biz_tax_note | default:"" }}<br>
+      Zahlbar auf: <span class="iban">{{ biz.biz_iban }}</span>{{#if biz.biz_bic }} ({{ biz.biz_bic }}){{/if}}
+    </div>
+  </div>
+</body>
+</html>

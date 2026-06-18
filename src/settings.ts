@@ -128,6 +128,15 @@ export interface CodePluginSettings {
    * override this; `pdf` alone also makes a block render as a preview.
    */
   htmlBlockPdfExport: boolean;
+  /**
+   * When true, `html` blocks that contain `{{ … }}` are rendered as templates
+   * (frontmatter/vars interpolated, `{{> partials }}` included, `{{#each}}`
+   * looped) even without the explicit `template` fence flag. Off by default so
+   * html blocks that legitimately contain `{{` — framework demos (Vue, Angular,
+   * Handlebars) — are never rewritten; the per-block `template` flag is the safe
+   * opt-in. Partials resolve against `codeImportsFolder`.
+   */
+  htmlTemplating: boolean;
   collapseEmbeds: boolean;
   wideCodeBlocks: boolean;
   /**
@@ -258,6 +267,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   renderEmbeddedFiles: true,
   renderHtmlBlocks: false,
   htmlBlockPdfExport: false,
+  htmlTemplating: false,
   collapseEmbeds: true,
   wideCodeBlocks: false,
   showClearSessionButton: true,

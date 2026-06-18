@@ -69,6 +69,13 @@ import {
   headerLooksLikeVars,
   buildTableVars,
 } from "./vars";
+import {
+  type TemplateContext,
+  createContext,
+  renderTemplate,
+  expandIncludes,
+  hasTemplateSyntax,
+} from "./template";
 
 /**
  * Release that changed the `sh` fence alias from bash to POSIX sh. Users whose
@@ -593,6 +600,16 @@ export default class CodePlugin extends Plugin {
       this.app.workspace.on("active-leaf-change", () => this.forceLpRebuild())
     );
 
+    // An html `template` block renders from its note's frontmatter, so when the
+    // metadata cache settles after an edit, rebuild open editors' block widgets
+    // (the frontmatter fingerprint in the cache key then re-resolves the
+    // template against the new data). Reading views re-render on their own. This
+    // is cheap for non-template notes — build() just re-keys and returns cached
+    // wrappers; only a changed template block misses the cache and re-resolves.
+    this.registerEvent(
+      this.app.metadataCache.on("changed", () => this.forceLpRebuild())
+    );
+
     // Reading view: syntax highlighting + execution
     this.registerMarkdownPostProcessor(
       (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
@@ -999,6 +1016,7 @@ export default class CodePlugin extends Plugin {
       s.renderEmbeddedFiles,
       s.renderHtmlBlocks,
       s.htmlBlockPdfExport,
+      s.htmlTemplating,
     ].join("|");
   }
 
@@ -1064,7 +1082,6 @@ export default class CodePlugin extends Plugin {
         const forceSkip = attrs.has("skip");
         const forceCollapsed: boolean | null =
           attrs.has("collapsed") ? true : attrs.has("expanded") ? false : null;
-        const htmlPreview = this.htmlPreviewState(rawLang, attrs);
         const htmlPdf = this.htmlPdfState(rawLang, attrs);
 
         const isVars = rawLang === "vars";
@@ -1076,9 +1093,19 @@ export default class CodePlugin extends Plugin {
           ? block.innerLines.map((l) => stripFenceIndent(l.text, block.indent)).join("\n")
           : block.code;
         prevCodeHash = codeHash(code.trim());
+        // A `template` html block renders through the templating engine and is
+        // implicitly preview-eligible (like `pdf`). Activation needs the code, so
+        // it's computed here after `code`. Its output depends on the note's
+        // frontmatter, not just the block source — fold a frontmatter fingerprint
+        // into the cache key so editing the data rebuilds the widget instead of
+        // serving a stale render.
+        const htmlTemplate = this.htmlTemplateState(rawLang, attrs, code);
+        let htmlPreview = this.htmlPreviewState(rawLang, attrs);
+        if (htmlTemplate && htmlPreview === null) htmlPreview = true;
+        const tmplSig = htmlTemplate ? this.frontmatterSig(notePath) : "";
         // Visual indent in editor columns, so the widget lines up with its list.
         const indentCols = this.indentColumns(block.indent, state.tabSize);
-        const key = `${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${htmlPdf}\0${indentCols}\0${sig}`;
+        const key = `${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${htmlPdf}\0${htmlTemplate}\0${tmplSig}\0${indentCols}\0${sig}`;
         // Register the key BEFORE the cursor check so a block being edited (or
         // running) is never pruned out from under its live output / process.
         liveKeys.add(key);
@@ -1091,7 +1118,7 @@ export default class CodePlugin extends Plugin {
             const w = isVars
               ? this.buildVarsWrapper(code, notePath)
               : this.buildCodeBlockWrapper(
-                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf,
+                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate,
                 );
             // Indent the widget to match its list nesting (#27); ch units track
             // the indent's column width closely enough for a clear visual cue.
@@ -1123,7 +1150,16 @@ export default class CodePlugin extends Plugin {
 
           const alias = m[2] ?? null;
           const htmlPreview = this.embedHtmlPreview(ext, alias);
-          const key = `embed\0${file.path}\0${htmlPreview}\0${sig}`;
+          const htmlPdf = this.embedHtmlPdf(ext, alias);
+          // A template embed's rendered output depends on the note's frontmatter,
+          // not just the file — fold a frontmatter fingerprint into the key so
+          // editing the data rebuilds the widget. The precise template decision
+          // needs the file's contents (read async in populateEmbedContainer), so
+          // the key uses the coarse, content-free guess; a false positive only
+          // costs a harmless extra rebuild on a frontmatter edit.
+          const maybeTemplate = this.embedMaybeTemplate(ext, alias);
+          const tmplSig = maybeTemplate ? this.frontmatterSig(notePath) : "";
+          const key = `embed\0${file.path}\0${htmlPreview}\0${htmlPdf}\0${maybeTemplate}\0${tmplSig}\0${sig}`;
           liveKeys.add(key);
           if (overlapsSelection(line.from, line.to)) continue;
           const resolve = (): HTMLElement | null =>
@@ -2623,10 +2659,14 @@ __ocode_emit_vars
 
       const lang = this.highlighter.resolveLanguage(rawLang);
       const code = codeEl.textContent || "";
-      const htmlPreview = this.htmlPreviewState(rawLang, blockAttrs);
+      const htmlTemplate = this.htmlTemplateState(rawLang, blockAttrs, code);
+      // A template block is implicitly preview-eligible (it renders), exactly as
+      // a `pdf` block is — promote a null preview state to "render".
+      let htmlPreview = this.htmlPreviewState(rawLang, blockAttrs);
+      if (htmlTemplate && htmlPreview === null) htmlPreview = true;
       const htmlPdf = this.htmlPdfState(rawLang, blockAttrs);
 
-      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf);
+      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate);
     }
   }
 
@@ -3146,6 +3186,29 @@ __ocode_emit_vars
     return this.settings.htmlBlockPdfExport;
   }
 
+  /**
+   * Decide whether an `html` block should be rendered through the templating
+   * engine (frontmatter/vars interpolation, `{{> partials }}`, `{{#each}}`).
+   * The explicit `template` fence flag always opts in (and `notemplate` always
+   * opts out); otherwise, when the global `htmlTemplating` setting is on, a block
+   * that *contains* `{{ … }}` is treated as a template. Off by default keeps
+   * framework demos (Vue/Angular/Handlebars literal `{{`) untouched.
+   */
+  private htmlTemplateState(rawLang: string, attrs: Set<string>, code: string): boolean {
+    if (rawLang.toLowerCase() !== "html") return false;
+    if (attrs.has("notemplate")) return false;
+    if (attrs.has("template")) return true;
+    return this.settings.htmlTemplating && hasTemplateSyntax(code);
+  }
+
+  /** Cheap fingerprint of a note's frontmatter, folded into a template block's
+   *  Live Preview cache key so editing the data rebuilds the widget. */
+  private frontmatterSig(notePath: string): string {
+    const file = this.app.vault.getAbstractFileByPath(notePath);
+    const fm = file instanceof TFile ? this.app.metadataCache.getFileCache(file)?.frontmatter : undefined;
+    return codeHash(JSON.stringify(fm ?? {}));
+  }
+
   /** Split an embed alias (`![[file.html|preview]]`) into lowercased flag tokens. */
   private parseAliasFlags(alias?: string | null): Set<string> {
     return new Set(
@@ -3156,6 +3219,39 @@ __ocode_emit_vars
   /** Preview state for an embedded code file, honouring a `preview`/`source` alias flag. */
   private embedHtmlPreview(ext: string, alias?: string | null): boolean | null {
     return this.htmlPreviewState(this.highlighter.resolveExtension(ext), this.parseAliasFlags(alias));
+  }
+
+  /** PDF/print-export state for an embedded html file, honouring a `pdf`/`nopdf`
+   *  alias flag. Mirrors {@link embedHtmlPreview} but for {@link htmlPdfState}. */
+  private embedHtmlPdf(ext: string, alias?: string | null): boolean {
+    return this.htmlPdfState(this.highlighter.resolveExtension(ext), this.parseAliasFlags(alias));
+  }
+
+  /**
+   * Templating state for an embedded html file: a `template` alias flag opts in
+   * (`notemplate` opts out); otherwise the global `htmlTemplating` setting plus
+   * `{{ … }}` in the file does. Mirrors {@link htmlTemplateState} for fenced
+   * blocks, so `![[invoice.html|template]]` templates the file against the
+   * *embedding* note's frontmatter exactly as a `template` fence flag would.
+   */
+  private embedHtmlTemplate(ext: string, alias: string | null | undefined, code: string): boolean {
+    return this.htmlTemplateState(this.highlighter.resolveExtension(ext), this.parseAliasFlags(alias), code);
+  }
+
+  /**
+   * Coarse, content-free guess of whether an embedded html file *might* render
+   * as a template — an explicit `template` flag, or the global `htmlTemplating`
+   * setting with no `notemplate`. Used only to decide whether to fold the note's
+   * frontmatter fingerprint into the Live Preview cache key (so editing the data
+   * rebuilds the embed); the precise decision, which also needs the file's `{{`,
+   * is made in {@link populateEmbedContainer} once the file is read.
+   */
+  private embedMaybeTemplate(ext: string, alias?: string | null): boolean {
+    if (this.highlighter.resolveExtension(ext) !== "html") return false;
+    const attrs = this.parseAliasFlags(alias);
+    if (attrs.has("notemplate")) return false;
+    if (attrs.has("template")) return true;
+    return this.settings.htmlTemplating;
   }
 
   private renderCodeBlock(
@@ -3169,9 +3265,10 @@ __ocode_emit_vars
     forceCollapsed: boolean | null = null,
     htmlPreview: boolean | null = null,
     htmlPdf = false,
+    htmlTemplate = false,
   ) {
     const wrapper = this.buildCodeBlockWrapper(
-      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf,
+      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate,
     );
     if (wrapper) originalPre.replaceWith(wrapper);
   }
@@ -3192,6 +3289,7 @@ __ocode_emit_vars
     forceCollapsed: boolean | null = null,
     htmlPreview: boolean | null = null,
     htmlPdf = false,
+    htmlTemplate = false,
   ): HTMLElement | null {
     // Strip a single trailing newline so Shiki doesn't emit a dangling empty
     // `.line` span — that's what made every block render one line too tall (#24).
@@ -3313,7 +3411,7 @@ __ocode_emit_vars
     // Render the block's HTML alongside its source and add a Preview/Code
     // toggle. `htmlPreview` is non-null only for preview-eligible html blocks.
     if (htmlPreview !== null) {
-      this.addHtmlPreview(wrapper, code, htmlPreview, htmlPdf, sourcePath);
+      this.addHtmlPreview(wrapper, code, htmlPreview, htmlPdf, sourcePath, htmlTemplate);
     }
     return wrapper;
   }
@@ -3337,8 +3435,17 @@ __ocode_emit_vars
     startInPreview: boolean,
     pdfExport = false,
     sourcePath?: string,
+    htmlTemplate = false,
   ): void {
     wrapper.classList.add("ocode-html-block");
+    if (htmlTemplate) wrapper.classList.add("ocode-html-template");
+
+    // A template block resolves its `{{ … }}` against the note's data once per
+    // consumer (preview frame, PDF, print). Re-resolved per call so an export
+    // always reflects the current frontmatter/partials, never a stale render.
+    // A non-template block resolves to its source unchanged (zero extra work).
+    const resolveHtml = (): Promise<string> =>
+      htmlTemplate ? this.resolveTemplate(code, sourcePath) : Promise.resolve(code);
 
     const pane = createDiv({ cls: "ocode-html-render" });
     // Place the preview directly after the source body so collapse/line-number
@@ -3355,17 +3462,24 @@ __ocode_emit_vars
     // the pane is attached, visible, and sized; we build exactly once, then
     // disconnect.
     let frameBuilt = false;
+    // Resolve the (possibly templated) HTML, then build the frame. The await is
+    // a no-op for plain blocks (already-resolved promise) so the lazy build
+    // lifecycle is unchanged; for templates it expands includes + interpolation
+    // before the iframe srcdoc is set.
+    const buildFrame = () => {
+      void resolveHtml().then((html) => this.buildHtmlFrame(pane, html));
+    };
     const ensureFrame = () => {
       if (frameBuilt) return;
       frameBuilt = true;
       if (pane.offsetWidth > 0) {
-        this.buildHtmlFrame(pane, code);
+        buildFrame();
         return;
       }
       const ro = new ResizeObserver(() => {
         if (pane.offsetWidth === 0) return;
         ro.disconnect();
-        this.buildHtmlFrame(pane, code);
+        buildFrame();
       });
       ro.observe(pane);
     };
@@ -3399,10 +3513,10 @@ __ocode_emit_vars
         const menu = new Menu();
         menu.addItem((i) =>
           i.setTitle("Save as PDF…").setIcon("download")
-            .onClick(() => void this.exportHtmlBlockToPdf(code, sourcePath)));
+            .onClick(() => void resolveHtml().then((html) => this.exportHtmlBlockToPdf(html, sourcePath))));
         menu.addItem((i) =>
           i.setTitle("Print…").setIcon("printer")
-            .onClick(() => void this.printHtmlBlock(code)));
+            .onClick(() => void resolveHtml().then((html) => this.printHtmlBlock(html))));
         const r = exportPill.getBoundingClientRect();
         menu.showAtPosition({ x: r.left, y: r.bottom });
       }, "ocode-pdf-pill");
@@ -3411,6 +3525,96 @@ __ocode_emit_vars
     }
 
     apply(startInPreview);
+  }
+
+  /**
+   * Resolve a template `html` block to final HTML: build the layered context,
+   * expand `{{> partials }}`, then interpolate. Never throws — on any failure it
+   * degrades to the raw source so a broken template can't blank the document.
+   */
+  private async resolveTemplate(code: string, sourcePath?: string): Promise<string> {
+    try {
+      const ctx = await this.buildTemplateContext(sourcePath);
+      const expanded = await expandIncludes(code, (p) => this.readPartial(p));
+      return renderTemplate(expanded, ctx);
+    } catch (err) {
+      console.warn("CodeSuite: HTML template resolution failed — rendering source.", err);
+      return code;
+    }
+  }
+
+  /**
+   * Assemble the layered template context for an html block from its note's
+   * frontmatter, CodeSuite var stores, and any `template_context:` notes.
+   * Precedence (lowest → highest, later overrides earlier in the base record):
+   * frontmatter → CodeSuite vars; `{{#each}}` loop scope sits above both at
+   * render time. `template_context:` notes are exposed under their own namespace
+   * key (e.g. `biz`), so they sit alongside rather than collide. Frontmatter is
+   * read from `metadataCache` so it works in both reading view and Live Preview.
+   */
+  private async buildTemplateContext(sourcePath?: string): Promise<TemplateContext> {
+    const base: Record<string, unknown> = {};
+    const file = sourcePath
+      ? this.app.vault.getAbstractFileByPath(sourcePath)
+      : this.app.workspace.getActiveFile();
+
+    if (file instanceof TFile) {
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as
+        | Record<string, unknown>
+        | undefined;
+      if (fm) {
+        for (const [k, v] of Object.entries(fm)) base[k] = v;
+        // Named context notes: expose each linked note's frontmatter under its
+        // namespace, so shared data (e.g. business details) stays single-source.
+        const tc = fm["template_context"];
+        if (tc && typeof tc === "object" && !Array.isArray(tc)) {
+          for (const [ns, link] of Object.entries(tc as Record<string, unknown>)) {
+            const name = this.linkTarget(link);
+            if (!name) continue;
+            const dest = this.app.metadataCache.getFirstLinkpathDest(name, sourcePath ?? "");
+            if (dest instanceof TFile) {
+              const cfm = this.app.metadataCache.getFileCache(dest)?.frontmatter;
+              base[ns] = cfm ? { ...cfm } : {};
+            }
+          }
+        }
+      }
+    }
+
+    // CodeSuite vars (block `vars` + `code_vars:`) override frontmatter, matching
+    // the existing rule that block vars win. Stored typed → unwrap to plain JS.
+    const varStore = sourcePath ? this.noteVarsBlockStore.get(sourcePath) : undefined;
+    if (varStore) {
+      for (const [k, v] of Object.entries(varStore)) base[k] = toJs(v);
+    }
+
+    return createContext(base);
+  }
+
+  /** Extract the note name a `template_context:` value points at — a wikilink
+   *  string (`"[[Business Config]]"`, with optional alias/heading) or a plain
+   *  note name. Returns null for a non-string value. */
+  private linkTarget(v: unknown): string | null {
+    if (typeof v !== "string") return null;
+    const m = v.match(/\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]/);
+    return (m ? m[1] : v).trim() || null;
+  }
+
+  /**
+   * Read a `{{> partial }}` target. Resolved relative to `codeImportsFolder`
+   * (`.html` assumed when no extension), confined to the vault, and read via the
+   * vault API so it works on desktop and mobile. Returns null when the path
+   * escapes the imports folder or the file doesn't exist.
+   */
+  private async readPartial(p: string): Promise<string | null> {
+    const folder = (this.settings.codeImportsFolder || "CodeSuiteImports").replace(/^\/+|\/+$/g, "");
+    let rel = p.trim().replace(/^\/+/, "");
+    if (!rel || rel.includes("..")) return null;
+    if (!/\.[a-zA-Z0-9]+$/.test(rel)) rel += ".html";
+    const full = normalizePath(`${folder}/${rel}`);
+    const file = this.app.vault.getAbstractFileByPath(full);
+    if (!(file instanceof TFile)) return null;
+    return await this.app.vault.cachedRead(file);
   }
 
   /**
@@ -4233,9 +4437,17 @@ __ocode_emit_vars
   private async populateEmbedContainer(container: HTMLElement, file: TFile, ext: string, sourcePath?: string, alias?: string | null) {
     const code = await this.app.vault.read(file);
     const lang = this.highlighter.resolveExtension(ext);
-    const htmlPreview = this.embedHtmlPreview(ext, alias);
+    let htmlPreview = this.embedHtmlPreview(ext, alias);
+    const htmlPdf = this.embedHtmlPdf(ext, alias);
+    const htmlTemplate = this.embedHtmlTemplate(ext, alias, code);
+    // A template embed is implicitly preview-eligible (so the resolved document
+    // renders), exactly as a `template` fence flag is — otherwise a no-flag embed
+    // with `renderHtmlBlocks` off would show raw `{{ … }}` source instead.
+    if (htmlTemplate && htmlPreview === null) htmlPreview = true;
 
-    const wrapper = this.buildCodeBlockWrapper(code, lang, lang, file.name, sourcePath, false, null, htmlPreview);
+    const wrapper = this.buildCodeBlockWrapper(
+      code, lang, lang, file.name, sourcePath, false, null, htmlPreview, htmlPdf, htmlTemplate,
+    );
     if (!wrapper) return;
     container.empty();
     container.appendChild(wrapper);

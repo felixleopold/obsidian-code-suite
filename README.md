@@ -187,6 +187,39 @@ Both honour the block's own CSS, including `@media print` rules, and lay it out 
 
 Desktop only (both paths need Electron).
 
+**Data-driven documents (invoices, reports) with `template`** — add a `template` flag and an `html` block becomes a [template](docs/html-templating.md): it interpolates the note's frontmatter, includes a shared layout/CSS partial, and loops over a list. Keep one `invoice.html` partial and fill it per note — then the **PDF** pill exports it.
+
+````markdown
+```html template pdf
+{{> invoice }}
+```
+````
+
+```yaml
+invoice_number: "2026-002"
+client_name: "Muster GmbH"
+items:
+  - { description: "Wartung & Server", amount: 120 }
+amount_net: 120
+template_context:
+  biz: "[[Business Config]]"
+```
+
+- `{{ field }}` interpolates (HTML-escaped; `{{{ }}}` or `| raw` for trusted markup); `{{ amount | eur }}` and `| date` format while frontmatter stays raw and Dataview-queryable
+- `{{> partial }}` pulls in shared layout/CSS from your imports folder; `{{#each items}}…{{/each}}` loops; `{{#if}}` drops empty rows
+- `template_context:` exposes another note's frontmatter under a namespace (`{{ biz.biz_iban }}`) — change `Business Config.md` once, every invoice updates
+- **Opt-in** — the `template` flag, or the **HTML block templating** setting for any `{{`-containing block. Off by default so framework demos that use `{{ }}` render literally
+
+**…or template an embedded file** — keep the layout in a standalone `.html` file and embed it; the file is templated against the embedding note. Cleanest for one-file documents like invoices — the note holds only data and one line, no fenced block needed:
+
+```markdown
+![[invoice.html|template pdf]]
+```
+
+The same engine, flags (`template` / `notemplate` / `pdf`), and global settings apply.
+
+Full syntax reference: [**HTML Templating**](docs/html-templating.md). A copy-paste starter lives in [`examples/invoice/`](examples/invoice/).
+
 </details>
 
 ---
@@ -255,6 +288,7 @@ Open **Settings → CodeSuite** to configure themes, code execution, environment
 | | |
 |---|---|
 | [Variables & Execution](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/variables-and-execution.md) | How to run code, declare variables, use `$varname`, cross-language propagation, practical patterns |
+| [HTML Templating](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/html-templating.md) | Data-driven `html` blocks — interpolation, filters, partials, loops; the invoice/report workflow |
 | [Configuration Reference](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/configuration.md) | Every setting, option, and environment knob |
 
 ---
@@ -279,6 +313,7 @@ Track progress or vote on the linked GitHub issues.
 
 **Recent releases**
 
+- **1.12.0** — HTML templating: an `html template` block — or an embedded `.html` file (`![[invoice.html|template pdf]]`) — becomes a data-driven document. `{{ frontmatter }}` interpolation with `eur`/`date`/`number` filters, `{{> partials }}` for shared layout/CSS, `{{#each}}` loops, `{{#if}}` conditionals, and `template_context:` notes for single-source shared data. Built for invoices/reports; pairs with the PDF pill. Opt in per block/embed with a `template` flag or globally with **HTML block templating**. See [HTML Templating](docs/html-templating.md).
 - **1.11.0** — PDF export for HTML blocks: rendered `html` blocks get a **PDF** pill to save or print just that block on an A4 page (great for invoices and reports). Opt in globally with **PDF export for HTML blocks**, or per block with a `pdf` / `nopdf` fence flag.
 - **1.9.3** — execution and output-panel fixes: re-running a block after Run All no longer throws a `NameError`, the spurious trailing blank line in output is gone, and output-less runs collapse to a slim `Output (none)` header. New: clicking Run All again while it runs cancels the pass.
 - **1.9.2** — README and listing overhaul: a hero demo GIF, a feature "At a glance" table, the four feature pillars (Highlight / Run / Embed / Share), and a rewritten store description. No functional changes.
