@@ -1739,8 +1739,14 @@ export default class CodePlugin extends Plugin {
         pythonSeed,
         "import sys as __sys, io as __io",
         "__ocode_null = __io.StringIO()",
-        "__ocode_prev_out, __ocode_prev_err = __sys.stdout, __sys.stderr",
+        "__ocode_prev_out, __ocode_prev_err, __ocode_prev_in = __sys.stdout, __sys.stderr, __sys.stdin",
         "__sys.stdout = __sys.stderr = __ocode_null",
+        // Replay runs non-interactively with output suppressed — no input bar is
+        // shown for it. Point stdin at an empty (EOF) stream so a replayed input()
+        // or sys.stdin read returns immediately instead of blocking forever on a
+        // bar that never appears. Restored before the current block, which reads
+        // the real stdin normally and still gets its input bar.
+        "__sys.stdin = __io.StringIO('')",
         // Suppress matplotlib plot saves during replay
         "try:",
         "    __ocode_plt_bak = __plt.show; __plt.show = lambda *a,**kw: None",
@@ -1752,11 +1758,16 @@ export default class CodePlugin extends Plugin {
         "except Exception: pass",
         "try:",
         indented,
+        // A replayed input() hits the EOF stdin above and raises EOFError. That's
+        // expected — interactive input can't be replayed — and must not abort the
+        // current block, so swallow it here. Genuine replay errors still propagate.
+        "except EOFError: pass",
         "finally:",
         "    __sys.stdout = __ocode_prev_out",
         "    __sys.stderr = __ocode_prev_err",
+        "    __sys.stdin = __ocode_prev_in",
         "    __ocode_null.close()",
-        "    del __ocode_null, __ocode_prev_out, __ocode_prev_err",
+        "    del __ocode_null, __ocode_prev_out, __ocode_prev_err, __ocode_prev_in",
         "    try: __plt.show = __ocode_plt_bak; del __ocode_plt_bak",
         "    except Exception: pass",
         "    try: __ocode_save_plotly = __ocode_save_plotly_bak; del __ocode_save_plotly_bak",
@@ -1774,11 +1785,15 @@ export default class CodePlugin extends Plugin {
       // reliable than { } > /dev/null 2>&1 because it avoids nested-brace
       // parser edge cases (e.g. functions with complex bodies or heredocs) and
       // guarantees function definitions are available in the current shell scope.
+      // Save stdout/stderr to fds 3/4 and stdin to fd 5, then run the replay with
+      // all three pointed at /dev/null: output is suppressed and a replayed `read`
+      // gets EOF immediately instead of blocking on an input bar that's never shown
+      // for the suppressed replay. All three are restored before the current block.
       return (
         `${bashSeed}` +
-        `exec 3>&1 4>&2 1>/dev/null 2>&1\n` +
+        `exec 3>&1 4>&2 5<&0 1>/dev/null 2>&1 0</dev/null\n` +
         `${accum}\n` +
-        `exec 1>&3 2>&4 3>&- 4>&-\n\n` +
+        `exec 1>&3 2>&4 0<&5 3>&- 4>&- 5<&-\n\n` +
         `${bashPost}` +
         `${currentBlock}`
       );

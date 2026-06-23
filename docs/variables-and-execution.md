@@ -91,6 +91,7 @@ This "replay" model means:
 - **Re-running a block is always safe and idempotent.** A block is excluded from its own replay, so it sees its declared seed value again rather than a stale mutation from a prior run.
 - **No background daemon.** Nothing persists on disk or in a background process.
 - **Within one language**, all state carries over (functions, objects, DataFrames). Across languages, only scalars and JSON-serializable values cross — see [Cross-language variables](#cross-language-variables).
+- **Replay is non-interactive.** No input bar is shown for silently-replayed blocks, so their stdin is fed EOF — an earlier block's `input()` (or `sys.stdin` / shell `read`) returns immediately instead of blocking forever. A replayed `input()` raises `EOFError`, which is swallowed so it can't abort the block you actually ran. If a *later* block needs the value an interactive block sets, guard the read (`try: x = input() / except EOFError: x = …`) so the value still resolves on replay.
 
 ### Execution order matters
 
