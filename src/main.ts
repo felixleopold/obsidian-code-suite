@@ -59,6 +59,7 @@ import {
   type VarEntry,
   parseVarsSource,
   inferVarValue,
+  isValidIdent,
   fromJsValue,
   toJs,
   toDisplay,
@@ -3090,8 +3091,8 @@ __ocode_emit_vars
   private applyFrontmatterVars(ctx: MarkdownPostProcessorContext): void {
     const fm = ctx.frontmatter as Record<string, unknown> | undefined;
     if (!fm) return;
-    const raw = fm["code_vars"];
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const entries = this.collectFrontmatterVars(fm["code_vars"]);
+    if (!entries.length) return;
     const notePath = ctx.sourcePath;
     if (!notePath) return;
 
@@ -3101,14 +3102,56 @@ __ocode_emit_vars
     const seedStore = this.noteVarsBlockStore.get(notePath)!;
 
     let changed = false;
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)) continue;
-      const typed = fromJsValue(v);
+    for (const [k, typed] of entries) {
       // Only seed if not already present (block-level vars take precedence).
       if (!(k in seedStore)) { seedStore[k] = typed; changed = true; }
       if (!(k in varStore))  { varStore[k]  = toDisplay(typed); changed = true; }
     }
     if (changed) this.updateInlineVarRefs(notePath, varStore);
+  }
+
+  /**
+   * Normalise a `code_vars:` frontmatter value into typed name/value pairs,
+   * accepting both shapes a user can write:
+   *
+   *   code_vars:               code_vars:
+   *     threshold: 0.85          - threshold = 0.85
+   *     base_url: "https://…"    - base_url = https://…
+   *
+   * The mapping form is concise, but a nested object can't be displayed in
+   * Obsidian's reading-view Properties panel — it shows an orange
+   * "unsupported property type" warning and collapses (#34). The list form is
+   * a plain list of strings, which Obsidian renders as a normal List property,
+   * so notes that need their `code_vars` to show up in preview can use it.
+   * Each list item is parsed with the same `key = value` / `key: value`
+   * grammar as a `vars` block (type hints included); a list item that is
+   * itself a single-key mapping is accepted too.
+   */
+  private collectFrontmatterVars(raw: unknown): Array<[string, VarValue]> {
+    const out: Array<[string, VarValue]> = [];
+    if (!raw || typeof raw !== "object") return out;
+
+    if (Array.isArray(raw)) {
+      const lines: string[] = [];
+      for (const item of raw) {
+        if (typeof item === "string") {
+          lines.push(item);
+        } else if (item && typeof item === "object" && !Array.isArray(item)) {
+          for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
+            if (isValidIdent(k)) out.push([k, fromJsValue(v)]);
+          }
+        }
+      }
+      if (lines.length) {
+        for (const e of parseVarsSource(lines.join("\n"))) out.push([e.name, e.value]);
+      }
+      return out;
+    }
+
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (isValidIdent(k)) out.push([k, fromJsValue(v)]);
+    }
+    return out;
   }
 
   /**

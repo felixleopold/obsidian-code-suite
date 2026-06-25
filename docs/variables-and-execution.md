@@ -180,6 +180,21 @@ code_vars:
 
 YAML already has types: `0.85` is a float, `true` is a bool, `null` is null. No inference needed. String values don't require quotes in YAML but you can add them for clarity.
 
+**List form (renders in reading view).** The nested mapping above can't be shown in Obsidian's reading-view Properties panel — a nested object displays an orange "unsupported property type" warning and collapses. If you want `code_vars` to render in preview, write it as a list of `key = value` strings instead:
+
+```yaml
+---
+code_vars:
+  - threshold = 0.85
+  - crawl_depth = 5
+  - base_url = "https://api.example.com/v1"
+  - download = true
+  - optional = null
+---
+```
+
+Each item uses the same `key = value` (or `key: value`) grammar as a `vars` block, including `:type` hints (`port:int = 8080`). Obsidian renders a plain list of strings as a normal List property, so it shows up in reading view without a warning.
+
 **Precedence:** a `vars` block in the note body overrides the frontmatter value for the same key.
 
 ---
