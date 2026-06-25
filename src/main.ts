@@ -2521,7 +2521,7 @@ __ocode_emit_vars
     const drop = [
       ".markdown-preview-pusher", ".mod-header", ".mod-footer",
       ".ocode-btn-group", ".ocode-pill", ".ocode-input-bar",
-      ".edit-block-button", ".collapse-indicator",
+      ".edit-block-button", ".collapse-indicator", ".ocode-output-toolbar",
     ];
     for (const sel of drop) {
       for (const el of Array.from(root.querySelectorAll(sel))) el.remove();
