@@ -515,6 +515,13 @@ body.ocode-singlepage { padding: 10mm 14mm 14mm !important; }
   const titleHtml = opts.includeTitle
     ? `<h1 class="ocode-export-title">${escapeHtml(opts.title)}</h1>\n`
     : "";
+  // HTML-block previews export as sandboxed `<iframe srcdoc>`s that report their
+  // content height via postMessage (the same shim the live preview uses). The
+  // exported document is standalone, so it carries its own listener to size each
+  // frame — without it every preview iframe would stay at its 60px CSS default
+  // and clip (the frames have `scrolling="no"`). Matches the iframe to the
+  // message by `contentWindow`, mirroring the plugin's onHtmlFrameMessage.
+  const frameResizeScript = `<script>(function(){window.addEventListener("message",function(e){var d=e.data;if(!d||typeof d.height!=="number")return;var f=document.querySelectorAll("iframe.ocode-html-frame");for(var i=0;i<f.length;i++){if(f[i].contentWindow===e.source){f[i].style.height=(Math.ceil(Math.max(d.height,24))+2)+"px";return}}})})();</` + `script>`;
   // When paginated, the body is wrapped so the spacer rows can repeat per page.
   const inner = `<div class="markdown-preview-view markdown-rendered ocode-export">
 ${titleHtml}${opts.bodyHtml}
@@ -547,6 +554,7 @@ ${paginatedRule}
 </head>
 <body class="${escapeAttr(opts.bodyClass)}">
 ${body}
+${frameResizeScript}
 </body>
 </html>`;
 }

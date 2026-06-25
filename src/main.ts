@@ -446,6 +446,13 @@ export default class CodePlugin extends Plugin {
   private _htmlFrames = new Map<string, WeakRef<HTMLIFrameElement>>();
   /** True once the single shared `message` listener for frame resizes is installed. */
   private _htmlFrameListenerInstalled = false;
+  /** Set to an array while a note is being rendered for HTML/PDF export. Live
+   *  html-preview iframes are built lazily (on layout), which never happens in
+   *  the detached export render — so addHtmlPreview records its panes here and
+   *  buildNoteHtml builds the frames eagerly afterwards (#33). Null otherwise. */
+  private _exportHtmlPanes:
+    | { pane: HTMLElement; wrapper: HTMLElement; code: string; htmlTemplate: boolean }[]
+    | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -2337,9 +2344,13 @@ __ocode_emit_vars
     // Short-lived component owns the render's child lifecycles; unloaded below.
     const comp = new Component();
     comp.load();
+    // Collect html-preview panes built during this render so their (otherwise
+    // lazily-built, layout-gated) iframes can be materialized for the export (#33).
+    this._exportHtmlPanes = [];
     try {
       await MarkdownRenderer.render(this.app, markdown, full, file.path, comp);
 
+      await this.buildExportHtmlFrames(full, file.path);
       this.graftLiveOutputs(previewEl, full);
       this.cleanExportClone(full);
       this.inlineImages(full, fs, path);
@@ -2368,7 +2379,39 @@ __ocode_emit_vars
         includeTitle: options.includeTitle,
       });
     } finally {
+      this._exportHtmlPanes = null;
       comp.unload();
+    }
+  }
+
+  /**
+   * Materialize the html-preview iframes collected during an export render.
+   * Only panes whose block is showing the preview (`ocode-show-preview`) get a
+   * frame — a code-mode block exports its source as usual. Template blocks have
+   * their `{{ … }}` resolved against the note's data first. The frame's `srcdoc`
+   * serializes into the exported HTML; a tiny listener in {@link buildExportHtml}
+   * sizes each iframe from the same postMessage the live preview uses.
+   */
+  private async buildExportHtmlFrames(root: HTMLElement, sourcePath: string): Promise<void> {
+    const panes = this._exportHtmlPanes;
+    if (!panes || !panes.length) return;
+    for (const { pane, wrapper, code, htmlTemplate } of panes) {
+      // Only touch panes inside this export render — a live reading-view render
+      // could have pushed its own panes into the shared array mid-export.
+      if (!root.contains(pane)) continue;
+      if (!wrapper.classList.contains("ocode-show-preview")) continue;
+      if (pane.querySelector("iframe")) continue; // already built (e.g. was on-screen)
+      const html = htmlTemplate ? await this.resolveTemplate(code, sourcePath) : code;
+      const iframe = createEl("iframe");
+      iframe.className = "ocode-html-frame";
+      iframe.setAttribute("sandbox", "allow-scripts");
+      iframe.setAttribute("scrolling", "no");
+      // Reuse the live srcdoc builder (theme-wrapped fragment / verbatim full
+      // document + resize shim). The shim posts its height to the parent; the
+      // export document's listener matches the iframe by source, so the embedded
+      // token is unused here but harmless.
+      iframe.srcdoc = this.buildHtmlSrcdoc(html, `ocode-export-frame-${++this._frameSeq}`);
+      pane.appendChild(iframe);
     }
   }
 
@@ -3689,6 +3732,12 @@ __ocode_emit_vars
     }
 
     apply(startInPreview);
+
+    // Export render: the lazy frame build above is driven by a ResizeObserver
+    // that never fires while the document is detached, so the preview pane would
+    // serialize empty — a preview-mode html block then exports as a bare header
+    // (#33). Record the pane so buildNoteHtml can build the frame eagerly.
+    this._exportHtmlPanes?.push({ pane, wrapper, code, htmlTemplate });
   }
 
   /**
