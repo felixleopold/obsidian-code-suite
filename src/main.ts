@@ -1028,7 +1028,6 @@ export default class CodePlugin extends Plugin {
       s.showLanguageLabel,
       s.showLineNumbers,
       s.enableExecution,
-      s.inlineCollapsible,
       s.inlineCollapsedByDefault,
       s.collapseEmbeds,
       s.renderEmbeddedFiles,
@@ -3584,18 +3583,16 @@ __ocode_emit_vars
       }
     }
 
-    // ─── Inline collapsible (reading view) ───
-    // `fileName` is only set for embedded files — they already get the embed
-    // collapse handler in renderEmbeddedFile, so we don't duplicate it here.
-    // Per-block `collapsed` / `expanded` attributes override the global default.
+    // ─── Collapsible (reading view + Live Preview) ───
+    // Every fenced code block is collapsible via its header — Python, html,
+    // anything — so the inconsistency where only html-preview blocks folded is
+    // gone (#32). `fileName` is only set for embedded files; they already get
+    // the embed collapse handler in renderEmbeddedFile, so we skip them here to
+    // avoid double-wiring. Per-block `collapsed`/`expanded` attributes override
+    // the "collapse by default" setting.
     if (!fileName) {
-      // HTML preview blocks are always collapsible via the header so the
-      // rendered output (which can be tall) can be folded away like a code body.
-      const enabled = this.settings.inlineCollapsible || forceCollapsed !== null || htmlPreview !== null;
-      if (enabled) {
-        const initiallyCollapsed = forceCollapsed ?? this.settings.inlineCollapsedByDefault;
-        this.makeCollapsible(wrapper, initiallyCollapsed);
-      }
+      const initiallyCollapsed = forceCollapsed ?? this.settings.inlineCollapsedByDefault;
+      this.makeCollapsible(wrapper, initiallyCollapsed);
     }
 
     // Mark inline executable blocks so badge-sync logic can align them with the
@@ -4677,9 +4674,10 @@ __ocode_emit_vars
       });
     }
 
-    // Collapsible behaviour — uses the shared helper. Inline blocks may have
-    // already had a collapse toggle attached (via inlineCollapsible), but
-    // makeCollapsible no-ops when an arrow is already present, so this is safe.
+    // Collapsible behaviour — uses the shared helper. buildCodeBlockWrapper
+    // skips its own collapse wiring for embeds (the `fileName` guard), so this
+    // is where an embed becomes collapsible; makeCollapsible no-ops if a toggle
+    // somehow already exists, so calling it is always safe.
     if (this.settings.collapseEmbeds) {
       this.makeCollapsible(wrapper, true);
     }

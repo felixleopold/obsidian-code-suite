@@ -179,9 +179,9 @@ export interface CodePluginSettings {
    * any frontmatter overrides) take precedence over `.env` values.
    */
   envFilePath: string;
-  /** Show a collapse toggle on inline (non-embedded) code blocks in reading view. */
-  inlineCollapsible: boolean;
-  /** When inlineCollapsible is on, default all inline blocks to collapsed. */
+  /** Start every (non-embedded) code block collapsed in reading view / Live
+   *  Preview. Blocks are always collapsible via their header (#32); this only
+   *  controls the initial state. Per-block `collapsed`/`expanded` flags win. */
   inlineCollapsedByDefault: boolean;
   /**
    * Register code file extensions (`.py`, `.js`, etc.) with Obsidian so they
@@ -284,7 +284,6 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   shellSourceFiles: "",
   extraEnv: "",
   envFilePath: "",
-  inlineCollapsible: false,
   inlineCollapsedByDefault: false,
   enableCodeFileView: true,
   codeImportsFolder: "CodeSuiteImports",

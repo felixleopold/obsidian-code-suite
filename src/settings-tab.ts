@@ -520,22 +520,12 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Collapsible inline code blocks")
-      .setDesc("Add a collapse toggle to inline code blocks in reading view. Click the header to expand/collapse.")
+      .setName("Collapse code blocks by default")
+      .setDesc("Start every code block collapsed in reading view and live preview. Code blocks are always collapsible — click the header to expand/collapse; this only sets the initial state. Per-block 'collapsed'/'expanded' fence flags override it.")
       .addToggle((t) => {
-        t.setValue(this.plugin.settings.inlineCollapsible);
-        t.onChange(async (v) => { this.plugin.settings.inlineCollapsible = v; await this.plugin.saveSettings(); this.display(); });
+        t.setValue(this.plugin.settings.inlineCollapsedByDefault);
+        t.onChange(async (v) => { this.plugin.settings.inlineCollapsedByDefault = v; await this.plugin.saveSettings(); });
       });
-
-    if (this.plugin.settings.inlineCollapsible) {
-      new Setting(containerEl)
-        .setName("Collapse inline blocks by default")
-        .setDesc("Start all inline code blocks collapsed. Reading view only.")
-        .addToggle((t) => {
-          t.setValue(this.plugin.settings.inlineCollapsedByDefault);
-          t.onChange(async (v) => { this.plugin.settings.inlineCollapsedByDefault = v; await this.plugin.saveSettings(); });
-        });
-    }
 
     // ─── Vault code files ───────────────────────
     new Setting(containerEl).setName("Vault code files").setHeading();

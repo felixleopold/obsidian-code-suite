@@ -146,8 +146,7 @@ Absolute path to a `.env` file on disk. Variables from this file are loaded into
 |---|---|
 | **Render embedded code files** | Replace Obsidian's default plain-text rendering of `![[file.py]]` embeds with fully syntax-highlighted, interactive CodeSuite blocks. |
 | **Collapse embedded files** | Start all embedded file blocks in the collapsed state. The header shows filename and line count; click to expand. |
-| **Collapsible inline code blocks** | Adds a collapse toggle to inline code blocks in Reading view. Useful for hiding long preludes. |
-| **Collapse inline blocks by default** | When the above is enabled, start every inline block collapsed. |
+| **Collapse code blocks by default** | Every code block is always collapsible — click its header to fold/unfold. This setting only chooses the initial state (collapsed vs. expanded) in Reading view and Live Preview. Per-block `collapsed`/`expanded` fence flags override it. |
 
 ---
 
