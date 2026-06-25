@@ -217,6 +217,28 @@ interface FencedBlock {
 }
 
 /**
+ * One entry in the live cross-language variable namespace. Tracks not just the
+ * current value but *which block* last wrote it and the value it had before, so
+ * re-running a block can reconstruct the state it saw the first time (notebook
+ * semantics) rather than feeding its own previous result back into itself.
+ */
+interface LiveVar {
+  /** Current value. */
+  value: VarValue;
+  /** Language of the block that wrote this value. */
+  lang: string;
+  /** True when this value was produced by transforming an incoming seed (i.e.
+   *  the variable was seeded and then changed). Such values can't be recreated
+   *  by a same-language replay alone, so they must be re-seeded on re-run. */
+  derived: boolean;
+  /** Identity (`lang\0code`) of the block that wrote this value. */
+  block: string;
+  /** The value as written by the most recent *different* block — the state this
+   *  variable should be reset to when its current owner block is re-run. */
+  prev?: LiveVar;
+}
+
+/**
  * Walk an editor document and return every *closed* ```-fenced code block with
  * absolute positions covering the fence lines. Shared by the Shiki token-color
  * extension and the Live Preview block-widget extension so both agree on block
@@ -382,9 +404,9 @@ export default class CodePlugin extends Plugin {
    * language. On the next run, values produced by *other* languages are
    * injected as seeds — so a value set in Python is visible in Bash, etc.
    * Reset to the declared seeds by Clear Session. Maps note path →
-   * { varName → { value, lang } }.
+   * { varName → LiveVar }.
    */
-  private noteLiveVars: Map<string, Map<string, { value: VarValue; lang: string }>> = new Map();
+  private noteLiveVars: Map<string, Map<string, LiveVar>> = new Map();
   /**
    * Static HTML snapshots of executed block outputs. Maps note path → block
    * source → the finished `.ocode-output` panel's outerHTML. Lets outputs
@@ -1615,10 +1637,15 @@ export default class CodePlugin extends Plugin {
    * is treated as untouched (so a pure reader doesn't claim ownership or
    * degrade a value's type on a round-trip). Shell-produced values are
    * re-inferred since shells stringify everything.
+   *
+   * Each write remembers the block that made it and the value the variable held
+   * beforehand (`prev`), so re-running that same block can recover the value it
+   * originally consumed instead of feeding its own result back in (#36).
    */
   private recordRuntimeVars(
     notePath: string,
     lang: string,
+    blockKey: string,
     snapshot: Record<string, unknown>,
     seeded: Record<string, VarValue>
   ): void {
@@ -1627,6 +1654,7 @@ export default class CodePlugin extends Plugin {
     const isShell = lang === "bash" || lang === "zsh" || lang === "shell";
     for (const [name, raw] of Object.entries(snapshot)) {
       const seededVal = seeded[name];
+      let derived = false;
       if (seededVal !== undefined) {
         // Compare against the exact form the language was given. Shells stringify
         // everything, so compare scalar strings; typed languages compare values.
@@ -1634,9 +1662,17 @@ export default class CodePlugin extends Plugin {
           ? String(raw) === toShellScalar(seededVal)
           : JSON.stringify(raw) === JSON.stringify(toJs(seededVal));
         if (unchanged) continue; // pure read — don't claim ownership or change type
+        // A seeded var that changed is a transform of incoming state; a plain
+        // replay (which lacks that seed) can't reproduce it, so it must be
+        // re-seeded when a later same-language block reads it.
+        derived = true;
       }
       const value = isShell ? inferVarValue(String(raw)) : fromJsValue(raw);
-      live.set(name, { value, lang });
+      const existing = live.get(name);
+      // Keep the value written by a *different* block as `prev`. Re-running the
+      // same block shouldn't deepen the chain, so inherit the existing `prev`.
+      const prev = existing && existing.block !== blockKey ? existing : existing?.prev;
+      live.set(name, { value, lang, derived, block: blockKey, prev });
     }
   }
 
@@ -3786,16 +3822,27 @@ __ocode_emit_vars
 
     // Build the code to actually execute (may prepend accumulated blocks).
     // preSeeds  = declared initials (injected before replay).
-    // postSeeds = values another language changed (injected after replay, so
-    //             they win over this language's own earlier assignments).
+    // postSeeds = the incoming live values this block can't reconstruct from its
+    //             own-language replay (injected after replay so they win).
     // effectiveSeeds (their merge) is captured so the snapshot handler can tell
     // which variables a block actually *changed* vs. just read.
+    //
+    // Re-run semantics (#36): a block must see the value it *consumed*, not the
+    // value it *produced*. So for each live var we take the value written by the
+    // most recent block *other than this one* (`prev` when we are that block's
+    // current owner) and re-seed it when our own-language replay can't recreate
+    // it — i.e. it came from another language, or was itself derived from a seed.
+    const blockKey = lang + "\0" + code;
     let execCode = code;
     const preSeeds  = useSharedCtx ? (this.noteVarsBlockStore.get(sourcePath) ?? {}) : {};
     const postSeeds: Record<string, VarValue> = {};
     if (useSharedCtx) {
       const live = this.noteLiveVars.get(sourcePath);
-      if (live) for (const [name, entry] of live) if (entry.lang !== lang) postSeeds[name] = entry.value;
+      if (live) for (const [name, entry] of live) {
+        const eff = entry.block !== blockKey ? entry : entry.prev;
+        if (!eff) continue;
+        if (eff.lang !== lang || eff.derived) postSeeds[name] = eff.value;
+      }
     }
     const effectiveSeeds: Record<string, VarValue> = { ...preSeeds, ...postSeeds };
     if (useSharedCtx) {
@@ -3921,7 +3968,7 @@ __ocode_emit_vars
         pendingBlankLines = 0; // drop the postamble's spacer newline
         try {
           const vars = JSON.parse(line.slice("__OCODE_VARS__=".length)) as Record<string, unknown>;
-          this.recordRuntimeVars(sourcePath, lang, vars, effectiveSeeds);
+          this.recordRuntimeVars(sourcePath, lang, blockKey, vars, effectiveSeeds);
           this.refreshDisplayVars(sourcePath);
         } catch { /* ignore parse failures */ }
         return;
