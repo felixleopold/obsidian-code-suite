@@ -123,6 +123,8 @@ code_vars:
 ---
 ```
 
+You can also write it as a list of `key = value` strings (`- threshold = 0.85`); use that form when you want `code_vars` to render in reading view, since a nested mapping shows an "unsupported property type" warning in Obsidian's Properties panel (CodeSuite hides that warning and renders the values in a small panel instead).
+
 A `vars` block in the body wins if both define the same key.
 
 </details>

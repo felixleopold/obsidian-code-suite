@@ -58,6 +58,7 @@ import {
   type VarValue,
   type VarEntry,
   parseVarsSource,
+  isValidIdent,
   inferVarValue,
   fromJsValue,
   toJs,
@@ -638,6 +639,16 @@ export default class CodePlugin extends Plugin {
         }
       },
       1002
+    );
+
+    // Reading view: surface CodeSuite's nested frontmatter (`code_vars:`,
+    // `template_context:`) as a readable panel, since Obsidian's Properties
+    // widget can't display nested objects and warns instead (#34).
+    this.registerMarkdownPostProcessor(
+      (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
+        this.renderFrontmatterVarsPanel(el, ctx);
+      },
+      1003
     );
 
     // Command: clear the execution session for the current note
@@ -3145,8 +3156,8 @@ __ocode_emit_vars
   private applyFrontmatterVars(ctx: MarkdownPostProcessorContext): void {
     const fm = ctx.frontmatter as Record<string, unknown> | undefined;
     if (!fm) return;
-    const raw = fm["code_vars"];
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+    const entries = this.collectFrontmatterVars(fm["code_vars"]);
+    if (!entries.length) return;
     const notePath = ctx.sourcePath;
     if (!notePath) return;
 
@@ -3156,14 +3167,152 @@ __ocode_emit_vars
     const seedStore = this.noteVarsBlockStore.get(notePath)!;
 
     let changed = false;
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k)) continue;
-      const typed = fromJsValue(v);
+    for (const [k, typed] of entries) {
       // Only seed if not already present (block-level vars take precedence).
       if (!(k in seedStore)) { seedStore[k] = typed; changed = true; }
       if (!(k in varStore))  { varStore[k]  = toDisplay(typed); changed = true; }
     }
     if (changed) this.updateInlineVarRefs(notePath, varStore);
+  }
+
+  /**
+   * Normalise a `code_vars:` frontmatter value into typed name/value pairs,
+   * accepting both shapes a user can write:
+   *
+   *   code_vars:               code_vars:
+   *     threshold: 0.85          - threshold = 0.85
+   *     base_url: "https://…"    - base_url = https://…
+   *
+   * The mapping form is concise, but a nested object can't be displayed in
+   * Obsidian's reading-view Properties panel — it shows an orange
+   * "unsupported property type" warning and collapses (#34). The list form is
+   * a plain list of strings, which Obsidian renders as a normal List property,
+   * so notes that need their `code_vars` to show up in preview can use it.
+   * Each list item is parsed with the same `key = value` / `key: value`
+   * grammar as a `vars` block (type hints included); a list item that is
+   * itself a single-key mapping is accepted too.
+   */
+  private collectFrontmatterVars(raw: unknown): Array<[string, VarValue]> {
+    const out: Array<[string, VarValue]> = [];
+    if (!raw || typeof raw !== "object") return out;
+
+    if (Array.isArray(raw)) {
+      const lines: string[] = [];
+      for (const item of raw) {
+        if (typeof item === "string") {
+          lines.push(item);
+        } else if (item && typeof item === "object" && !Array.isArray(item)) {
+          for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
+            if (isValidIdent(k)) out.push([k, fromJsValue(v)]);
+          }
+        }
+      }
+      if (lines.length) {
+        for (const e of parseVarsSource(lines.join("\n"))) out.push([e.name, e.value]);
+      }
+      return out;
+    }
+
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (isValidIdent(k)) out.push([k, fromJsValue(v)]);
+    }
+    return out;
+  }
+
+  /**
+   * Fix the reading-view display of CodeSuite's nested frontmatter fields
+   * (`code_vars:`, `template_context:`). A nested mapping can't be shown by
+   * Obsidian's Properties widget — it renders an orange "unsupported property
+   * type" warning and collapses (#34). This does two things: it hides that
+   * broken property row, and it renders the same data as a clean read-only
+   * panel just below the Properties widget. The list form of `code_vars`
+   * renders natively, so only mapping-shaped values are handled here.
+   */
+  private renderFrontmatterVarsPanel(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
+    // ctx.frontmatter is absent in the MarkdownRenderer export pass — fall back
+    // to the metadata cache so the panel appears in exports too.
+    let fm = ctx.frontmatter as Record<string, unknown> | undefined;
+    if (!fm && ctx.sourcePath) {
+      const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
+      if (file instanceof TFile) fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
+    }
+    if (!fm) return;
+
+    const isDict = (v: unknown): v is Record<string, unknown> =>
+      !!v && typeof v === "object" && !Array.isArray(v);
+    const groups: { title: string; data: Record<string, unknown> }[] = [];
+    if (isDict(fm["code_vars"])) groups.push({ title: "code_vars", data: fm["code_vars"] });
+    if (isDict(fm["template_context"])) groups.push({ title: "template_context", data: fm["template_context"] });
+    if (!groups.length) return;
+
+    // In a live reading view the section element isn't attached to the preview
+    // container yet when the post-processor runs, so el.closest(...) is null on
+    // the first try; retry next frame once Obsidian has inserted it. The
+    // detached export render attaches synchronously, so it succeeds immediately
+    // (and never schedules a frame that would fire after serialization).
+    const place = () => this.placeFrontmatterVarsPanel(el, groups);
+    if (!place()) window.requestAnimationFrame(place);
+  }
+
+  /**
+   * Suppress the broken Properties rows for our nested keys and insert the
+   * read-only panel. Returns false if the reading-view container isn't reachable
+   * yet (so the caller can retry on the next frame). Idempotent: the warning is
+   * hidden via a class and only one panel is inserted per preview.
+   */
+  private placeFrontmatterVarsPanel(
+    el: HTMLElement,
+    groups: { title: string; data: Record<string, unknown> }[]
+  ): boolean {
+    const view = el.closest<HTMLElement>(".markdown-reading-view, .markdown-preview-view");
+    if (!view) return false;
+
+    // Hide Obsidian's orange "unsupported property type" warning for our nested
+    // keys — that warning is the bug (#34); the panel below renders the values.
+    for (const group of groups) {
+      const props = view.querySelectorAll(
+        `.metadata-property[data-property-key="${group.title}"]`
+      );
+      for (const prop of Array.from(props)) prop.addClass("ocode-fm-prop-hidden");
+    }
+
+    if (view.querySelector(".ocode-frontmatter-vars")) return true; // one per preview
+
+    const panel = createDiv({ cls: "ocode-frontmatter-vars" });
+    const header = createDiv({ cls: "ocode-fm-vars-header" });
+    header.appendChild(createSpan({ cls: "ocode-fm-vars-title", text: "CodeSuite variables" }));
+    panel.appendChild(header);
+
+    for (const group of groups) {
+      const groupEl = createDiv({ cls: "ocode-fm-vars-group" });
+      groupEl.appendChild(createDiv({ cls: "ocode-fm-vars-group-title", text: group.title }));
+      for (const [k, v] of Object.entries(group.data)) {
+        const row = createDiv({ cls: "ocode-fm-var-row" });
+        row.appendChild(createSpan({ cls: "ocode-fm-var-key", text: k }));
+        row.appendChild(createSpan({ cls: "ocode-fm-var-val", text: this.formatFrontmatterValue(v) }));
+        groupEl.appendChild(row);
+      }
+      panel.appendChild(groupEl);
+    }
+
+    // Sit the panel just below the Properties widget when present, else at the
+    // very top of the rendered note (e.g. the export render has no widget).
+    const meta = view.querySelector(".metadata-container");
+    const sizer = view.querySelector<HTMLElement>(".markdown-preview-sizer") ?? view;
+    if (meta?.parentElement) meta.insertAdjacentElement("afterend", panel);
+    else sizer.prepend(panel);
+    return true;
+  }
+
+  /** Human-readable rendering of a frontmatter value for the vars panel:
+   *  scalars verbatim, arrays/objects as compact JSON. */
+  private formatFrontmatterValue(v: unknown): string {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "string") return v;
+    if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") return String(v);
+    // Objects/arrays (and anything else non-scalar) → compact JSON; values JSON
+    // can't represent (e.g. a symbol) stringify to undefined, shown as blank.
+    try { return JSON.stringify(v) ?? ""; } catch { return ""; }
   }
 
   /**

@@ -532,6 +532,65 @@ code.ocode-var-ref[data-resolved] {
   font-style: italic;
 }
 
+/* CodeSuite frontmatter vars panel — a readable rendering of nested
+   `code_vars:` / `template_context:` frontmatter, which Obsidian's Properties
+   widget can't display (#34). Sits just below the Properties widget. The broken
+   property row is hidden so its orange "unsupported property type" warning goes
+   away; the panel below renders the values instead. */
+.metadata-property.ocode-fm-prop-hidden {
+  display: none !important;
+}
+.ocode-frontmatter-vars {
+  margin: 0 0 16px;
+  border: 1px solid var(--ocode-border, var(--background-modifier-border));
+  border-radius: 8px;
+  background-color: var(--ocode-bg, var(--background-secondary));
+  overflow: hidden;
+  font-size: 13px;
+}
+.ocode-fm-vars-header {
+  padding: 6px 12px;
+  background-color: var(--ocode-header-bg, var(--background-secondary-alt));
+  border-bottom: 1px solid var(--ocode-border, var(--background-modifier-border));
+}
+.ocode-fm-vars-title {
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ocode-muted, var(--text-muted));
+}
+.ocode-fm-vars-group {
+  padding: 8px 12px;
+}
+.ocode-fm-vars-group + .ocode-fm-vars-group {
+  border-top: 1px solid var(--ocode-border, var(--background-modifier-border));
+}
+.ocode-fm-vars-group-title {
+  margin-bottom: 4px;
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  color: var(--ocode-muted, var(--text-muted));
+}
+.ocode-fm-var-row {
+  display: flex;
+  gap: 12px;
+  padding: 2px 0;
+  align-items: baseline;
+}
+.ocode-fm-var-key {
+  flex: 0 0 auto;
+  min-width: 120px;
+  font-family: var(--font-monospace);
+  color: var(--ocode-fg, var(--text-normal));
+}
+.ocode-fm-var-val {
+  flex: 1 1 auto;
+  font-family: var(--font-monospace);
+  color: var(--text-accent);
+  word-break: break-word;
+}
+
 /* Experimental data-table badge — a small caption above a table that has been
    registered as a code variable source. */
 .ocode-table-badge {

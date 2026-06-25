@@ -181,6 +181,21 @@ code_vars:
 
 YAML already has types: `0.85` is a float, `true` is a bool, `null` is null. No inference needed. String values don't require quotes in YAML but you can add them for clarity.
 
+**Display in reading view.** A nested mapping like the one above can't be shown in Obsidian's reading-view Properties panel — a nested object displays an orange "unsupported property type" warning and collapses. CodeSuite hides that broken row and renders the values in a small read-only panel just below the Properties widget, so they still show up in preview. If you would rather Obsidian render them natively, write `code_vars` as a list of `key = value` strings instead:
+
+```yaml
+---
+code_vars:
+  - threshold = 0.85
+  - crawl_depth = 5
+  - base_url = "https://api.example.com/v1"
+  - download = true
+  - optional = null
+---
+```
+
+Each item uses the same `key = value` (or `key: value`) grammar as a `vars` block, including `:type` hints (`port:int = 8080`). Obsidian renders a plain list of strings as a normal List property, so it shows up in reading view without a warning.
+
 **Precedence:** a `vars` block in the note body overrides the frontmatter value for the same key.
 
 ---
