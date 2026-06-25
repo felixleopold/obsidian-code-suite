@@ -373,7 +373,8 @@ body {
 .ocode-export hr { border: none; border-top: 1px solid var(--background-modifier-border, #ddd); margin: 2em 0; }
 /* Static export: drop interactive affordances. */
 .ocode-export .ocode-pill, .ocode-export .ocode-btn-group,
-.ocode-export .ocode-input-bar, .ocode-export .edit-block-button { display: none !important; }
+.ocode-export .ocode-input-bar, .ocode-export .edit-block-button,
+.ocode-export .ocode-output-toolbar { display: none !important; }
 @media print {
   /* printToPDF runs with margins:0 so the themed background bleeds to the paper
      edge. (Electron's printToPDF, unlike Chrome's CLI, does NOT paint the root
