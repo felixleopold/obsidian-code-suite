@@ -269,7 +269,7 @@ CodeSuite renders baked blocks as normal output panels (reading view **and** liv
 
 ## Configuration
 
-Open **Settings → CodeSuite** to configure themes, code execution, environment variables, and embedded file behaviour.
+Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**, **Languages**, **Files**, and **Advanced** tabs — to configure themes, code execution, environment variables, and embedded file behaviour.
 
 | | |
 |---|---|
@@ -299,6 +299,7 @@ Track progress or vote on the linked GitHub issues.
 
 **Recent releases**
 
+- **1.15.0** — the settings tab is reorganized into five sections — **Appearance**, **Execution**, **Languages**, **Files**, and **Advanced** — navigated by a tab bar at the top instead of one long scroll ([#31](https://github.com/felixleopold/obsidian-code-suite/issues/31)). Every existing setting is preserved; the tabs are keyboard-navigable (arrow keys, Home/End) and follow Obsidian's settings style guide.
 - **1.14.2** — lint compliance: dropped the `!important` on the frontmatter-vars hide rule in favor of higher selector specificity, and removed leftover demo-GIF planning comments from the README. No functional changes.
 - **1.14.1** — the code-block **Copy** button no longer appends a trailing newline, so pasting a single-line command into a terminal no longer auto-executes it ([#37](https://github.com/felixleopold/obsidian-code-suite/issues/37)).
 - **1.14.0** — the **CodeSuite variables panel** (the read-only rendering of `code_vars:` / `template_context:` below the Properties widget) is now reliable and **on by default**. It lives inside the note header next to Properties, so it stays put as you scroll instead of flickering, and it refreshes when the frontmatter changes. Turn it off in settings to just hide Obsidian's "unsupported property type" warning and render nothing ([#34](https://github.com/felixleopold/obsidian-code-suite/issues/34)).
