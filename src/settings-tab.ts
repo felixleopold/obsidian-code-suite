@@ -1,9 +1,30 @@
-import { App, PluginSettingTab, Setting, Notice } from "obsidian";
+import { App, PluginSettingTab, Setting, Notice, setIcon } from "obsidian";
 import type CodePlugin from "./main";
 import { BUNDLED_THEMES, type CustomTheme, type ExecutionCwdMode } from "./settings";
 
+type TabId = "appearance" | "execution" | "languages" | "files" | "advanced";
+
+interface TabDef {
+  id: TabId;
+  label: string;
+  /** Lucide icon id rendered via setIcon(). */
+  icon: string;
+}
+
+const TABS: TabDef[] = [
+  { id: "appearance", label: "Appearance", icon: "palette" },
+  { id: "execution", label: "Execution", icon: "play" },
+  { id: "languages", label: "Languages", icon: "code" },
+  { id: "files", label: "Files", icon: "folder" },
+  { id: "advanced", label: "Advanced", icon: "flask-conical" },
+];
+
 export class CodeSettingTab extends PluginSettingTab {
   plugin: CodePlugin;
+  /** Active tab, kept in memory across opens within a session. */
+  private activeTab: TabId = "appearance";
+  private tabButtons = new Map<TabId, HTMLElement>();
+  private contentEl!: HTMLElement;
 
   constructor(app: App, plugin: CodePlugin) {
     super(app, plugin);
@@ -13,11 +34,78 @@ export class CodeSettingTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
+    this.buildTabBar(containerEl);
+    this.contentEl = containerEl.createDiv({
+      cls: "ocode-settings-content",
+      attr: { role: "tabpanel", "aria-labelledby": `ocode-settings-tab-${this.activeTab}` },
+    });
+    this.renderActiveTab();
+  }
 
-    // ─── About ───────────────────────────────────
+  // ─── Tab navigation ──────────────────────────
+  private buildTabBar(containerEl: HTMLElement): void {
+    this.tabButtons.clear();
+    const nav = containerEl.createDiv({
+      cls: "ocode-settings-tabs",
+      attr: { role: "tablist", "aria-label": "Settings sections" },
+    });
+    for (const tab of TABS) {
+      const active = tab.id === this.activeTab;
+      const btn = nav.createDiv({
+        cls: "ocode-settings-tab",
+        attr: { id: `ocode-settings-tab-${tab.id}`, role: "tab", tabindex: active ? "0" : "-1", "aria-selected": String(active) },
+      });
+      setIcon(btn.createSpan({ cls: "ocode-settings-tab-icon" }), tab.icon);
+      btn.createSpan({ cls: "ocode-settings-tab-label", text: tab.label });
+      btn.toggleClass("is-active", active);
+      btn.addEventListener("click", () => this.selectTab(tab.id));
+      btn.addEventListener("keydown", (e) => this.onTabKeydown(e, tab.id));
+      this.tabButtons.set(tab.id, btn);
+    }
+  }
+
+  private onTabKeydown(e: KeyboardEvent, id: TabId): void {
+    const idx = TABS.findIndex((t) => t.id === id);
+    let next = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % TABS.length;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    else return;
+    e.preventDefault();
+    const nextId = TABS[next].id;
+    this.selectTab(nextId);
+    this.tabButtons.get(nextId)?.focus();
+  }
+
+  private selectTab(id: TabId): void {
+    this.activeTab = id;
+    for (const [tabId, btn] of this.tabButtons) {
+      const active = tabId === id;
+      btn.toggleClass("is-active", active);
+      btn.setAttribute("aria-selected", String(active));
+      btn.setAttribute("tabindex", active ? "0" : "-1");
+    }
+    this.contentEl.setAttribute("aria-labelledby", `ocode-settings-tab-${id}`);
+    this.renderActiveTab();
+  }
+
+  private renderActiveTab(): void {
+    const el = this.contentEl;
+    el.empty();
+    switch (this.activeTab) {
+      case "appearance": this.renderAppearance(el); break;
+      case "execution": this.renderExecution(el); break;
+      case "languages": this.renderLanguages(el); break;
+      case "files": this.renderFiles(el); break;
+      case "advanced": this.renderAdvanced(el); break;
+    }
+  }
+
+  // ─── Appearance ──────────────────────────────
+  private renderAppearance(containerEl: HTMLElement): void {
     const aboutDiv = containerEl.createDiv({ cls: "ocode-settings-about" });
-    aboutDiv.createEl("p").textContent = "Replaces the default code block rendering with VS Code-quality syntax highlighting. Works in both reading view and editor (live preview / source mode)."
-    aboutDiv.createEl("p").textContent = "Code execution runs locally on your machine using the language runtimes installed on your system (e.g python3, node). Output is streamed live and displayed below the code block. No code is sent to any server."
+    aboutDiv.createEl("p").textContent = "Replaces the default code block rendering with VS Code-quality syntax highlighting. Works in both reading view and editor (live preview / source mode).";
 
     // ─── Theme ───────────────────────────────────
     new Setting(containerEl).setName("Theme").setHeading();
@@ -59,7 +147,7 @@ export class CodeSettingTab extends PluginSettingTab {
           this.plugin.settings.autoTheme = v;
           await this.plugin.saveSettings();
           if (v) this.plugin.applyAutoTheme();
-          this.display();
+          this.renderActiveTab();
         });
       });
 
@@ -160,7 +248,7 @@ export class CodeSettingTab extends PluginSettingTab {
                 await this.plugin.saveSettings();
                 this.plugin.applyThemeColors();
                 new Notice(`Theme "${name}" imported and activated.`);
-                this.display(); // Refresh the settings UI
+                this.renderActiveTab(); // Refresh the settings UI
               } catch {
                 new Notice("Failed to parse theme file. Make sure it's a valid VS Code theme JSON.");
               }
@@ -189,14 +277,14 @@ export class CodeSettingTab extends PluginSettingTab {
               await this.plugin.saveSettings();
               this.plugin.applyThemeColors();
               await this.plugin.refreshHighlighter();
-              this.display();
+              this.renderActiveTab();
             });
           });
       }
     }
 
-    // ─── Appearance ──────────────────────────────
-    new Setting(containerEl).setName("Appearance").setHeading();
+    // ─── Code block display ──────────────────────
+    new Setting(containerEl).setName("Code block display").setHeading();
 
     new Setting(containerEl)
       .setName("Line numbers")
@@ -243,6 +331,17 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Collapse code blocks by default")
+      .setDesc("Start every code block collapsed in reading view and live preview. Code blocks are always collapsible — click the header to expand/collapse; this only sets the initial state. Per-block 'collapsed'/'expanded' fence flags override it.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.inlineCollapsedByDefault);
+        t.onChange(async (v) => {
+          this.plugin.settings.inlineCollapsedByDefault = v;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("CodeSuite variables panel")
       .setDesc(
         "Show code_vars / template_context frontmatter as a read-only list below the Properties widget in reading view. " +
@@ -256,6 +355,9 @@ export class CodeSettingTab extends PluginSettingTab {
           this.plugin.refreshFrontmatterPanels();
         });
       });
+
+    // ─── HTML blocks ─────────────────────────────
+    new Setting(containerEl).setName("HTML blocks").setHeading();
 
     new Setting(containerEl)
       .setName("Render HTML blocks")
@@ -302,10 +404,10 @@ export class CodeSettingTab extends PluginSettingTab {
           this.plugin.refreshRenderedBlocks();
         });
       });
+  }
 
-    // ─── Code Execution ──────────────────────────
-    new Setting(containerEl).setName("Code execution").setHeading();
-
+  // ─── Execution ───────────────────────────────
+  private renderExecution(containerEl: HTMLElement): void {
     const execDesc = containerEl.createDiv({ cls: "setting-item-description ocode-exec-desc" });
     execDesc.appendText("Code runs ");
     execDesc.createEl("b").appendChild(activeDocument.createTextNode("locally on your machine"));
@@ -357,6 +459,64 @@ export class CodeSettingTab extends PluginSettingTab {
         s.onChange(async (v) => { this.plugin.settings.executionTimeout = v * 1000; await this.plugin.saveSettings(); });
       });
 
+    // ─── Environment ─────────────────────────────
+    new Setting(containerEl).setName("Environment").setHeading();
+
+    const cwdOptions: Record<ExecutionCwdMode, string> = {
+      vault: "Vault root",
+      home: "Home directory",
+      custom: "Custom path",
+    };
+
+    new Setting(containerEl)
+      .setName("Working directory")
+      .setDesc("Directory code executes in. The vault root is recommended so scripts can access vault files with relative paths.")
+      .addDropdown((dropdown) => {
+        for (const [value, label] of Object.entries(cwdOptions)) {
+          dropdown.addOption(value, label);
+        }
+        dropdown.setValue(this.plugin.settings.executionCwd);
+        dropdown.onChange(async (value) => {
+          this.plugin.settings.executionCwd = value as ExecutionCwdMode;
+          await this.plugin.saveSettings();
+          this.renderActiveTab();
+        });
+      });
+
+    if (this.plugin.settings.executionCwd === "custom") {
+      new Setting(containerEl)
+        .setName("Custom working directory")
+        .setDesc("Absolute path to use as the working directory for code execution.")
+        .addText((t) => {
+          t.inputEl["placeholder"] = "/path/to/directory";
+          t.setValue(this.plugin.settings.executionCwdCustom);
+          t.onChange(async (v) => { this.plugin.settings.executionCwdCustom = v.trim(); await this.plugin.saveSettings(); });
+        });
+    }
+
+    const envSetting = new Setting(containerEl)
+      .setName("Extra environment variables")
+      .addTextArea((t) => {
+        t.inputEl["placeholder"] = "PYTHONPATH=/path/to/libs\nMY_VAR=value";
+        t.setValue(this.plugin.settings.extraEnv);
+        t.inputEl.rows = 4;
+        t.inputEl.cols = 40;
+        t.onChange(async (v) => { this.plugin.settings.extraEnv = v; await this.plugin.saveSettings(); });
+      });
+    envSetting.descEl["textContent"] = "Additional environment variables passed to executed code (one KEY=VALUE per line). Useful for PYTHONPATH, API keys, etc.";
+
+    new Setting(containerEl)
+      .setName(".env file path")
+      .setDesc("Absolute path to a .env file. Variables are loaded into the process environment at execution time. Values from \"Extra environment variables\" (and frontmatter) override anything declared here, so a shared project .env can be mixed with per-note overrides.")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "/path/to/project/.env";
+        t.setValue(this.plugin.settings.envFilePath);
+        t.onChange(async (v) => { this.plugin.settings.envFilePath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
+    // ─── Plots ───────────────────────────────────
+    new Setting(containerEl).setName("Plots").setHeading();
+
     new Setting(containerEl)
       .setName("Interactive plots")
       .setDesc("Render Plotly figures as interactive HTML widgets (zoom, pan, hover, legend toggles) instead of static images. The static fallback needs the 'kaleido' package; the interactive path does not. Matplotlib figures are always static images.")
@@ -365,7 +525,7 @@ export class CodeSettingTab extends PluginSettingTab {
         t.onChange(async (v) => {
           this.plugin.settings.interactivePlots = v;
           await this.plugin.saveSettings();
-          this.display();
+          this.renderActiveTab();
         });
       });
 
@@ -386,42 +546,12 @@ export class CodeSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.matplotlibStyle);
         t.onChange(async (v) => { this.plugin.settings.matplotlibStyle = v.trim(); await this.plugin.saveSettings(); });
       });
+  }
 
-    // ─── Working Directory ───────────────────────
-    const cwdOptions: Record<ExecutionCwdMode, string> = {
-      vault: "Vault root",
-      home: "Home directory",
-      custom: "Custom path",
-    };
-
-    new Setting(containerEl)
-      .setName("Working directory")
-      .setDesc("Directory code executes in. The vault root is recommended so scripts can access vault files with relative paths.")
-      .addDropdown((dropdown) => {
-        for (const [value, label] of Object.entries(cwdOptions)) {
-          dropdown.addOption(value, label);
-        }
-        dropdown.setValue(this.plugin.settings.executionCwd);
-        dropdown.onChange(async (value) => {
-          this.plugin.settings.executionCwd = value as ExecutionCwdMode;
-          await this.plugin.saveSettings();
-          this.display();
-        });
-      });
-
-    if (this.plugin.settings.executionCwd === "custom") {
-      new Setting(containerEl)
-        .setName("Custom working directory")
-        .setDesc("Absolute path to use as the working directory for code execution.")
-        .addText((t) => {
-          t.inputEl["placeholder"] = "/path/to/directory";
-          t.setValue(this.plugin.settings.executionCwdCustom);
-          t.onChange(async (v) => { this.plugin.settings.executionCwdCustom = v.trim(); await this.plugin.saveSettings(); });
-        });
-    }
-
-    // ─── Environment ─────────────────────────────
-    new Setting(containerEl).setName("Environment").setHeading();
+  // ─── Languages ───────────────────────────────
+  private renderLanguages(containerEl: HTMLElement): void {
+    const aboutDiv = containerEl.createDiv({ cls: "ocode-settings-about" });
+    aboutDiv.createEl("p").textContent = "Interpreter paths and per-language options. Leave a path blank to use the system default.";
 
     new Setting(containerEl)
       .setName("Python path")
@@ -468,13 +598,8 @@ export class CodeSettingTab extends PluginSettingTab {
         t.onChange(async (v) => { this.plugin.settings.shPath = v.trim(); await this.plugin.saveSettings(); });
       });
 
-    new Setting(containerEl)
-      .setName("Auto-prepend php opening tag")
-      .setDesc("Run php snippets that omit an opening <?php tag by adding one at execution time. The note text is not changed.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.autoPrependPhpOpenTag);
-        t.onChange(async (v) => { this.plugin.settings.autoPrependPhpOpenTag = v; await this.plugin.saveSettings(); });
-      });
+    // ─── Shell startup ───────────────────────────
+    new Setting(containerEl).setName("Shell startup").setHeading();
 
     new Setting(containerEl)
       .setName("Run bash/zsh as login shell")
@@ -495,27 +620,21 @@ export class CodeSettingTab extends PluginSettingTab {
       });
     sourceSetting.descEl["textContent"] = "Absolute paths to files sourced before Bash, Zsh, and Shell blocks run, one per line. Lines starting with # are ignored.";
 
-    const envSetting = new Setting(containerEl)
-      .setName("Extra environment variables")
-      .addTextArea((t) => {
-        t.inputEl["placeholder"] = "PYTHONPATH=/path/to/libs\nMY_VAR=value";
-        t.setValue(this.plugin.settings.extraEnv);
-        t.inputEl.rows = 4;
-        t.inputEl.cols = 40;
-        t.onChange(async (v) => { this.plugin.settings.extraEnv = v; await this.plugin.saveSettings(); });
-      });
-    envSetting.descEl["textContent"] = "Additional environment variables passed to executed code (one KEY=VALUE per line). Useful for PYTHONPATH, API keys, etc.";
+    // ─── PHP ─────────────────────────────────────
+    new Setting(containerEl).setName("PHP").setHeading();
 
     new Setting(containerEl)
-      .setName(".env file path")
-      .setDesc("Absolute path to a .env file. Variables are loaded into the process environment at execution time. Values from \"Extra environment variables\" (and frontmatter) override anything declared here, so a shared project .env can be mixed with per-note overrides.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "/path/to/project/.env";
-        t.setValue(this.plugin.settings.envFilePath);
-        t.onChange(async (v) => { this.plugin.settings.envFilePath = v.trim(); await this.plugin.saveSettings(); });
+      .setName("Auto-prepend php opening tag")
+      .setDesc("Run php snippets that omit an opening <?php tag by adding one at execution time. The note text is not changed.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.autoPrependPhpOpenTag);
+        t.onChange(async (v) => { this.plugin.settings.autoPrependPhpOpenTag = v; await this.plugin.saveSettings(); });
       });
+  }
 
-    // ─── Embedded Files ──────────────────────────
+  // ─── Files ───────────────────────────────────
+  private renderFiles(containerEl: HTMLElement): void {
+    // ─── Embedded code files ─────────────────────
     new Setting(containerEl).setName("Embedded code files").setHeading();
 
     new Setting(containerEl)
@@ -534,15 +653,7 @@ export class CodeSettingTab extends PluginSettingTab {
         t.onChange(async (v) => { this.plugin.settings.collapseEmbeds = v; await this.plugin.saveSettings(); });
       });
 
-    new Setting(containerEl)
-      .setName("Collapse code blocks by default")
-      .setDesc("Start every code block collapsed in reading view and live preview. Code blocks are always collapsible — click the header to expand/collapse; this only sets the initial state. Per-block 'collapsed'/'expanded' fence flags override it.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.inlineCollapsedByDefault);
-        t.onChange(async (v) => { this.plugin.settings.inlineCollapsedByDefault = v; await this.plugin.saveSettings(); });
-      });
-
-    // ─── Vault code files ───────────────────────
+    // ─── Vault code files ────────────────────────
     new Setting(containerEl).setName("Vault code files").setHeading();
 
     new Setting(containerEl)
@@ -561,9 +672,12 @@ export class CodeSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.codeImportsFolder);
         t.onChange(async (v) => { this.plugin.settings.codeImportsFolder = v.trim(); await this.plugin.saveSettings(); });
       });
+  }
 
-    // ─── Experimental features ───────────────────────
-    new Setting(containerEl).setName("Experimental features").setHeading();
+  // ─── Advanced ────────────────────────────────
+  private renderAdvanced(containerEl: HTMLElement): void {
+    // ─── Experimental ────────────────────────────
+    new Setting(containerEl).setName("Experimental").setHeading();
 
     new Setting(containerEl)
       .setName("Data tables")
@@ -594,7 +708,7 @@ export class CodeSettingTab extends PluginSettingTab {
         t.onChange(async (v) => {
           this.plugin.settings.bakedOutputs = v;
           await this.plugin.saveSettings();
-          this.display(); // reveal/hide the dependent settings below
+          this.renderActiveTab(); // reveal/hide the dependent settings below
         });
       });
 

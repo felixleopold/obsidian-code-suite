@@ -51,6 +51,7 @@ const SENTENCE_CASE_IGNORES = [
   "JavaScript",
   "TypeScript",
   "Bash",
+  "PHP",
   "Node\\.?js",
   "Obsidian",
   "Electron",
