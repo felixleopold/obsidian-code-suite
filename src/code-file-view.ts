@@ -214,7 +214,10 @@ export class CodeFileView extends TextFileView {
   }
 
   private onCopyClick(): void {
-    void navigator.clipboard.writeText(this.content).then(() => {
+    // Drop a single trailing newline so pasting a one-line script into a
+    // terminal doesn't auto-execute it — mirrors the code-block Copy pill (#37).
+    const text = this.content.replace(/\n$/, "");
+    void navigator.clipboard.writeText(text).then(() => {
       setSvgContent(this.copyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
       this.copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
       window.setTimeout(() => {
