@@ -123,7 +123,7 @@ code_vars:
 ---
 ```
 
-You can also write it as a list of `key = value` strings (`- threshold = 0.85`); use that form when you want `code_vars` to render in reading view, since a nested mapping shows an "unsupported property type" warning in Obsidian's Properties panel (CodeSuite hides that warning and renders the values in a small panel instead).
+A nested mapping like this shows an "unsupported property type" warning in Obsidian's Properties panel. CodeSuite hides that warning and, by default, renders the values as a read-only **CodeSuite variables** list just below the Properties widget. Turn the **CodeSuite variables panel** setting off to hide the list too, or write `code_vars` as a list of `key = value` strings (`- threshold = 0.85`), which Obsidian renders natively.
 
 A `vars` block in the body wins if both define the same key.
 
@@ -315,6 +315,7 @@ Track progress or vote on the linked GitHub issues.
 
 **Recent releases**
 
+- **1.14.0** — the **CodeSuite variables panel** (the read-only rendering of `code_vars:` / `template_context:` below the Properties widget) is now reliable and **on by default**. It lives inside the note header next to Properties, so it stays put as you scroll instead of flickering, and it refreshes when the frontmatter changes. Turn it off in settings to just hide Obsidian's "unsupported property type" warning and render nothing ([#34](https://github.com/felixleopold/obsidian-code-suite/issues/34)).
 - **1.13.0** — reading-view and export polish: every code block is now collapsible from its header ([#32](https://github.com/felixleopold/obsidian-code-suite/issues/32)); nested `code_vars:` / `template_context:` frontmatter renders in preview instead of Obsidian's "unsupported property type" warning, and `code_vars` accepts a `key = value` list form ([#34](https://github.com/felixleopold/obsidian-code-suite/issues/34)); html-block previews now appear in HTML/PDF exports ([#33](https://github.com/felixleopold/obsidian-code-suite/issues/33)). Fixes: re-running a block now sees upstream state instead of compounding its own output ([#36](https://github.com/felixleopold/obsidian-code-suite/issues/36)), and dead output-toolbar buttons no longer show in exports ([#35](https://github.com/felixleopold/obsidian-code-suite/issues/35)).
 - **1.12.0** — HTML templating: an `html template` block — or an embedded `.html` file (`![[invoice.html|template pdf]]`) — becomes a data-driven document. `{{ frontmatter }}` interpolation with `eur`/`date`/`number` filters, `{{> partials }}` for shared layout/CSS, `{{#each}}` loops, `{{#if}}` conditionals, and `template_context:` notes for single-source shared data. Built for invoices/reports; pairs with the PDF pill. Opt in per block/embed with a `template` flag or globally with **HTML block templating**. See [HTML Templating](docs/html-templating.md).
 - **1.11.0** — PDF export for HTML blocks: rendered `html` blocks get a **PDF** pill to save or print just that block on an A4 page (great for invoices and reports). Opt in globally with **PDF export for HTML blocks**, or per block with a `pdf` / `nopdf` fence flag.

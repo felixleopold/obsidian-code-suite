@@ -1,18 +1,14 @@
-Reading-view and export polish: collapsible code blocks everywhere, CodeSuite frontmatter that actually renders in preview, and html-block previews that survive HTML/PDF export — plus a notebook-correct fix for variables on block re-run.
+Makes the CodeSuite variables panel reliable and turns it on by default, so your `code_vars:` and `template_context:` values are visible in reading view out of the box.
 
 ## What's New
 
-- **Every code block is collapsible** — fold or unfold any fenced block from its header in both reading view and Live Preview, not just html previews and embeds ([#32](https://github.com/felixleopold/obsidian-code-suite/issues/32)). The old "Collapsible inline code blocks" toggle is replaced by **Collapse code blocks by default**, which only chooses the initial state; per-block `collapsed` / `expanded` fence flags still win.
-- **Frontmatter variables render in preview** — a nested `code_vars:` / `template_context:` mapping used to trigger Obsidian's orange "unsupported property type" warning and collapse. CodeSuite now hides that broken row and renders the values in a small read-only panel just below the Properties widget ([#34](https://github.com/felixleopold/obsidian-code-suite/issues/34)).
-- **List form for `code_vars`** — write `code_vars` as a YAML list of `key = value` strings (`- threshold = 0.85`), parsed with the same grammar and `:type` hints as a `vars` block. A plain list renders natively in Obsidian, so use that form if you prefer native Properties rendering.
-- **HTML previews in exports** — a preview-mode `html` block now renders its document in HTML and PDF exports instead of exporting as a bare header ([#33](https://github.com/felixleopold/obsidian-code-suite/issues/33)).
+- **CodeSuite variables panel is on by default** — the read-only rendering of `code_vars:` / `template_context:` now shows automatically just below the Properties widget in reading view, with no setting to enable. Turn off **CodeSuite variables panel** in settings to just suppress Obsidian's "unsupported property type" warning and render nothing ([#34](https://github.com/felixleopold/obsidian-code-suite/issues/34)).
 
 ## Bug Fixes
 
-- **Variables persist across re-runs** — re-running a block fed its own previous output back into itself, so a block that read and transformed a cross-language variable (e.g. bash reading a Python int and multiplying it) compounded on every run. A block now sees the upstream value it originally consumed, matching notebook re-run semantics ([#36](https://github.com/felixleopold/obsidian-code-suite/issues/36)).
-- **No dead buttons in exports** — the output toolbar's buttons (copy, save image, …) appeared in static HTML/PDF exports but did nothing; they're now hidden, like the run pill and input bar ([#35](https://github.com/felixleopold/obsidian-code-suite/issues/35)).
+- **The variables panel no longer flickers or vanishes on scroll** — it is now anchored inside the note header (next to Properties), the chrome Obsidian keeps pinned, instead of in the scrolled content Obsidian virtualizes and rebuilds. It stays put across scrolling and re-renders, and refreshes whenever the frontmatter changes.
 
 ## Upgrade Notes
 
-- The **Collapsible inline code blocks** setting is gone. Every block is collapsible now; **Collapse code blocks by default** controls only whether blocks start folded. Existing settings load fine — the removed key is simply ignored.
-- The frontmatter panel renders the mapping form in place; if you'd rather Obsidian render `code_vars` natively, switch to the list form. Both forms seed variables identically.
+- If you previously turned the panel off, that choice is preserved. Vaults that never touched the setting now show the panel by default.
+- The "unsupported property type" warning for these nested fields stays hidden either way; the setting only controls whether the value list is also shown.
