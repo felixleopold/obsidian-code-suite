@@ -3671,7 +3671,10 @@ __ocode_emit_vars
     btnGroup.className = "ocode-btn-group";
 
     const copyBtn = this.createPillButton("Copy", ICON.copy, () => {
-      void navigator.clipboard.writeText(code).then(() => {
+      // Copy the code exactly as displayed — `displayCode` already drops the
+      // single trailing newline the fence carries, so pasting into a terminal
+      // doesn't auto-execute the command (#37).
+      void navigator.clipboard.writeText(displayCode).then(() => {
         setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.check);
         copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copied";
         window.setTimeout(() => {
