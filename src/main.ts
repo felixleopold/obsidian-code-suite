@@ -247,6 +247,27 @@ interface LiveVar {
 }
 
 /**
+ * Frontmatter keys CodeSuite owns. When map-shaped (a nested mapping) these
+ * can't be displayed by Obsidian's Properties widget (#34) — it shows an orange
+ * "unsupported property type" warning. The broken rows are hidden by a static
+ * CSS rule (`.metadata-property[data-property-key="…"]` in styles.css), so the
+ * default needs no JS at all. When {@link CodePluginSettings.showFrontmatterVarsPanel}
+ * is on, the values are additionally rendered as a read-only list — see
+ * {@link CodePlugin.frontmatterPanelGroups}.
+ */
+const CODESUITE_FM_KEYS = ["code_vars", "template_context"] as const;
+
+/**
+ * One group in the reading-view CodeSuite variables panel: a map-shaped
+ * CodeSuite frontmatter field (`code_vars:` / `template_context:`) rendered as
+ * a small list of keyed rows.
+ */
+interface FmPanelGroup {
+  title: string;
+  rows: { key: string; val: string }[];
+}
+
+/**
  * Walk an editor document and return every *closed* ```-fenced code block with
  * absolute positions covering the fence lines. Shared by the Shiki token-color
  * extension and the Live Preview block-widget extension so both agree on block
@@ -401,6 +422,15 @@ export default class CodePlugin extends Plugin {
    * previously-executed code blocks. In-memory only; cleared on unload.
    */
   private noteContexts: Map<string, Map<string, string[]>> = new Map();
+  /**
+   * Stdin entered during each block's run, so a suppressed replay can feed the
+   * same input back to an `input()` / `read` instead of hitting EOF (which would
+   * leave the variable undefined and break downstream blocks). Maps note path →
+   * language → block source → the raw stdin (newline-terminated lines) the user
+   * typed. In-memory only; cleared on unload or Clear Session. Password input is
+   * never recorded.
+   */
+  private noteStdin: Map<string, Map<string, Map<string, string>>> = new Map();
   /** Latest variable snapshot per note (Python only). Maps note path → {varName: displayValue}. */
   private noteVarStore: Map<string, Record<string, string>> = new Map();
   /** Variables declared in ```vars blocks, `code_vars:` frontmatter, and data
@@ -443,6 +473,10 @@ export default class CodePlugin extends Plugin {
 
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
+
+  /** Debounce handle for the deferred frontmatter-vars-panel sync (see
+   *  {@link scheduleFrontmatterPanelSync}). */
+  private _fmPanelSyncTimer: number | null = null;
 
   /** Demo/recording only — curated themes the demo-cycle command steps through. */
   private static readonly DEMO_THEME_CYCLE = [
@@ -624,10 +658,16 @@ export default class CodePlugin extends Plugin {
     // these events also cover the first render after a note opens before its
     // file path is available, so chrome never lags a mode switch.
     this.registerEvent(
-      this.app.workspace.on("layout-change", () => this.forceLpRebuild())
+      this.app.workspace.on("layout-change", () => {
+        this.forceLpRebuild();
+        this.scheduleFrontmatterPanelSync();
+      })
     );
     this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => this.forceLpRebuild())
+      this.app.workspace.on("active-leaf-change", () => {
+        this.forceLpRebuild();
+        this.scheduleFrontmatterPanelSync();
+      })
     );
 
     // An html `template` block renders from its note's frontmatter, so when the
@@ -637,7 +677,10 @@ export default class CodePlugin extends Plugin {
     // is cheap for non-template notes — build() just re-keys and returns cached
     // wrappers; only a changed template block misses the cache and re-resolves.
     this.registerEvent(
-      this.app.metadataCache.on("changed", () => this.forceLpRebuild())
+      this.app.metadataCache.on("changed", () => {
+        this.forceLpRebuild();
+        this.scheduleFrontmatterPanelSync();
+      })
     );
 
     // Reading view: syntax highlighting + execution
@@ -670,15 +713,23 @@ export default class CodePlugin extends Plugin {
       1002
     );
 
-    // Reading view: surface CodeSuite's nested frontmatter (`code_vars:`,
-    // `template_context:`) as a readable panel, since Obsidian's Properties
-    // widget can't display nested objects and warns instead (#34).
+    // Reading view: CodeSuite's nested frontmatter (`code_vars:`,
+    // `template_context:`) can't be shown by Obsidian's Properties widget, which
+    // warns instead (#34). The broken rows are hidden by a static CSS rule, so
+    // the only JS work is inserting the opt-in read-only values panel — and that
+    // is *scheduled*, not done here. A reading view post-processes content while
+    // the preview is still rebuilding (mode not yet "preview", no `.mod-header`
+    // yet, subtree still being replaced), so a synchronous insert is racy. We
+    // debounce a sync that runs once the preview has settled and re-queries the
+    // attached leaf DOM — the same reliable path the settings toggle uses.
     this.registerMarkdownPostProcessor(
-      (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
-        this.renderFrontmatterVarsPanel(el, ctx);
-      },
+      () => this.scheduleFrontmatterPanelSync(),
       1003
     );
+    // Cancel any pending panel sync on unload so it can't fire post-teardown.
+    this.register(() => {
+      if (this._fmPanelSyncTimer !== null) window.clearTimeout(this._fmPanelSyncTimer);
+    });
 
     // Command: clear the execution session for the current note
     this.addCommand({
@@ -1259,6 +1310,7 @@ export default class CodePlugin extends Plugin {
   /** Clear accumulated context, var store, and inline var DOM state for a note. */
   private clearNoteSession(notePath: string): void {
     this.noteContexts.delete(notePath);
+    this.noteStdin.delete(notePath);
     this.noteVarStore.delete(notePath);
     // Drop runtime mutations so shared vars fall back to their declared seeds.
     this.noteLiveVars.delete(notePath);
@@ -1763,7 +1815,8 @@ export default class CodePlugin extends Plugin {
     prevBlocks: string[],
     currentBlock: string,
     preSeeds?: Record<string, VarValue>,
-    postSeeds?: Record<string, VarValue>
+    postSeeds?: Record<string, VarValue>,
+    replayStdin = ""
   ): string {
     const accum = prevBlocks.join("\n\n");
 
@@ -1795,11 +1848,15 @@ export default class CodePlugin extends Plugin {
         "__ocode_prev_out, __ocode_prev_err, __ocode_prev_in = __sys.stdout, __sys.stderr, __sys.stdin",
         "__sys.stdout = __sys.stderr = __ocode_null",
         // Replay runs non-interactively with output suppressed — no input bar is
-        // shown for it. Point stdin at an empty (EOF) stream so a replayed input()
-        // or sys.stdin read returns immediately instead of blocking forever on a
-        // bar that never appears. Restored before the current block, which reads
-        // the real stdin normally and still gets its input bar.
-        "__sys.stdin = __io.StringIO('')",
+        // shown for it. Feed stdin the input the user typed during each block's
+        // original run (recorded in noteStdin) so a replayed input() / sys.stdin
+        // read reproduces the value it produced — that's what makes a downstream
+        // block see an upstream `name = input(...)`. Any read past the recorded
+        // input hits EOF and raises EOFError (swallowed below) instead of blocking
+        // on a bar that never appears. Restored before the current block, which
+        // reads the real stdin normally and still gets its input bar.
+        // JSON string escaping is a subset of Python's, so this is a valid literal.
+        "__sys.stdin = __io.StringIO(" + JSON.stringify(replayStdin) + ")",
         // Suppress matplotlib plot saves during replay
         "try:",
         "    __ocode_plt_bak = __plt.show; __plt.show = lambda *a,**kw: None",
@@ -1838,15 +1895,20 @@ export default class CodePlugin extends Plugin {
       // reliable than { } > /dev/null 2>&1 because it avoids nested-brace
       // parser edge cases (e.g. functions with complex bodies or heredocs) and
       // guarantees function definitions are available in the current shell scope.
-      // Save stdout/stderr to fds 3/4 and stdin to fd 5, then run the replay with
-      // all three pointed at /dev/null: output is suppressed and a replayed `read`
-      // gets EOF immediately instead of blocking on an input bar that's never shown
-      // for the suppressed replay. All three are restored before the current block.
+      // Save stdout/stderr to fds 3/4 and the real stdin to fd 5, open fd 6 on a
+      // heredoc holding the stdin the user typed during the replayed blocks' own
+      // runs, then point fd 0 at it: output is suppressed while a replayed `read`
+      // reproduces the value it captured (or hits EOF immediately when nothing was
+      // typed, instead of blocking on a bar that's never shown for the suppressed
+      // replay). All fds are restored before the current block. The quoted heredoc
+      // delimiter keeps the recorded input literal. Verified on bash, zsh, sh/dash.
       return (
         `${bashSeed}` +
-        `exec 3>&1 4>&2 5<&0 1>/dev/null 2>&1 0</dev/null\n` +
+        `exec 3>&1 4>&2 5<&0 1>/dev/null 2>&1 6<<'__OCODE_REPLAY_STDIN_EOF__'\n` +
+        `${replayStdin}__OCODE_REPLAY_STDIN_EOF__\n` +
+        `exec 0<&6\n` +
         `${accum}\n` +
-        `exec 1>&3 2>&4 0<&5 3>&- 4>&- 5<&-\n\n` +
+        `exec 1>&3 2>&4 0<&5 3>&- 4>&- 5<&- 6<&-\n\n` +
         `${bashPost}` +
         `${currentBlock}`
       );
@@ -3298,64 +3360,111 @@ __ocode_emit_vars
   }
 
   /**
-   * Fix the reading-view display of CodeSuite's nested frontmatter fields
-   * (`code_vars:`, `template_context:`). A nested mapping can't be shown by
-   * Obsidian's Properties widget — it renders an orange "unsupported property
-   * type" warning and collapses (#34). This does two things: it hides that
-   * broken property row, and it renders the same data as a clean read-only
-   * panel just below the Properties widget. The list form of `code_vars`
-   * renders natively, so only mapping-shaped values are handled here.
+   * Debounce a {@link syncFrontmatterPanels} pass. Called from the reading-view
+   * post-processor and the layout / leaf-change / metadata-change events — all of
+   * which fire *while or just before* the preview's `.mod-header` is (re)built,
+   * when a synchronous insert would race the header. Coalescing to one deferred
+   * pass lets the header settle first; the pass then queries the attached view,
+   * so it doesn't matter that the post-processor's own `el` was detached.
    */
-  private renderFrontmatterVarsPanel(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
-    // ctx.frontmatter is absent in the MarkdownRenderer export pass — fall back
-    // to the metadata cache so the panel appears in exports too.
-    let fm = ctx.frontmatter as Record<string, unknown> | undefined;
-    if (!fm && ctx.sourcePath) {
-      const file = this.app.vault.getAbstractFileByPath(ctx.sourcePath);
-      if (file instanceof TFile) fm = this.app.metadataCache.getFileCache(file)?.frontmatter;
-    }
-    if (!fm) return;
-
-    const isDict = (v: unknown): v is Record<string, unknown> =>
-      !!v && typeof v === "object" && !Array.isArray(v);
-    const groups: { title: string; data: Record<string, unknown> }[] = [];
-    if (isDict(fm["code_vars"])) groups.push({ title: "code_vars", data: fm["code_vars"] });
-    if (isDict(fm["template_context"])) groups.push({ title: "template_context", data: fm["template_context"] });
-    if (!groups.length) return;
-
-    // In a live reading view the section element isn't attached to the preview
-    // container yet when the post-processor runs, so el.closest(...) is null on
-    // the first try; retry next frame once Obsidian has inserted it. The
-    // detached export render attaches synchronously, so it succeeds immediately
-    // (and never schedules a frame that would fire after serialization).
-    const place = () => this.placeFrontmatterVarsPanel(el, groups);
-    if (!place()) window.requestAnimationFrame(place);
+  private scheduleFrontmatterPanelSync(): void {
+    if (!this.settings.showFrontmatterVarsPanel) return; // default: CSS hides rows, no panel
+    if (this._fmPanelSyncTimer !== null) window.clearTimeout(this._fmPanelSyncTimer);
+    this._fmPanelSyncTimer = window.setTimeout(() => {
+      this._fmPanelSyncTimer = null;
+      this.syncFrontmatterPanels();
+    }, 50);
   }
 
   /**
-   * Suppress the broken Properties rows for our nested keys and insert the
-   * read-only panel. Returns false if the reading-view container isn't reachable
-   * yet (so the caller can retry on the next frame). Idempotent: the warning is
-   * hidden via a class and only one panel is inserted per preview.
+   * Ensure every open reading view's CodeSuite-vars panel matches the current
+   * setting + frontmatter. The single source of truth for the panel.
+   *
+   * The panel is inserted *inside* `.mod-header` — the pinned document-header
+   * chrome (inline title + Properties) that Obsidian renders once and does NOT
+   * virtualize on scroll. (The earlier attempts put it among the sizer's content
+   * sections, which Obsidian evicts and rebuilds as you scroll — that was the
+   * flicker.) Living in the header, it just stays put: no observer, no re-insert
+   * race. We only (re)sync on real lifecycle moments — open, mode switch, leaf
+   * switch, frontmatter change — never on scroll.
+   *
+   * Each pass clears any existing panel and re-inserts a fresh one. That keeps
+   * values current and is flicker-free: the sync runs only on lifecycle events
+   * (never on scroll), and the clear + insert happen in one synchronous pass, so
+   * there is no intermediate paint.
    */
-  private placeFrontmatterVarsPanel(
-    el: HTMLElement,
-    groups: { title: string; data: Record<string, unknown> }[]
-  ): boolean {
-    const view = el.closest<HTMLElement>(".markdown-reading-view, .markdown-preview-view");
-    if (!view) return false;
+  private syncFrontmatterPanels(): void {
+    const enabled = this.settings.showFrontmatterVarsPanel;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) return;
+      const container = view.containerEl;
 
-    // Hide Obsidian's orange "unsupported property type" warning for our nested
-    // keys — that warning is the bug (#34); the panel below renders the values.
-    for (const group of groups) {
-      const props = view.querySelectorAll(
-        `.metadata-property[data-property-key="${group.title}"]`
-      );
-      for (const prop of Array.from(props)) prop.addClass("ocode-fm-prop-hidden");
-    }
+      for (const p of Array.from(container.querySelectorAll(".ocode-frontmatter-vars"))) p.remove();
+      if (!enabled) return;
 
-    if (view.querySelector(".ocode-frontmatter-vars")) return true; // one per preview
+      const file = view.file;
+      if (view.getMode() !== "preview" || !(file instanceof TFile)) return;
+      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      if (!fm) return;
+      const groups = this.frontmatterPanelGroups(fm);
+      if (!groups.length) return;
 
+      // The Properties block lives in `.mod-header`; without it there is no
+      // stable, non-virtualized host, so we simply don't show the panel.
+      const header = container.querySelector<HTMLElement>(".mod-header");
+      if (header) this.insertFrontmatterPanel(header, groups);
+    });
+  }
+
+  /**
+   * Build the panel groups for a note's frontmatter: one group per map-shaped
+   * CodeSuite key (`code_vars` / `template_context`), each value expanded into
+   * keyed rows. Only map-shaped fields — the nested mappings Obsidian can't
+   * display (#34) — are expanded; a scalar/list value (not the documented form)
+   * yields no group.
+   */
+  private frontmatterPanelGroups(fm: Record<string, unknown>): FmPanelGroup[] {
+    const isMap = (v: unknown): v is Record<string, unknown> =>
+      !!v && typeof v === "object" && !Array.isArray(v);
+    return CODESUITE_FM_KEYS.filter((k) => isMap(fm[k])).map((k) => ({
+      title: k,
+      rows: Object.entries(fm[k] as Record<string, unknown>).map(([key, v]) => ({
+        key,
+        val: this.formatFrontmatterValue(v),
+      })),
+    }));
+  }
+
+  /**
+   * Re-render the optional panel in every open reading view. Called when the
+   * `showFrontmatterVarsPanel` toggle flips so already-open notes update without
+   * reopening. Hiding the broken rows is pure CSS, so there is nothing to reset
+   * there.
+   */
+  refreshFrontmatterPanels(): void {
+    this.syncFrontmatterPanels();
+  }
+
+  /**
+   * Insert the read-only panel into `.mod-header`, just after the Properties
+   * widget (`.metadata-container`) so it reads as part of the header chrome.
+   * Idempotent — bails if this header already hosts a panel. Placing it inside
+   * the header (not in the scrolled content) is what keeps it stable across
+   * scroll; nothing here fights Obsidian's virtualization.
+   */
+  private insertFrontmatterPanel(header: HTMLElement, groups: FmPanelGroup[]): void {
+    if (header.querySelector(":scope > .ocode-frontmatter-vars")) return; // one per header
+
+    const panel = this.buildFrontmatterVarsPanel(groups);
+    const meta = header.querySelector<HTMLElement>(".metadata-container");
+    if (meta) meta.insertAdjacentElement("afterend", panel);
+    else header.appendChild(panel);
+  }
+
+  /** Build the read-only panel DOM — each group is a CodeSuite frontmatter field
+   *  rendered as a header plus its `key value` rows. */
+  private buildFrontmatterVarsPanel(groups: FmPanelGroup[]): HTMLElement {
     const panel = createDiv({ cls: "ocode-frontmatter-vars" });
     const header = createDiv({ cls: "ocode-fm-vars-header" });
     header.appendChild(createSpan({ cls: "ocode-fm-vars-title", text: "CodeSuite variables" }));
@@ -3364,22 +3473,15 @@ __ocode_emit_vars
     for (const group of groups) {
       const groupEl = createDiv({ cls: "ocode-fm-vars-group" });
       groupEl.appendChild(createDiv({ cls: "ocode-fm-vars-group-title", text: group.title }));
-      for (const [k, v] of Object.entries(group.data)) {
-        const row = createDiv({ cls: "ocode-fm-var-row" });
-        row.appendChild(createSpan({ cls: "ocode-fm-var-key", text: k }));
-        row.appendChild(createSpan({ cls: "ocode-fm-var-val", text: this.formatFrontmatterValue(v) }));
-        groupEl.appendChild(row);
+      for (const row of group.rows) {
+        const rowEl = createDiv({ cls: "ocode-fm-var-row" });
+        rowEl.appendChild(createSpan({ cls: "ocode-fm-var-key", text: row.key }));
+        rowEl.appendChild(createSpan({ cls: "ocode-fm-var-val", text: row.val }));
+        groupEl.appendChild(rowEl);
       }
       panel.appendChild(groupEl);
     }
-
-    // Sit the panel just below the Properties widget when present, else at the
-    // very top of the rendered note (e.g. the export render has no widget).
-    const meta = view.querySelector(".metadata-container");
-    const sizer = view.querySelector<HTMLElement>(".markdown-preview-sizer") ?? view;
-    if (meta?.parentElement) meta.insertAdjacentElement("afterend", panel);
-    else sizer.prepend(panel);
-    return true;
+    return panel;
   }
 
   /** Human-readable rendering of a frontmatter value for the vars panel:
@@ -4268,7 +4370,13 @@ __ocode_emit_vars
       const prevBlocks = this.noteContexts.get(sourcePath)?.get(lang) ?? [];
       const hasSeed    = Object.keys(preSeeds).length > 0 || Object.keys(postSeeds).length > 0;
       if (prevBlocks.length > 0 || hasSeed) {
-        execCode = this.buildSharedContextCode(lang, prevBlocks, code, preSeeds, postSeeds);
+        // Replay each prior block's recorded stdin, in block order, so a replayed
+        // `input()` / `read` reproduces the value it captured originally.
+        const stdinMap = this.noteStdin.get(sourcePath)?.get(lang);
+        const replayStdin = stdinMap
+          ? prevBlocks.map((b) => stdinMap.get(b) ?? "").join("")
+          : "";
+        execCode = this.buildSharedContextCode(lang, prevBlocks, code, preSeeds, postSeeds, replayStdin);
       }
       // Append the var-extraction postamble where we have a language-specific
       // snapshotter. Plain sh still gets shared replay, but reliable variable
@@ -4353,6 +4461,10 @@ __ocode_emit_vars
     let stderrText = "";
     // Track whether the current input is a password prompt (sudo or dynamic detection)
     let isPasswordMode = isSudo;
+    // Accumulate the non-password stdin the user types this run, so a later
+    // suppressed replay of this block can reproduce its `input()` / `read` values
+    // (recorded into noteStdin on a clean exit). Passwords are deliberately excluded.
+    let stdinReplay = "";
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
 
     // Always line-buffer stdout so we can filter __OCODE_VARS__ lines (shared
@@ -4447,6 +4559,8 @@ __ocode_emit_vars
           inputField.type = "text";
           inputField.placeholder = "Type input and press enter\u2026";
         } else {
+          // Record only non-password input for replay (mirrors the echo below).
+          stdinReplay += text + "\n";
           const echo = createSpan();
           echo.className = "ocode-stdin-echo";
           echo.textContent = `> ${text}\n`;
@@ -4593,6 +4707,16 @@ __ocode_emit_vars
         // Store the original block (not the wrapped version). Dedupe identical
         // sources so re-running a block doesn't stack duplicate replays.
         if (!blocks.includes(code)) blocks.push(code);
+        // Record this run's stdin against the block source so a later replay can
+        // reproduce its input. Always overwrite — the most recent run's input is
+        // what a replay should reproduce. Drop the entry when nothing was typed
+        // so a stale value can't linger after an edit-and-rerun with no input.
+        if (!this.noteStdin.has(notePath)) this.noteStdin.set(notePath, new Map());
+        const noteStdinCtx = this.noteStdin.get(notePath)!;
+        if (!noteStdinCtx.has(lang)) noteStdinCtx.set(lang, new Map());
+        const stdinByBlock = noteStdinCtx.get(lang)!;
+        if (stdinReplay) stdinByBlock.set(code, stdinReplay);
+        else stdinByBlock.delete(code);
       }
     } catch (err: unknown) {
       new Notice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);

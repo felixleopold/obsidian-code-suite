@@ -184,6 +184,16 @@ export interface CodePluginSettings {
    *  controls the initial state. Per-block `collapsed`/`expanded` flags win. */
   inlineCollapsedByDefault: boolean;
   /**
+   * Show CodeSuite's nested frontmatter (`code_vars:` / `template_context:`) as a
+   * read-only "CodeSuite variables" list in reading view. These map-shaped fields
+   * can't be displayed by Obsidian's Properties widget (#34) — CodeSuite always
+   * hides the broken row so there's no orange "unsupported property type"
+   * warning; this toggle additionally renders the values as a list below the
+   * Properties widget. On by default: the values are useful and the panel is
+   * unobtrusive; turn it off to just suppress the warning and render nothing.
+   */
+  showFrontmatterVarsPanel: boolean;
+  /**
    * Register code file extensions (`.py`, `.js`, etc.) with Obsidian so they
    * appear in the file explorer and open in a CodeSuite editor view.
    */
@@ -285,6 +295,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   extraEnv: "",
   envFilePath: "",
   inlineCollapsedByDefault: false,
+  showFrontmatterVarsPanel: true,
   enableCodeFileView: true,
   codeImportsFolder: "CodeSuiteImports",
   sharedContext: true,

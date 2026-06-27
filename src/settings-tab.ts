@@ -243,6 +243,21 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("CodeSuite variables panel")
+      .setDesc(
+        "Show code_vars / template_context frontmatter as a read-only list below the Properties widget in reading view. " +
+        "Either way CodeSuite hides Obsidian's \"unsupported property type\" warning for these nested fields; this only controls whether the list is also rendered."
+      )
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.showFrontmatterVarsPanel);
+        t.onChange(async (v) => {
+          this.plugin.settings.showFrontmatterVarsPanel = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshFrontmatterPanels();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("Render HTML blocks")
       .setDesc(
         "Show html code blocks as a live preview by default instead of their source. " +

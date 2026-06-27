@@ -532,12 +532,15 @@ code.ocode-var-ref[data-resolved] {
   font-style: italic;
 }
 
-/* CodeSuite frontmatter vars panel — a readable rendering of nested
-   `code_vars:` / `template_context:` frontmatter, which Obsidian's Properties
-   widget can't display (#34). Sits just below the Properties widget. The broken
-   property row is hidden so its orange "unsupported property type" warning goes
-   away; the panel below renders the values instead. */
-.metadata-property.ocode-fm-prop-hidden {
+/* CodeSuite frontmatter vars panel — an optional readable rendering of the
+   nested maps Obsidian's Properties widget can't display (`code_vars:` /
+   `template_context:`), which otherwise trigger an "unsupported property type"
+   warning (#34). The broken property rows are hidden by the static rule below
+   (pure CSS, so it survives every re-render with no JS timing); when the
+   `showFrontmatterVarsPanel` setting is on, the panel sits just below the
+   Properties widget and renders the values. */
+.metadata-property[data-property-key="code_vars"],
+.metadata-property[data-property-key="template_context"] {
   display: none !important;
 }
 .ocode-frontmatter-vars {

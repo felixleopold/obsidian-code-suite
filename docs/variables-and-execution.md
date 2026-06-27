@@ -91,7 +91,7 @@ This "replay" model means:
 - **Re-running a block is always safe and idempotent.** A block is excluded from its own replay, so it sees its declared seed value again rather than a stale mutation from a prior run.
 - **No background daemon.** Nothing persists on disk or in a background process.
 - **Within one language**, all state carries over (functions, objects, DataFrames). Across languages, only scalars and JSON-serializable values cross — see [Cross-language variables](#cross-language-variables).
-- **Replay is non-interactive.** No input bar is shown for silently-replayed blocks, so their stdin is fed EOF — an earlier block's `input()` (or `sys.stdin` / shell `read`) returns immediately instead of blocking forever. A replayed `input()` raises `EOFError`, which is swallowed so it can't abort the block you actually ran. If a *later* block needs the value an interactive block sets, guard the read (`try: x = input() / except EOFError: x = …`) so the value still resolves on replay.
+- **Replay is non-interactive, but your input is remembered.** No input bar is shown for silently-replayed blocks. Instead, the stdin you typed when a block last ran is recorded and fed back during replay, so an earlier block's `input()` (or `sys.stdin` / shell `read`) reproduces the value it produced — a *later* block sees the variable an interactive upstream block set (e.g. `name = input(...)` upstream, `print(name)` downstream). A read past the recorded input still hits EOF (a replayed `input()` raises `EOFError`, swallowed so it can't abort the block you actually ran), and passwords are never recorded. Stored input is cleared by **Clear Session**.
 
 ### Execution order matters
 
@@ -181,7 +181,7 @@ code_vars:
 
 YAML already has types: `0.85` is a float, `true` is a bool, `null` is null. No inference needed. String values don't require quotes in YAML but you can add them for clarity.
 
-**Display in reading view.** A nested mapping like the one above can't be shown in Obsidian's reading-view Properties panel — a nested object displays an orange "unsupported property type" warning and collapses. CodeSuite hides that broken row and renders the values in a small read-only panel just below the Properties widget, so they still show up in preview. If you would rather Obsidian render them natively, write `code_vars` as a list of `key = value` strings instead:
+**Display in reading view.** A nested mapping like the one above can't be shown in Obsidian's reading-view Properties panel — a nested object displays an orange "unsupported property type" warning and collapses. CodeSuite hides that broken row, so the warning never appears, and renders the values as a small read-only list just below the Properties widget. This **CodeSuite variables panel** is on by default; turn it off in settings if you'd rather just suppress the warning and show nothing. The panel lives inside the note's header (next to Properties), so it stays put as you scroll and refreshes whenever the frontmatter changes. Alternatively, write `code_vars` as a list of `key = value` strings — a plain list renders natively in the Properties panel:
 
 ```yaml
 ---
