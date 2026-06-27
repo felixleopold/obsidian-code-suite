@@ -1,9 +1,10 @@
-Fixes the code-block Copy button so it no longer adds a trailing newline to the clipboard.
+Lint-compliance maintenance release — no functional or user-facing changes.
 
-## Bug Fixes
+## Maintenance
 
-- **Copy no longer appends a trailing newline** — clicking **Copy** on a code block now puts the code on the clipboard exactly as displayed, without the extra newline the fence carries. Pasting a single-line command into a terminal no longer auto-executes it, so you can preview or edit it first ([#37](https://github.com/felixleopold/obsidian-code-suite/issues/37)).
+- **Removed a CSS `!important`** — the rule that hides the unsupported `code_vars:` / `template_context:` property rows now wins by selector specificity (scoped under `.metadata-container`) instead of `!important`.
+- **Cleaned up the README** — removed leftover demo-GIF planning comments (`<!-- PLAN: … -->`) and the commented-out image placeholders that pointed at GIFs that were never produced.
 
 ## Upgrade Notes
 
-- No action needed. This affects only what the Copy pill writes to the clipboard; Run and execution behavior are unchanged.
+- No action needed. Behavior is identical to 1.14.1.

@@ -539,9 +539,9 @@ code.ocode-var-ref[data-resolved] {
    (pure CSS, so it survives every re-render with no JS timing); when the
    `showFrontmatterVarsPanel` setting is on, the panel sits just below the
    Properties widget and renders the values. */
-.metadata-property[data-property-key="code_vars"],
-.metadata-property[data-property-key="template_context"] {
-  display: none !important;
+.metadata-container .metadata-property[data-property-key="code_vars"],
+.metadata-container .metadata-property[data-property-key="template_context"] {
+  display: none;
 }
 .ocode-frontmatter-vars {
   margin: 0 0 16px;

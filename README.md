@@ -5,7 +5,6 @@ VS Code–quality syntax highlighting, live code execution with streaming output
 
 ![CodeSuite in action](assets/hero.gif)
 
-
 ---
 
 ## At a glance
@@ -24,9 +23,6 @@ VS Code–quality syntax highlighting, live code execution with streaming output
 
 # 🎨 Highlight
 
-<!-- PLAN: demo-highlighting.gif — switch between Catppuccin, Gruvbox, Nord, Tokyo Night in the theme picker; show code in reading view recoloring live. ~8 s. -->
-<!-- ![Theme switching](assets/demo-highlighting.gif) -->
-
 Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses internally.
 
 - **65+ built-in themes** — Gruvbox, Catppuccin, Dracula, Nord, Tokyo Night, One Dark Pro, Rosé Pine, Kanagawa, Everforest, Solarized, Night Owl, Synthwave '84, and many more
@@ -41,9 +37,6 @@ Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses 
 <a id="run"></a>
 
 # ▶️ Run
-
-<!-- PLAN: demo-execution.gif — run a short Python script; output streams live line-by-line; a matplotlib plot appears below; then a second block reads a variable from the first. ~12 s. -->
-<!-- ![Live code execution](assets/demo-execution.gif) -->
 
 Run code directly from a code block — no terminal, no switching apps.
 
@@ -83,9 +76,6 @@ Run code directly from a code block — no terminal, no switching apps.
 <a id="notebook-mode"></a>
 
 ## 🔗 Notebook mode: shared variables & Run All
-
-<!-- PLAN: demo-notebook.gif — define a variable in a vars block, run two Python blocks that reference it, show `$varname` updating inline in the note text, then click Run All. ~15 s. -->
-<!-- ![Shared variables and Run All](assets/demo-notebook.gif) -->
 
 Each note maintains an in-memory execution session — notebook-style shared state, scoped per note and held in memory.
 
@@ -136,9 +126,6 @@ State is per-note, lives only in memory, and resets when Obsidian is closed. For
 <a id="embed-render"></a>
 
 # 📎 Embed & render
-
-<!-- PLAN: demo-embed.gif — type ![[script.py]] in a note, switch to reading view, show the collapsible block appear with filename + line count, then expand it. ~8 s. -->
-<!-- ![Embedded code files](assets/demo-embed.gif) -->
 
 **Embedded code files** — embed any code file from your vault with `![[file.py]]` and get a full syntax-highlighted, interactive block instead of plain text:
 
@@ -230,9 +217,6 @@ Full syntax reference: [**HTML Templating**](docs/html-templating.md). A copy-pa
 
 # 🔁 Share: import & export
 
-<!-- PLAN: demo-export.gif — Run All on a notebook-style note, then export to PDF; show the resulting PDF with code outputs and plots, theme-matched. The differentiator shot. ~10 s. -->
-<!-- ![Jupyter and PDF export](assets/demo-export.gif) -->
-
 Move work between CodeSuite and the Jupyter ecosystem, or share a polished copy of a note. All four commands live in the command palette (desktop only).
 
 **Jupyter notebooks (`.ipynb`)**
@@ -315,6 +299,7 @@ Track progress or vote on the linked GitHub issues.
 
 **Recent releases**
 
+- **1.14.2** — lint compliance: dropped the `!important` on the frontmatter-vars hide rule in favor of higher selector specificity, and removed leftover demo-GIF planning comments from the README. No functional changes.
 - **1.14.1** — the code-block **Copy** button no longer appends a trailing newline, so pasting a single-line command into a terminal no longer auto-executes it ([#37](https://github.com/felixleopold/obsidian-code-suite/issues/37)).
 - **1.14.0** — the **CodeSuite variables panel** (the read-only rendering of `code_vars:` / `template_context:` below the Properties widget) is now reliable and **on by default**. It lives inside the note header next to Properties, so it stays put as you scroll instead of flickering, and it refreshes when the frontmatter changes. Turn it off in settings to just hide Obsidian's "unsupported property type" warning and render nothing ([#34](https://github.com/felixleopold/obsidian-code-suite/issues/34)).
 - **1.13.0** — reading-view and export polish: every code block is now collapsible from its header ([#32](https://github.com/felixleopold/obsidian-code-suite/issues/32)); nested `code_vars:` / `template_context:` frontmatter renders in preview instead of Obsidian's "unsupported property type" warning, and `code_vars` accepts a `key = value` list form ([#34](https://github.com/felixleopold/obsidian-code-suite/issues/34)); html-block previews now appear in HTML/PDF exports ([#33](https://github.com/felixleopold/obsidian-code-suite/issues/33)). Fixes: re-running a block now sees upstream state instead of compounding its own output ([#36](https://github.com/felixleopold/obsidian-code-suite/issues/36)), and dead output-toolbar buttons no longer show in exports ([#35](https://github.com/felixleopold/obsidian-code-suite/issues/35)).
