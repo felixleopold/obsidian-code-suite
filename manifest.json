@@ -1,7 +1,7 @@
 {
   "id": "code-suite",
   "name": "CodeSuite",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "minAppVersion": "1.6.6",
   "description": "Execute code inside your notes: Shiki syntax highlighting with 65+ themes, live streaming output, inline Matplotlib and Plotly graphs, shared variables, and styled HTML and PDF export with outputs.",
   "author": "Felix Leopold",
