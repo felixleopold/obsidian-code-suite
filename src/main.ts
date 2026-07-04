@@ -13,6 +13,7 @@ import {
   Notice,
   Platform,
   setIcon,
+  finishRenderMath,
   normalizePath,
   editorInfoField,
   editorLivePreviewField,
@@ -2447,12 +2448,19 @@ __ocode_emit_vars
     try {
       await MarkdownRenderer.render(this.app, markdown, full, file.path, comp);
 
+      // Flush the MathJax stylesheet into the live document so any LaTeX in the
+      // note is fully typeset and its styles are capturable below.
+      try { await finishRenderMath(); } catch { /* no math in note / MathJax unavailable */ }
+      this.cloneMathGlobalCache(full);
+
       await this.buildExportHtmlFrames(full, file.path);
       this.graftLiveOutputs(previewEl, full);
       this.cleanExportClone(full);
       this.inlineImages(full, fs, path);
 
       const pluginCss = await this.readPluginCss();
+      const featureCss = this.captureFeatureCss();
+      const rootVars = this.captureRootVars();
       const themeVars = this.captureThemeVars();
       const singlePage = format === "pdf" && options.singlePage;
       let bodyClass = this.captureBodyClass();
@@ -2467,6 +2475,8 @@ __ocode_emit_vars
         title: file.basename,
         bodyHtml: full.innerHTML,
         pluginCss,
+        featureCss,
+        rootVars,
         themeVars,
         bodyClass,
         contentWidth,
@@ -2648,6 +2658,106 @@ __ocode_emit_vars
     return `:root {\n${lines.join("\n")}\n}`;
   }
 
+  /**
+   * Snapshot every CSS custom property the live theme defines, as a `:root`
+   * block, so the callout/MathJax rules lifted by {@link captureFeatureCss}
+   * (which reference vars like `--callout-padding`, `--callout-radius`,
+   * `--callout-color`, defined on `:root`/`body` — selectors the feature-CSS
+   * filter skips) resolve in the standalone export. Values are read *computed*
+   * from `<body>`, so they're already resolved for the active light/dark mode;
+   * any remaining `var()` cross-references resolve against the rest of the set.
+   * These only take effect where a shipped rule uses them, so dumping the whole
+   * set never leaks Obsidian's app layout into the export.
+   */
+  private captureRootVars(): string {
+    const names = new Set<string>();
+    const collect = (rules: CSSRuleList): void => {
+      for (const rule of Array.from(rules)) {
+        if (rule instanceof CSSStyleRule) {
+          const st = rule.style;
+          for (let i = 0; i < st.length; i++) {
+            const prop = st[i];
+            if (prop.startsWith("--")) names.add(prop);
+          }
+        } else if (rule instanceof CSSMediaRule || rule instanceof CSSSupportsRule) {
+          collect(rule.cssRules);
+        }
+      }
+    };
+    for (const sheet of Array.from(activeDocument.styleSheets)) {
+      try { collect(sheet.cssRules); }
+      catch { /* cross-origin sheet — cssRules access denied; skip */ }
+    }
+    const bodyStyle = activeWindow.getComputedStyle(activeDocument.body);
+    const lines: string[] = [];
+    for (const name of names) {
+      const val = bodyStyle.getPropertyValue(name).trim();
+      if (val) lines.push(`  ${name}: ${val};`);
+    }
+    return `:root {\n${lines.join("\n")}\n}`;
+  }
+
+  /**
+   * Pull the live document's callout and MathJax CSS into the export.
+   *
+   * The export renders in a bare Electron window that has none of Obsidian's
+   * app/theme CSS, so callouts (`.callout` + per-type `--callout-color`/icon
+   * variables) and rendered LaTeX (`mjx-container`, the flushed MathJax
+   * stylesheet) would otherwise be unstyled. Walk every same-origin stylesheet
+   * and keep only the rules whose selectors touch those features — so the export
+   * tracks the active theme and any custom callout types without shipping all of
+   * app.css. Cross-origin sheets (whose `cssRules` access throws) are skipped.
+   */
+  private captureFeatureCss(): string {
+    // callout | .math(-inline/-block) | MathJax's mjx-* / MathJax / MJX- rules.
+    const wanted = /callout|mjx-|MathJax|MJX-|\.math\b/i;
+    const out: string[] = [];
+    const seen = new Set<string>();
+    const push = (text: string): void => {
+      if (text && !seen.has(text)) { seen.add(text); out.push(text); }
+    };
+    const matchingInner = (group: CSSGroupingRule): string[] => {
+      const inners: string[] = [];
+      for (const inner of Array.from(group.cssRules)) {
+        if (inner instanceof CSSStyleRule && wanted.test(inner.selectorText)) inners.push(inner.cssText);
+      }
+      return inners;
+    };
+    const scan = (rules: CSSRuleList): void => {
+      for (const rule of Array.from(rules)) {
+        if (rule instanceof CSSStyleRule) {
+          if (wanted.test(rule.selectorText)) push(rule.cssText);
+        } else if (rule instanceof CSSMediaRule || rule instanceof CSSSupportsRule) {
+          // Rebuild the grouping rule with only the matching inner rules, so a
+          // huge `@media` block in app.css doesn't drag its whole body along.
+          const inners = matchingInner(rule);
+          if (!inners.length) continue;
+          const cond = rule instanceof CSSMediaRule
+            ? `@media ${rule.media.mediaText}`
+            : `@supports ${rule.conditionText}`;
+          push(`${cond} {\n${inners.join("\n")}\n}`);
+        }
+      }
+    };
+    for (const sheet of Array.from(activeDocument.styleSheets)) {
+      try { scan(sheet.cssRules); }
+      catch { /* cross-origin sheet — cssRules access denied; skip */ }
+    }
+    return out.join("\n");
+  }
+
+  /**
+   * MathJax's SVG output can keep glyph `<path>`s in a shared global cache that
+   * lives outside each `mjx-container`; the container references them via
+   * `<use href="#…">`. Clone that cache into the export body so the references
+   * resolve in the standalone document. A no-op when MathJax uses a local (self
+   * contained) cache or the note has no math.
+   */
+  private cloneMathGlobalCache(root: HTMLElement): void {
+    const cache = activeDocument.getElementById("MJX-SVG-global-cache");
+    if (cache) root.insertBefore(cache.cloneNode(true), root.firstChild);
+  }
+
   /** Render HTML to PDF in a hidden Electron window via webContents.printToPDF. */
   private async exportPdf(html: string, defaultPath: string, options: ExportOptions): Promise<void> {
     const BrowserWindow = this.getBrowserWindow();
@@ -2673,8 +2783,45 @@ __ocode_emit_vars
     let win: ElectronBrowserWindow | null = null;
     try {
       fs.writeFileSync(tmpHtml, html);
-      win = new BrowserWindow({ show: false, width: 820, height: 1160, webPreferences: { sandbox: true } });
+      // backgroundThrottling:false keeps the Page Visibility API reporting
+      // "visible" for this never-shown (show:false) window, so requestAnimationFrame
+      // keeps firing. The html-preview resize shim posts every height through rAF,
+      // and a hidden window pauses rAF — without this the shim never runs, no height
+      // is posted, and every preview iframe stays stuck at its 60px CSS default.
+      win = new BrowserWindow({ show: false, width: 820, height: 1160, webPreferences: { sandbox: true, backgroundThrottling: false } });
       await win.loadFile(tmpHtml);
+
+      // printToPDF captures a static snapshot, so everything must be laid out
+      // *before* it fires. Wait for fonts, every inlined image, and — crucially —
+      // the sandboxed html-preview iframes: each starts at a 60px CSS default and
+      // only grows to fit its content once its srcdoc loads and posts its height
+      // back to the parent (the resize round-trip). Without this wait the default
+      // (paginated) path prints before that lands and clips every html block to
+      // 60px. Also returns the final document size for the single-page branch.
+      const dims = await win.webContents.executeJavaScript(`
+        (async () => {
+          try { await document.fonts.ready; } catch { /* fonts API unavailable */ }
+          await Promise.all(Array.from(document.images).map((img) =>
+            img.complete ? null : new Promise((res) => { img.onload = img.onerror = () => res(null); })
+          ));
+          // Poll until every frame has an inline height (set only once its srcdoc
+          // has loaded and posted its size, so this also covers frame load) AND
+          // the heights hold steady across two samples — script-built content
+          // (charts/SVGs) can grow after the first post. Capped at ~3s so a frame
+          // that never reports can't hang the export.
+          const frames = Array.from(document.querySelectorAll("iframe.ocode-html-frame"));
+          let prev = "";
+          for (let i = 0; i < 60 && frames.length; i++) {
+            await new Promise((r) => setTimeout(r, 50));
+            const cur = frames.map((f) => f.style.height).join("|");
+            if (cur === prev && frames.every((f) => f.style.height !== "")) break;
+            prev = cur;
+          }
+          await new Promise((r) => setTimeout(r, 50));
+          const r = document.documentElement.getBoundingClientRect();
+          return { w: Math.ceil(r.width), h: Math.ceil(r.height) };
+        })()
+      `) as { w: number; h: number };
 
       // Margins 0 so the dark themed background bleeds to the paper edge.
       const printOpts: Record<string, unknown> = {
@@ -2684,22 +2831,9 @@ __ocode_emit_vars
       };
 
       if (options.singlePage) {
-        // One tall page, no breaks. Measure the FULL rendered document height via
-        // the root element's bounding box — that's the true content height even
-        // though the offscreen window's viewport is short (scrollHeight there can
-        // collapse to ~viewport, which paginated the page into many short pages).
-        // Wait for fonts + every inlined image to load first so the height is final.
-        const dims = await win.webContents.executeJavaScript(`
-          (async () => {
-            try { await document.fonts.ready; } catch { /* fonts API unavailable */ }
-            await Promise.all(Array.from(document.images).map((img) =>
-              img.complete ? null : new Promise((res) => { img.onload = img.onerror = () => res(null); })
-            ));
-            await new Promise((r) => setTimeout(r, 50));
-            const r = document.documentElement.getBoundingClientRect();
-            return { w: Math.ceil(r.width), h: Math.ceil(r.height) };
-          })()
-        `) as { w: number; h: number };
+        // One tall page, no breaks. Uses the FULL rendered document height
+        // measured above (the root's bounding box) — that's the true content
+        // height even though the offscreen window's viewport is short.
         // Modern Electron (Obsidian runs Chrome 142+) takes pageSize in INCHES,
         // not microns. 96 CSS px = 1 inch. PDF caps a page at 200 inches. A single
         // explicit pageSize (with margins 0, already set) means no page breaks;
@@ -4032,7 +4166,10 @@ __ocode_emit_vars
     let win: ElectronBrowserWindow | null = null;
     try {
       fs.writeFileSync(tmpHtml, html);
-      win = new BrowserWindow({ show: false, width: 820, height: 1160, webPreferences: { sandbox: true } });
+      // backgroundThrottling:false so requestAnimationFrame keeps firing while the
+      // window is hidden (Page Visibility reports "visible"), letting rAF-driven
+      // block content paint before it prints. See exportPdf for the full rationale.
+      win = new BrowserWindow({ show: false, width: 820, height: 1160, webPreferences: { sandbox: true, backgroundThrottling: false } });
       await win.loadFile(tmpHtml);
       const w = win;
       await new Promise<void>((resolve, reject) => {
@@ -4139,11 +4276,13 @@ __ocode_emit_vars
       `var h=Math.max(b.scrollHeight,b.offsetHeight,Math.ceil(b.getBoundingClientRect().height));` +
       `parent.postMessage({__ocodeFrame:${JSON.stringify(token)},height:h},"*")};` +
       `var sched=function(){if(q)return;q=true;requestAnimationFrame(post)};` +
-      `addEventListener("load",sched);` +
+      `addEventListener("load",post);` +
       `try{new ResizeObserver(sched).observe(document.body)}catch(e){}` +
       `try{new MutationObserver(sched).observe(document.body,` +
       `{subtree:true,childList:true,attributes:true,characterData:true})}catch(e){}` +
-      `sched();setTimeout(sched,250);setTimeout(sched,1000)})();</` + `script>`;
+      // Reactive posts coalesce through rAF, but the fixed fallbacks call post()
+      // directly so a height is still reported if rAF is ever stalled or delayed.
+      `sched();setTimeout(post,50);setTimeout(post,250);setTimeout(post,1000)})();</` + `script>`;
 
     // A full document styles itself — render it verbatim, then append the
     // height override and resize shim.

@@ -413,6 +413,40 @@ body {
 }
 `;
 
+/**
+ * Complements the callout/MathJax rules lifted from the live document
+ * (`featureCss`). Adds only what capture can't: a structural fallback so
+ * callouts read as boxed asides even if a theme defined them via variables on
+ * non-callout selectors, and print rules that keep a callout or a block
+ * equation from being sliced across a page break. Deliberately low-specificity
+ * and free of `!important` so the captured theme colours always win.
+ */
+const CALLOUT_MATH_CSS = `
+:where(.ocode-export .callout) {
+  margin: 1em 0; padding: 0.75em 1em; border-radius: 8px;
+  border: 1px solid var(--background-modifier-border, #ddd);
+  background: var(--background-secondary, rgba(135,131,120,0.08));
+  overflow: hidden;
+}
+:where(.ocode-export .callout-title) { display: flex; align-items: center; gap: 0.5em; font-weight: 600; }
+:where(.ocode-export .callout-icon) { display: inline-flex; }
+:where(.ocode-export .callout-icon svg) { width: 1.1em; height: 1.1em; }
+:where(.ocode-export mjx-container) { max-width: 100%; }
+/* Display equations must never live in a scroll box: a PDF can't scroll, and an
+   auto-overflow container clips tall fractions, limits and sub/superscripts (an
+   \`overflow-x: auto\` also forces \`overflow-y\` to compute to \`auto\`). Render the
+   SVG as a centred block scaled to the column so a wide equation shrinks to fit
+   instead of overflowing or being cut off. Real (non-:where) specificity so this
+   also beats any captured Obsidian overflow rule. */
+.ocode-export mjx-container[display="true"] { overflow: visible; }
+.ocode-export mjx-container[display="true"] > svg {
+  display: block; margin: 0 auto; max-width: 100%; height: auto;
+}
+@media print {
+  .ocode-export .callout { break-inside: avoid; }
+  .ocode-export mjx-container[display="true"] { break-inside: avoid; overflow: visible; }
+}`;
+
 /** Width strategy for the exported content column. */
 export type ExportWidthMode = "default" | "current" | "full";
 
@@ -454,6 +488,12 @@ export function buildExportHtml(opts: {
   title: string;
   bodyHtml: string;
   pluginCss: string;
+  /** Callout + MathJax CSS lifted from the live document so those Obsidian
+   *  features render in the standalone export (which has no app/theme CSS). */
+  featureCss?: string;
+  /** A `:root { … }` snapshot of every theme custom property, so the vars the
+   *  lifted callout/MathJax rules reference resolve in the export. */
+  rootVars?: string;
   themeVars: string;
   bodyClass: string;
   /** Content column width (px) measured from the live reading view, so the
@@ -543,9 +583,12 @@ ${inner}
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(opts.title)}</title>
 <style>
+${opts.rootVars ?? ""}
 ${opts.themeVars}
 ${BASE_HTML_CSS}
 ${opts.pluginCss}
+${opts.featureCss ?? ""}
+${CALLOUT_MATH_CSS}
 ${widthRule}
 ${printShowOutputs}
 ${keepWholeRule}
