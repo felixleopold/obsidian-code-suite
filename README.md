@@ -229,7 +229,7 @@ Move work between CodeSuite and the Jupyter ecosystem, or share a polished copy 
 - **Export note to HTML (with outputs)**
 - **Export note to PDF (with outputs)** (rendered via Electron's print engine)
 
-Both produce a self-contained file that matches what you see in Obsidian — same Shiki theme, CodeSuite styling, and **code outputs** (text, images, plots). Each export opens a small **options dialog** (last choices remembered):
+Both produce a self-contained file that matches what you see in Obsidian — same Shiki theme, CodeSuite styling, **code outputs** (text, images, plots), and native Obsidian features including **callouts** (theme colours, icons, and custom callout types) and **LaTeX math** (inline and block). Each export opens a small **options dialog** (last choices remembered):
 
 - **Content width** (HTML + PDF) — *Obsidian default*, *Match current view*, or *Full width*
 - **Keep code blocks together** (PDF) — avoid splitting a block across a page break
@@ -299,6 +299,7 @@ Track progress or vote on the linked GitHub issues.
 
 **Recent releases**
 
+- **1.16.0** — HTML and PDF exports now reproduce two more native Obsidian features: **callouts** (theme colours, icons, and custom callout types) and **LaTeX math** (inline and block), captured from the live note so they match your active theme in the standalone file. Fixes: embedded **html-block previews no longer collapse to a 60px sliver** in PDF export — the hidden print window keeps its layout timers running and waits for every preview iframe to report its true height before printing, and display equations render as a scaled, centred block instead of overflowing or being clipped.
 - **1.15.0** — the settings tab is reorganized into five sections — **Appearance**, **Execution**, **Languages**, **Files**, and **Advanced** — navigated by a tab bar at the top instead of one long scroll ([#31](https://github.com/felixleopold/obsidian-code-suite/issues/31)). Every existing setting is preserved; the tabs are keyboard-navigable (arrow keys, Home/End) and follow Obsidian's settings style guide.
 - **1.14.2** — lint compliance: dropped the `!important` on the frontmatter-vars hide rule in favor of higher selector specificity, and removed leftover demo-GIF planning comments from the README. No functional changes.
 - **1.14.1** — the code-block **Copy** button no longer appends a trailing newline, so pasting a single-line command into a terminal no longer auto-executes it ([#37](https://github.com/felixleopold/obsidian-code-suite/issues/37)).
