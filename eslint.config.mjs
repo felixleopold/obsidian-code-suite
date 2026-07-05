@@ -88,6 +88,17 @@ export default defineConfig([
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" },
       ],
+      // Type-aware safety checks flagged by the Obsidian plugin reviewer.
+      // The code accesses Node builtins through Electron's `window.require`
+      // bridge, cast to their real module types (`... as typeof import("fs")`),
+      // so these all pass — enabling them here keeps that discipline enforced
+      // and guards against `any` creeping back in via un-cast `require` calls.
+      "@typescript-eslint/no-unsafe-return": "warn",
+      "@typescript-eslint/no-unsafe-call": "warn",
+      "@typescript-eslint/no-unsafe-member-access": "warn",
+      "@typescript-eslint/no-unsafe-assignment": "warn",
+      "@typescript-eslint/no-unsafe-argument": "warn",
+      "@typescript-eslint/no-unnecessary-type-assertion": "warn",
     },
   },
 ]);
