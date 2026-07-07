@@ -169,6 +169,17 @@ function stripFenceIndent(line: string, indent: string): string {
   return line.slice(i);
 }
 
+/**
+ * Narrow an untyped value (e.g. Obsidian's `any`-valued `FrontMatterCache`) to
+ * a `Record<string, unknown>`. Taking `unknown` keeps the internal assertion a
+ * genuine narrowing in every type environment, so it never trips
+ * `@typescript-eslint/no-unnecessary-type-assertion` the way a direct
+ * `frontmatter as Record<string, unknown>` cast does under the plugin reviewer.
+ */
+function toRecord(value: unknown): Record<string, unknown> | undefined {
+  return value as Record<string, unknown> | undefined;
+}
+
 /** Decode a base64 string to an ArrayBuffer (for writing baked image files). */
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
@@ -1548,7 +1559,7 @@ export default class CodePlugin extends Plugin {
       });
       if (views.length === 0) return;
       for (const view of views) this.syncSkipBadges(view);
-    }, delay) as unknown as number;
+    }, delay);
   }
 
   /**
@@ -2212,7 +2223,7 @@ __ocode_emit_vars
       input.type = "file";
       input.addClass("ocode-hidden-input");
       input.addEventListener("change", () => {
-        const f = input.files?.[0] as (File & { path?: string }) | undefined;
+        const f: (File & { path?: string }) | undefined = input.files?.[0];
         const p = f?.path;
         input.remove();
         if (!p) new Notice("Could not read file path from picker. Try again, or report this issue.");
@@ -3041,7 +3052,7 @@ __ocode_emit_vars
         window.setTimeout(() => {
           setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
           copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copy";
-        }, 2000) as unknown as number;
+        }, 2000);
       });
     });
     btnGroup.appendChild(copyBtn);
@@ -3058,7 +3069,7 @@ __ocode_emit_vars
       window.setTimeout(() => {
         setSvgContent(applyBtn.querySelector(".ocode-pill-icon")!, ICON.reload);
         applyBtn.querySelector(".ocode-pill-text")!.textContent = "Apply";
-      }, 1500) as unknown as number;
+      }, 1500);
     });
     btnGroup.appendChild(applyBtn);
 
@@ -3534,7 +3545,7 @@ __ocode_emit_vars
 
       const file = view.file;
       if (view.getMode() !== "preview" || !(file instanceof TFile)) return;
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined;
+      const fm = toRecord(this.app.metadataCache.getFileCache(file)?.frontmatter);
       if (!fm) return;
       const groups = this.frontmatterPanelGroups(fm);
       if (!groups.length) return;
@@ -3809,7 +3820,7 @@ __ocode_emit_vars
         window.setTimeout(() => {
           setSvgContent(copyBtn.querySelector(".ocode-pill-icon")!, ICON.copy);
           copyBtn.querySelector(".ocode-pill-text")!.textContent = "Copy";
-        }, 2000) as unknown as number;
+        }, 2000);
       });
     });
     btnGroup.appendChild(copyBtn);
@@ -4039,9 +4050,7 @@ __ocode_emit_vars
       : this.app.workspace.getActiveFile();
 
     if (file instanceof TFile) {
-      const fm = this.app.metadataCache.getFileCache(file)?.frontmatter as
-        | Record<string, unknown>
-        | undefined;
+      const fm = toRecord(this.app.metadataCache.getFileCache(file)?.frontmatter);
       if (fm) {
         for (const [k, v] of Object.entries(fm)) base[k] = v;
         // Named context notes: expose each linked note's frontmatter under its

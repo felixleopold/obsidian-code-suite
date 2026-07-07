@@ -206,7 +206,7 @@ export class Highlighter {
       const themeData = JSON.parse(customTheme.json) as { name?: string } & Record<string, unknown>;
       // Ensure the theme has a name
       if (!themeData.name) themeData.name = customTheme.name;
-      void this.core.loadTheme(themeData as unknown as Parameters<typeof this.core.loadTheme>[0]);
+      void this.core.loadTheme(themeData);
       const id = themeData.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
       this.loadedThemes.add(id);
       return id;
