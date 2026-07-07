@@ -32,6 +32,7 @@ import {
 } from "./settings";
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 import { buildFigureEl } from "./output-view";
+import { getFs, getOs, getPath, type NodeFS, type NodePath } from "./node-builtins";
 import {
   type BakedOutput,
   type BakedFigure,
@@ -2062,9 +2063,8 @@ __ocode_emit_vars
       new Notice("Importing code files is only available on desktop.");
       return;
     }
-    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-    const fs = nodeRequire("fs") as typeof import("fs");
-    const path = nodeRequire("path") as typeof import("path");
+    const fs = getFs();
+    const path = getPath();
 
     // Prefer Electron's native open-file dialog — it always returns a real
     // absolute path. (Newer Electron strips `File.path` from <input type=file>
@@ -2278,8 +2278,7 @@ __ocode_emit_vars
     extensions: string[],
     data: string | Uint8Array,
   ): Promise<void> {
-    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-    const fs = nodeRequire("fs") as typeof import("fs");
+    const fs = getFs();
     const dialog = this.getDialog();
     let out = defaultAbsPath;
     if (dialog?.showSaveDialog) {
@@ -2298,9 +2297,8 @@ __ocode_emit_vars
   /** Import a Jupyter notebook as a new (unrun) CodeSuite markdown note. */
   private async importNotebook(): Promise<void> {
     if (!Platform.isDesktop) { new Notice("Importing notebooks is desktop-only."); return; }
-    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-    const fs = nodeRequire("fs") as typeof import("fs");
-    const path = nodeRequire("path") as typeof import("path");
+    const fs = getFs();
+    const path = getPath();
 
     const src = await this.pickOpenFile("Jupyter notebook", ["ipynb"]);
     if (!src) return;
@@ -2350,8 +2348,7 @@ __ocode_emit_vars
 
   /** Absolute on-disk path next to the note, with the given extension. */
   private exportDefaultPath(file: TFile, ext: string): string {
-    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-    const path = nodeRequire("path") as typeof import("path");
+    const path = getPath();
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
     const folder = file.parent && file.parent.path !== "/" ? file.parent.path : "";
     return path.join(vaultPath, folder, `${file.basename}.${ext}`);
@@ -2426,9 +2423,8 @@ __ocode_emit_vars
 
   /** Build a self-contained, themed HTML document from a rendered preview clone. */
   private async buildNoteHtml(previewEl: HTMLElement, file: TFile, format: "html" | "pdf", options: ExportOptions): Promise<string> {
-    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-    const fs = nodeRequire("fs") as typeof import("fs");
-    const path = nodeRequire("path") as typeof import("path");
+    const fs = getFs();
+    const path = getPath();
 
     // Reading view *virtualizes*: only the sections near the viewport actually
     // live in the DOM, so cloning previewEl drops everything scrolled out of
@@ -2604,7 +2600,7 @@ __ocode_emit_vars
   }
 
   /** Convert vault/app:// image sources to inline data-URIs (matplotlib already is). */
-  private inlineImages(root: HTMLElement, fs: typeof import("fs"), path: typeof import("path")): void {
+  private inlineImages(root: HTMLElement, fs: NodeFS, path: NodePath): void {
     const mime: Record<string, string> = {
       ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
       ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp", ".bmp": "image/bmp",
@@ -2765,10 +2761,9 @@ __ocode_emit_vars
       new Notice("PDF export needs Electron. Export to HTML and print to PDF from a browser instead.");
       return;
     }
-    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-    const fs = nodeRequire("fs") as typeof import("fs");
-    const os = nodeRequire("os") as typeof import("os");
-    const path = nodeRequire("path") as typeof import("path");
+    const fs = getFs();
+    const os = getOs();
+    const path = getPath();
 
     // Pick the destination up front (matching the other exporters).
     const dialog = this.getDialog();
@@ -4156,10 +4151,9 @@ __ocode_emit_vars
       new Notice("Printing needs Electron. Save as PDF or print from a browser instead.");
       return;
     }
-    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-    const fs = nodeRequire("fs") as typeof import("fs");
-    const os = nodeRequire("os") as typeof import("os");
-    const path = nodeRequire("path") as typeof import("path");
+    const fs = getFs();
+    const os = getOs();
+    const path = getPath();
 
     const html = this.buildHtmlBlockDocument(code);
     const tmpHtml = path.join(os.tmpdir(), `codesuite-print-${Date.now()}.html`);

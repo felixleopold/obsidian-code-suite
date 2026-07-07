@@ -1,5 +1,7 @@
 /** Settings types and defaults for CodeSuite plugin */
 
+import { getFs } from "./node-builtins";
+
 /** All bundled Shiki themes available */
 export const BUNDLED_THEMES: Record<string, string> = {
   // ── Gruvbox ──
@@ -361,8 +363,7 @@ export function parseShellSourceFiles(sourceFiles: string): string[] {
 export function parseDotEnvFile(filePath: string): Record<string, string> {
   if (!filePath) return {};
   try {
-    const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-    const fs = nodeRequire("fs") as typeof import("fs");
+    const fs = getFs();
     if (!fs.existsSync(filePath)) return {};
     const text = fs.readFileSync(filePath, "utf-8");
     const stripped = text

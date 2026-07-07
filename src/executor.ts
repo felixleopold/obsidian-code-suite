@@ -5,6 +5,7 @@
 
 import { Platform } from "obsidian";
 import { parseExtraEnv, parseDotEnvFile, parseShellSourceFiles, type CodePluginSettings } from "./settings";
+import { getChildProcess, getFs, getOs, getPath, getProcess, type NodeBuffer, type NodeChildProcessHandle, type NodeOS } from "./node-builtins";
 
 /** Runtime definitions */
 const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
@@ -196,7 +197,7 @@ except ImportError:
 function resolveExecutionCwd(
   settings: CodePluginSettings,
   vaultPath: string | undefined,
-  os: typeof import("os"),
+  os: NodeOS,
 ): string {
   switch (settings.executionCwd) {
     case "vault":
@@ -250,12 +251,11 @@ export function startExecution(
   }
 
   // Node.js builtins are required for code execution (desktop only, guarded by Platform.isDesktop above).
-  // Access via window.require (Electron's Node bridge) to avoid static-analysis restrictions on direct require() calls.
-  const nodeRequire = (window as unknown as { require: (id: string) => unknown }).require;
-  const { spawn } = nodeRequire("child_process") as typeof import("child_process");
-  const fs = nodeRequire("fs") as typeof import("fs");
-  const os = nodeRequire("os") as typeof import("os");
-  const path = nodeRequire("path") as typeof import("path");
+  // Reached via window.require (Electron's Node bridge) through typed accessors.
+  const { spawn } = getChildProcess();
+  const fs = getFs();
+  const os = getOs();
+  const path = getPath();
 
   // Temp dir for this execution
   const execId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -309,7 +309,7 @@ export function startExecution(
   // and override or add note-specific values via the settings UI.
   const dotEnv = parseDotEnvFile(settings.envFilePath);
   const extraEnv = parseExtraEnv(settings.extraEnv);
-  const env = { ...process.env, ...dotEnv, ...extraEnv };
+  const env: Record<string, string | undefined> = { ...getProcess().env, ...dotEnv, ...extraEnv };
 
   // On macOS, GUI apps (like Obsidian) don't inherit the user's shell PATH,
   // so Homebrew tools (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel)
@@ -351,7 +351,7 @@ export function startExecution(
     args.unshift(lang === "zsh" ? "-l" : "--login");
   }
   args.push(scriptArg);
-  let proc: ReturnType<typeof spawn>;
+  let proc: NodeChildProcessHandle;
   let killed = false;
   let cancelled = false;
   let stdout = "";
@@ -370,7 +370,7 @@ export function startExecution(
     proc.kill("SIGKILL");
   }, settings.executionTimeout);
 
-  proc.stdout?.on("data", (data: Buffer) => {
+  proc.stdout?.on("data", (data: NodeBuffer) => {
     const text = data.toString();
     stdout += text;
     callbacks?.onStdout?.(text);
@@ -381,7 +381,7 @@ export function startExecution(
     }
   });
 
-  proc.stderr?.on("data", (data: Buffer) => {
+  proc.stderr?.on("data", (data: NodeBuffer) => {
     const text = data.toString();
     stderr += text;
     callbacks?.onStderr?.(text);
