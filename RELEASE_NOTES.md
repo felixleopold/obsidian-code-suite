@@ -1,15 +1,13 @@
-HTML and PDF exports now reproduce Obsidian callouts and LaTeX math, and embedded html-block previews no longer clip in PDFs.
-
-## What's New
-
-- **Callouts in exports** — `.callout` blocks render in standalone HTML and PDF with their theme colours, icons, and any custom callout types, lifted from the live note so they track your active theme.
-- **LaTeX math in exports** — inline and block equations (MathJax) are fully typeset and self-contained in the exported file, including the shared SVG glyph cache so every reference resolves offline.
+Bash, zsh, and sh code blocks now run under WSL on Windows.
 
 ## Bug Fixes
 
-- Embedded **html-block previews no longer collapse to a 60px sliver** in PDF export — the hidden print window keeps `requestAnimationFrame` firing (background throttling disabled) and waits for every preview iframe to report its final height before printing.
-- **Display equations no longer overflow or get clipped** — they render as a scaled, centred block instead of living in a scroll container that a PDF page can't scroll.
+- **WSL shells on Windows can now find the script** — the temp file was handed to WSL as a Windows path (`C:\…\code.sh`), which WSL can't resolve (backslashes are mangled and the file lives at `/mnt/c/…` in WSL's filesystem), so blocks failed with `No such file or directory` ([#42](https://github.com/felixleopold/obsidian-code-suite/issues/42)). The path is now translated to its `/mnt/c/…` form before it's passed to WSL bash/zsh/sh.
+
+## What's New
+
+- **WSL path translation** setting (Windows only, under Languages) — *Auto-detect* (default) applies the translation when the shell interpreter looks like WSL; force it *On* for a custom WSL setup, or *Off* if your `bash`/`zsh`/`sh` is Git Bash, Cygwin, or MSYS.
 
 ## Upgrade Notes
 
-- No action needed. Re-export any note that uses callouts or math to pick up the richer output.
+- No action needed. On WSL the fix applies automatically; the setting is only there if you need to override the detection.
