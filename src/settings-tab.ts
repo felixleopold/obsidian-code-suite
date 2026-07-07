@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, Notice, setIcon } from "obsidian";
+import { App, PluginSettingTab, Setting, Notice, setIcon, Platform } from "obsidian";
 import type CodePlugin from "./main";
 import { BUNDLED_THEMES, type CustomTheme, type ExecutionCwdMode } from "./settings";
 
@@ -597,6 +597,22 @@ export class CodeSettingTab extends PluginSettingTab {
         t.setValue(this.plugin.settings.shPath);
         t.onChange(async (v) => { this.plugin.settings.shPath = v.trim(); await this.plugin.saveSettings(); });
       });
+
+    if (Platform.isWin) {
+      new Setting(containerEl)
+        .setName("WSL path translation")
+        .setDesc("Windows only. WSL shells need temp script paths as /mnt/c/… rather than C:\\…. Auto detects WSL from the shell interpreter; force On for a custom WSL setup, or Off if your bash/zsh/sh is Git Bash, Cygwin, or MSYS.")
+        .addDropdown((d) => {
+          d.addOption("auto", "Auto-detect");
+          d.addOption("on", "On (always translate)");
+          d.addOption("off", "Off (never translate)");
+          d.setValue(this.plugin.settings.wslMode);
+          d.onChange(async (v) => {
+            this.plugin.settings.wslMode = v as "auto" | "on" | "off";
+            await this.plugin.saveSettings();
+          });
+        });
+    }
 
     // ─── Shell startup ───────────────────────────
     new Setting(containerEl).setName("Shell startup").setHeading();

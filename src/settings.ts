@@ -159,6 +159,13 @@ export interface CodePluginSettings {
   zshPath: string;
   /** Custom path used by the `shell`/`sh` languages (default POSIX `/bin/sh`). */
   shPath: string;
+  /**
+   * Windows only: how to hand temp script paths to POSIX shells (bash/zsh/sh).
+   * WSL bash lives in a Linux filesystem namespace, so a Windows path like
+   * `C:\…\code.sh` must be translated to `/mnt/c/…/code.sh` before it can be
+   * found. "auto" detects WSL from the interpreter; "on"/"off" force it.
+   */
+  wslMode: "auto" | "on" | "off";
   /** Automatically prepend `<?php` to PHP snippets that omit an opening tag. */
   autoPrependPhpOpenTag: boolean;
   /** Run Bash and Zsh code blocks as login shells. */
@@ -289,6 +296,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   bashPath: "",
   zshPath: "",
   shPath: "",
+  wslMode: "auto",
   autoPrependPhpOpenTag: true,
   shellLogin: false,
   shellSourceFiles: "",

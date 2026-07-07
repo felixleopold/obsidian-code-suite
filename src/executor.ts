@@ -32,6 +32,28 @@ function isPosixShell(lang: string): boolean {
   return lang === "bash" || lang === "zsh" || lang === "shell";
 }
 
+/**
+ * Convert a Windows path (`C:\Users\me\x`) to the WSL mount path
+ * (`/mnt/c/Users/me/x`) that a WSL shell can resolve. Paths that aren't
+ * drive-letter absolute are returned with backslashes normalized to slashes.
+ */
+function toWslPath(winPath: string): string {
+  const m = /^([A-Za-z]):[\\/](.*)$/.exec(winPath);
+  if (!m) return winPath.replace(/\\/g, "/");
+  return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, "/")}`;
+}
+
+/**
+ * Heuristic: does this POSIX-shell interpreter look like WSL on Windows?
+ * A bare command name (no path separator) resolves via PATH, where the default
+ * `bash` on Windows is the System32 WSL launcher; explicit `wsl.exe` or
+ * `System32\bash.exe` paths are WSL too.
+ */
+function isWslInterpreter(cmd: string): boolean {
+  if (!/[\\/]/.test(cmd)) return true;
+  return /(?:^|[\\/])wsl(?:\.exe)?$/i.test(cmd) || /system32[\\/]bash\.exe$/i.test(cmd);
+}
+
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -312,11 +334,23 @@ export function startExecution(
     }
   }
 
+  // On Windows, WSL shells can't resolve the Windows temp path we just wrote
+  // (backslashes are mangled crossing into WSL, and the file lives at
+  // /mnt/c/… in WSL's filesystem). Translate the script path for them. The
+  // cwd we pass to spawn is auto-translated by WSL, so only the arg needs it.
+  let scriptArg = tmpFile;
+  if (os.platform() === "win32" && isPosixShell(lang)) {
+    const useWsl = settings.wslMode === "on" ? true
+      : settings.wslMode === "off" ? false
+      : isWslInterpreter(cmd);
+    if (useWsl) scriptArg = toWslPath(tmpFile);
+  }
+
   const args = [...runtime.args];
   if (settings.shellLogin && (lang === "bash" || lang === "zsh")) {
     args.unshift(lang === "zsh" ? "-l" : "--login");
   }
-  args.push(tmpFile);
+  args.push(scriptArg);
   let proc: ReturnType<typeof spawn>;
   let killed = false;
   let cancelled = false;
