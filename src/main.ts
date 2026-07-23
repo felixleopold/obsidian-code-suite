@@ -29,6 +29,7 @@ import {
   type CodePluginSettings,
   DEFAULT_SETTINGS,
   BUNDLED_THEMES,
+  parsePassthroughLanguages,
 } from "./settings";
 import { CodeFileView, CODE_FILE_VIEW_TYPE } from "./code-file-view";
 import { buildFigureEl } from "./output-view";
@@ -867,10 +868,20 @@ export default class CodePlugin extends Plugin {
     const raw = (await this.loadData()) as Partial<CodePluginSettings> | null;
     this._isFreshInstall = raw == null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, raw ?? {});
+    this.settings.additionalPassthroughLanguages = parsePassthroughLanguages(
+      this.settings.additionalPassthroughLanguages
+    ).join("\n");
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  private passthroughLanguages(): Set<string> {
+    return new Set([
+      ...PASSTHROUGH_LANGS,
+      ...parsePassthroughLanguages(this.settings.additionalPassthroughLanguages),
+    ]);
   }
 
   async refreshHighlighter() {
@@ -1147,6 +1158,7 @@ export default class CodePlugin extends Plugin {
 
       const liveKeys = new Set<string>();
       const items: { from: number; to: number; deco: Decoration }[] = [];
+      const passthroughLanguages = this.passthroughLanguages();
 
       // ─── Fenced code blocks (and ```vars) ───
       // Hash of the most recent non-baked block, so a baked-output block can tell
@@ -1154,7 +1166,7 @@ export default class CodePlugin extends Plugin {
       let prevCodeHash: string | null = null;
       for (const block of scanFencedBlocks(doc)) {
         const rawLang = (block.lang || "").toLowerCase();
-        if (PASSTHROUGH_LANGS.has(rawLang)) continue;
+        if (passthroughLanguages.has(rawLang)) continue;
 
         // Baked-output blocks (opt-in): render the saved output as a read-only
         // panel widget. Leave prevCodeHash untouched so the staleness check keys
@@ -1490,6 +1502,7 @@ export default class CodePlugin extends Plugin {
    */
   private parseRunAllPlan(source: string): RunAllEntry[] {
     const entries: RunAllEntry[] = [];
+    const passthroughLanguages = this.passthroughLanguages();
     const lines = source.split("\n");
     const embedRe = /^!\[\[([^\]|]+?\.[a-zA-Z0-9]+)(?:\|[^\]]*)?\]\]$/;
     let i = 0;
@@ -1528,7 +1541,7 @@ export default class CodePlugin extends Plugin {
       }
       // Apply the same filters as processCodeBlocks: skip passthrough langs,
       // vars blocks, and non-executable languages (those don't get Run buttons).
-      if (PASSTHROUGH_LANGS.has(rawLang) || rawLang === "vars") continue;
+      if (passthroughLanguages.has(rawLang) || rawLang === "vars") continue;
       const resolvedLang = this.highlighter.resolveLanguage(rawLang);
       if (!isExecutable(resolvedLang)) continue;
       // Dedent like the markdown renderer so the hash matches the rendered code.
@@ -2883,6 +2896,7 @@ __ocode_emit_vars
     // closing fence; otherwise `fenceInfoStrings[bi]` becomes off-by-one as
     // soon as the section contains more than one code block.
     const fenceInfoStrings: string[] = [];
+    const passthroughLanguages = this.passthroughLanguages();
     const sectionInfo = ctx.getSectionInfo(el);
     if (sectionInfo) {
       // sectionInfo.text is the WHOLE file, not just this section — scanning
@@ -2929,7 +2943,7 @@ __ocode_emit_vars
 
       // Skip languages that Obsidian (or its plugins) render natively — let
       // them handle the block so we don't swallow their output.
-      if (PASSTHROUGH_LANGS.has(rawLang.toLowerCase())) continue;
+      if (passthroughLanguages.has(rawLang.toLowerCase())) continue;
 
       // `vars` blocks define note-scoped variables inline — parse and store immediately.
       if (rawLang.toLowerCase() === "vars") {

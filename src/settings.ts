@@ -114,6 +114,11 @@ export interface CodePluginSettings {
   demoThemeCycle?: boolean;
   showLineNumbers: boolean;
   showLanguageLabel: boolean;
+  /**
+   * Newline-separated fenced-code languages CodeSuite leaves for Obsidian or
+   * another plugin to render. Built-in passthrough languages are kept separate.
+   */
+  additionalPassthroughLanguages: string;
   /** Soft-wrap long lines in reading view instead of showing a horizontal scrollbar. */
   wrapCodeInReadingView: boolean;
   enableExecution: boolean;
@@ -281,6 +286,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   lightAutoTheme: "github-light",
   showLineNumbers: true,
   showLanguageLabel: true,
+  additionalPassthroughLanguages: "base\nd2\nvid",
   wrapCodeInReadingView: true,
   enableExecution: true,
   renderEmbeddedFiles: true,
@@ -323,6 +329,16 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   exportSinglePage: false,
   exportIncludeTitle: false,
 };
+
+/** Normalize newline-separated fenced-code language names from settings. */
+export function parsePassthroughLanguages(languages: string): string[] {
+  return Array.from(new Set(
+    languages
+      .split("\n")
+      .map((language) => language.trim().toLowerCase())
+      .filter(Boolean)
+  ));
+}
 
 /** Parse extra env string (KEY=VALUE per line) into Record */
 export function parseExtraEnv(envStr: string): Record<string, string> {

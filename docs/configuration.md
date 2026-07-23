@@ -36,6 +36,16 @@ Imported themes are saved in plugin settings and appear in the theme picker imme
 
 ---
 
+## Languages
+
+### Additional passthrough languages
+
+Enter one fenced-code language per line for CodeSuite to leave untouched in both Live Preview and reading view. This lets Obsidian or another plugin render those blocks. Entries are trimmed and lowercased automatically.
+
+`base`, `d2`, and `vid` are included by default for compatibility with Obsidian Bases, D2, and the Thumbnails plugin. CodeSuite always passes through `mermaid`, `dataview`, `dataviewjs`, and `query`; those built-in entries do not need to be added to the setting.
+
+---
+
 ## Code Execution
 
 ### Enable code execution

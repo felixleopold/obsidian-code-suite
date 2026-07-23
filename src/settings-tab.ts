@@ -1,6 +1,6 @@
 import { App, PluginSettingTab, Setting, Notice, setIcon, Platform } from "obsidian";
 import type CodePlugin from "./main";
-import { BUNDLED_THEMES, type CustomTheme, type ExecutionCwdMode } from "./settings";
+import { BUNDLED_THEMES, parsePassthroughLanguages, type CustomTheme, type ExecutionCwdMode } from "./settings";
 
 type TabId = "appearance" | "execution" | "languages" | "files" | "advanced";
 
@@ -552,6 +552,25 @@ export class CodeSettingTab extends PluginSettingTab {
   private renderLanguages(containerEl: HTMLElement): void {
     const aboutDiv = containerEl.createDiv({ cls: "ocode-settings-about" });
     aboutDiv.createEl("p").textContent = "Interpreter paths and per-language options. Leave a path blank to use the system default.";
+
+    new Setting(containerEl).setName("Code block passthrough").setHeading();
+
+    const passthroughSetting = new Setting(containerEl)
+      .setName("Additional passthrough languages")
+      .addTextArea((t) => {
+        t.inputEl["placeholder"] = "base\nd2\nvid";
+        t.setValue(this.plugin.settings.additionalPassthroughLanguages);
+        t.inputEl.rows = 4;
+        t.inputEl.cols = 40;
+        t.onChange(async (v) => {
+          this.plugin.settings.additionalPassthroughLanguages = parsePassthroughLanguages(v).join("\n");
+          await this.plugin.saveSettings();
+          this.plugin.refreshRenderedBlocks();
+        });
+      });
+    passthroughSetting.descEl["textContent"] = "Fenced-code languages CodeSuite leaves untouched for Obsidian or another plugin to render, one per line. Entries are trimmed and lowercased. Defaults: base, d2, and vid. Built-in passthrough: mermaid, dataview, dataviewjs, and query.";
+
+    new Setting(containerEl).setName("Interpreters").setHeading();
 
     new Setting(containerEl)
       .setName("Python path")
