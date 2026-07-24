@@ -1,9 +1,10 @@
-Maintenance release: clears the remaining Obsidian plugin-reviewer warnings. No functional changes.
+This release lets you choose which fenced-code languages CodeSuite leaves untouched, so Obsidian or another plugin can render them.
 
-## Bug Fixes
+## What's New
 
-- **Cleared the remaining `@typescript-eslint/no-unnecessary-type-assertion` warnings** from the plugin review ([#43](https://github.com/felixleopold/obsidian-code-suite/issues/43)). Four `window.setTimeout(...) as unknown as number` casts and a Shiki `loadTheme` cast were genuinely redundant and removed; the file-picker `File & { path }` cast became a type annotation; and the two `frontmatter as Record<string, unknown>` casts now route through a small `toRecord()` helper whose `unknown → Record` narrowing is valid in every type environment. Rounds out the type-safety cleanup started in 1.16.2.
+- **Configurable code block passthrough languages** — add one fenced-code language per line under Settings → CodeSuite → Languages to let Obsidian or another plugin render those blocks in Live Preview and reading view ([#50](https://github.com/felixleopold/obsidian-code-suite/pull/50)).
+- **Better plugin compatibility by default** — `base`, `d2`, and `vid` now pass through for compatibility with Obsidian Bases, D2, and the Thumbnails plugin; built-in `mermaid`, `dataview`, `dataviewjs`, and `query` passthrough remains unchanged.
 
 ## Upgrade Notes
 
-- No action needed — internal type-safety changes only, no effect on behavior.
+- No action needed. Remove a default entry from the new setting if you want CodeSuite to handle that language instead.
