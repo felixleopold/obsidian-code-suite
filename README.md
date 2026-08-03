@@ -43,6 +43,7 @@ Run code directly from a code block — no terminal, no switching apps.
 | Language | Command | Notes |
 |---|---|---|
 | Python | `python3` | Matplotlib & Plotly graph capture, venv support |
+| MATLAB | `python3` + `matlabengine` + MATLAB | Persistent, isolated session per note; inline PNG figures |
 | JavaScript | `node` | |
 | TypeScript | `npx tsx` | |
 | Bash | `bash` | Shared variable state across blocks |
@@ -56,6 +57,8 @@ Run code directly from a code block — no terminal, no switching apps.
 | R | `Rscript` | |
 | PHP | `php` | Automatically prepends `<?php` for snippets that omit the opening tag |
 | Swift | `swift` | |
+
+`matlab` fences share a persistent base workspace within one note and stay isolated from every other note. This integration is tested with MATLAB R2026a and Python 3.13; see the [configuration reference](docs/configuration.md#matlab-engine).
 
 - **Live streaming** — stdout and stderr appear as the process runs, not after it finishes
 - **Interactive stdin** — an input bar appears automatically when your code calls `input()` or reads from stdin
@@ -78,6 +81,8 @@ Run code directly from a code block — no terminal, no switching apps.
 ## 🔗 Notebook mode: shared variables & Run All
 
 Each note maintains an in-memory execution session — notebook-style shared state, scoped per note and held in memory.
+
+MATLAB uses native persistent state: variables, imports, the current directory, path changes, and registered functions remain in that note's Engine regardless of the **Shared execution context** toggle. MATLAB does not participate in CodeSuite's cross-language variable bridge.
 
 - **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python, Bash, and Zsh)
 - **Live cross-language variables** — a shared variable changed by one block is visible to later blocks in *any* language, in execution order. Set `count = 42` in Python and a later Bash block sees `42`; change it in Bash and the next Python block sees the new value. Scalars and JSON structures cross languages; rich objects (functions, DataFrames) stay within their language. See [Variable typing & the execution model](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/configuration.md#variable-typing).

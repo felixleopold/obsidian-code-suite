@@ -17,6 +17,7 @@ export interface NodeBuffer {
 }
 
 interface NodeReadableStream {
+  setEncoding(encoding: string): void;
   on(event: "data", listener: (chunk: NodeBuffer) => void): void;
 }
 
@@ -26,6 +27,7 @@ interface NodeWritableStream {
 }
 
 export interface NodeChildProcessHandle {
+  readonly pid?: number;
   stdout: NodeReadableStream | null;
   stderr: NodeReadableStream | null;
   stdin: NodeWritableStream | null;
@@ -36,6 +38,7 @@ export interface NodeChildProcessHandle {
 
 interface SpawnOptions {
   cwd?: string;
+  detached?: boolean;
   env?: Record<string, string | undefined>;
   shell?: boolean;
   stdio?: Array<"pipe" | "ignore" | "inherit">;
@@ -45,6 +48,11 @@ interface NodeChildProcess {
   // Declared as a property (not a method) so destructuring `spawn` doesn't trip
   // @typescript-eslint/unbound-method.
   spawn: (command: string, args: string[], options: SpawnOptions) => NodeChildProcessHandle;
+  spawnSync: (
+    command: string,
+    args: string[],
+    options: SpawnOptions,
+  ) => { status: number | null; error?: Error };
 }
 
 export interface NodeFS {
@@ -76,6 +84,7 @@ export interface NodeOS {
 interface NodeProcess {
   env: Record<string, string | undefined>;
   platform: string;
+  kill: (pid: number, signal?: string) => boolean;
 }
 
 /** Require a Node built-in through Electron's bridge, typed to `T`. */

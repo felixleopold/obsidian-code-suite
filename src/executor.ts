@@ -26,7 +26,7 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
 };
 
 export function isExecutable(lang: string): boolean {
-  return lang in RUNTIMES;
+  return lang === "matlab" || lang in RUNTIMES;
 }
 
 function isPosixShell(lang: string): boolean {

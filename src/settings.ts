@@ -158,6 +158,8 @@ export interface CodePluginSettings {
   executionCwdCustom: string;
   /** Custom Python path or virtualenv path (e.g. /path/to/venv/bin/python) */
   pythonPath: string;
+  /** Python 3.13 interpreter with the matching MATLAB Engine package installed. */
+  matlabPythonPath: string;
   /** Custom Node.js path */
   nodePath: string;
   /** Custom path to the bash executable (used by the `bash` language). */
@@ -300,6 +302,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   executionCwd: "vault",
   executionCwdCustom: "",
   pythonPath: "",
+  matlabPythonPath: "",
   nodePath: "",
   bashPath: "",
   zshPath: "",

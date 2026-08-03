@@ -33,6 +33,7 @@ Any fenced code block in a supported language gets a **Run** button in Reading v
 | Language | Fence | Runtime |
 |---|---|---|
 | Python | `python` / `py` | `python3` |
+| MATLAB | `matlab` | `python3` + `matlabengine` + MATLAB |
 | JavaScript | `javascript` / `js` / `node` | `node` |
 | TypeScript | `typescript` / `ts` | `npx tsx` |
 | Bash | `bash` | `bash` |
@@ -47,7 +48,7 @@ Any fenced code block in a supported language gets a **Run** button in Reading v
 | PHP | `php` | `php` |
 | Swift | `swift` | `swift` |
 
-Each run spawns a **fresh process** — there is no long-lived kernel. All state (variables, imports, functions) is reconstructed on every run via the session mechanism described below.
+Except for MATLAB, each run spawns a **fresh process** and reconstructs state through the replay session described below. MATLAB uses one persistent, isolated Engine per note.
 
 **What the output panel shows:**
 - Stdout and stderr stream in as the process runs, not after it finishes.
@@ -78,9 +79,11 @@ print(f"area = {area:.2f}")   # → 78.54
 
 State is **per-note**, **in-memory only**, and lost when Obsidian closes. Use **Clear Session** to reset manually (see [Resetting state](#resetting-state)).
 
+MATLAB is deliberately separate from this replay and variable-sharing model. Its Engine is always persistent and serialized per note, even when **Shared execution context** is disabled. MATLAB fences share the native base workspace, but do not receive `vars`/frontmatter seeds and do not publish values to `$varname` or other languages. See [MATLAB Engine](configuration.md#matlab-engine) for function-fence and figure semantics.
+
 ### Why every run spawns a fresh process
 
-There is no persistent kernel. When you run block 2, CodeSuite:
+For the replay-based languages, there is no persistent kernel. When you run block 2, CodeSuite:
 
 1. Injects any declared variable seeds (from `vars` / `code_vars:` / tables).
 2. Re-runs all of this language's previous blocks **silently** (output suppressed) to reconstruct their state.
