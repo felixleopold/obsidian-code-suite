@@ -9,6 +9,7 @@
     "install-plugin": "node esbuild.config.js",
     "vault-install": "bash scripts/install.sh",
     "lint": "eslint src/",
+    "test": "node scripts/test.js",
     "release": "bash scripts/release.sh"
   },
   "repository": {

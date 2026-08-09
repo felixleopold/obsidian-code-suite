@@ -13,6 +13,7 @@
 import { TextFileView, WorkspaceLeaf } from "obsidian";
 import type CodePlugin from "./main";
 import { startExecution, isExecutable, type RunningProcess } from "./executor";
+import { parseFigureSentinel } from "./python-graphs";
 import { buildFigureEl } from "./output-view";
 
 export const CODE_FILE_VIEW_TYPE = "codesuite-code-file-view";
@@ -268,12 +269,11 @@ export class CodeFileView extends TextFileView {
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
 
     let lineBuffer = "";
-    const SENTINEL_RE = /^OCODE_FIG_(\d+)$/;
     const processLine = (line: string) => {
-      const m = SENTINEL_RE.exec(line);
-      if (m) {
+      const figureIndex = parseFigureSentinel(line);
+      if (figureIndex !== null) {
         const placeholder = outContent.createDiv({ cls: "ocode-fig-placeholder" });
-        placeholder.dataset.figIdx = m[1];
+        placeholder.dataset.figIdx = String(figureIndex);
         outContent.scrollTop = outContent.scrollHeight;
         return;
       }

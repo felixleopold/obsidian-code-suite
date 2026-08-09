@@ -25,6 +25,7 @@ import type { Extension, Text, EditorState } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
+import { parseFigureSentinel } from "./python-graphs";
 import {
   type CodePluginSettings,
   DEFAULT_SETTINGS,
@@ -4630,8 +4631,6 @@ __ocode_emit_vars
     // context) and replace figure sentinels (\x00OCODE_FIG_N\x00) with
     // placeholder elements that are filled in after execution completes.
     let stdoutLineBuffer = "";
-    const SENTINEL_RE = /^OCODE_FIG_(\d+)$/;
-
     const appendStdout = (text: string) => {
       const span = createSpan({ cls: "ocode-stdout", text });
       outContent.appendChild(span);
@@ -4663,11 +4662,11 @@ __ocode_emit_vars
         return;
       }
       flushBlankLines();
-      const sentinelMatch = SENTINEL_RE.exec(line);
-      if (sentinelMatch) {
+      const figureIndex = parseFigureSentinel(line);
+      if (figureIndex !== null) {
         // Insert a placeholder; replaced with the real figure after execution.
         const placeholder = createDiv({ cls: "ocode-fig-placeholder" });
-        placeholder.dataset.figIdx = sentinelMatch[1];
+        placeholder.dataset.figIdx = String(figureIndex);
         outContent.appendChild(placeholder);
         outContent.scrollTop = outContent.scrollHeight;
         return;

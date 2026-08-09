@@ -14,5 +14,5 @@
     "lib": ["DOM", "ES2021"],
     "outDir": "./dist"
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "tests/**/*.ts"]
 }
