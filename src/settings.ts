@@ -112,6 +112,8 @@ export interface CodePluginSettings {
    * data.json in a scratch vault; leave false everywhere else.
    */
   demoThemeCycle?: boolean;
+  /** Custom code font size in pixels. Null follows Obsidian's --code-size. */
+  codeFontSize: number | null;
   showLineNumbers: boolean;
   showLanguageLabel: boolean;
   /**
@@ -284,6 +286,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   autoTheme: false,
   darkAutoTheme: "gruvbox-dark-hard",
   lightAutoTheme: "github-light",
+  codeFontSize: null,
   showLineNumbers: true,
   showLanguageLabel: true,
   additionalPassthroughLanguages: "base\nd2\nvid",

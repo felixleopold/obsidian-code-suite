@@ -508,6 +508,8 @@ export default class CodePlugin extends Plugin {
   private _autoThemeTimer: number | null = null;
   /** Debounce timer for queued skip-badge sync passes. */
   private _skipSyncTimer: number | null = null;
+  /** Documents whose CodeSuite font-size override must be cleared on unload. */
+  private _codeFontDocuments = new Set<Document>();
   /** True when no persisted data existed at load — i.e. a genuinely fresh install. */
   private _isFreshInstall = false;
   /** Monotonic id for html-preview iframes — used to match their resize messages. */
@@ -628,11 +630,13 @@ export default class CodePlugin extends Plugin {
 
     // Apply theme CSS variables
     this.applyThemeColors();
+    this.applyCodeFontSize();
 
     // Auto-theme: re-apply whenever Obsidian's dark/light mode changes
     this.registerEvent(
       this.app.workspace.on("css-change", () => {
         void this.applyAutoTheme();
+        this.applyCodeFontSize();
       })
     );
 
@@ -674,6 +678,7 @@ export default class CodePlugin extends Plugin {
     // file path is available, so chrome never lags a mode switch.
     this.registerEvent(
       this.app.workspace.on("layout-change", () => {
+        this.applyCodeFontSize();
         this.forceLpRebuild();
         this.scheduleFrontmatterPanelSync();
       })
@@ -856,6 +861,10 @@ export default class CodePlugin extends Plugin {
     activeDocument.body.removeClass("ocode-wide-blocks");
     activeDocument.body.removeClass("ocode-wrap-code");
     activeDocument.body.removeClass("ocode-lp-lnum");
+    for (const doc of this._codeFontDocuments) {
+      doc.body.style.removeProperty("--ocode-code-font-size");
+    }
+    this._codeFontDocuments.clear();
     // Remove all view-header action buttons so a plugin reload doesn't duplicate them.
     for (const el of this.viewActionEls) el.remove();
     this.viewActionEls = [];
@@ -1003,6 +1012,24 @@ export default class CodePlugin extends Plugin {
       root.style.setProperty("--ocode-fg", fg);
       root.style.setProperty("--ocode-muted",    this.blendColor(fg, bg || "#000000", 0.6));
       root.style.setProperty("--ocode-line-num", this.blendColor(fg, bg || "#000000", 0.35));
+    }
+  }
+
+  /** Apply or clear the optional code-size override in every workspace window. */
+  applyCodeFontSize(): void {
+    const documents = new Set<Document>(this._codeFontDocuments);
+    documents.add(activeDocument);
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      documents.add(leaf.view.containerEl.ownerDocument);
+    });
+
+    for (const doc of documents) {
+      this._codeFontDocuments.add(doc);
+      if (this.settings.codeFontSize === null) {
+        doc.body.style.removeProperty("--ocode-code-font-size");
+      } else {
+        doc.body.style.setProperty("--ocode-code-font-size", `${this.settings.codeFontSize}px`);
+      }
     }
   }
 

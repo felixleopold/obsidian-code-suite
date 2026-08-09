@@ -287,6 +287,34 @@ export class CodeSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Code block display").setHeading();
 
     new Setting(containerEl)
+      .setName("Follow Obsidian code size")
+      .setDesc("Use Obsidian's code font size and respond automatically to Appearance and theme changes.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.codeFontSize === null);
+        t.onChange(async (v) => {
+          this.plugin.settings.codeFontSize = v ? null : 13.5;
+          this.plugin.applyCodeFontSize();
+          await this.plugin.saveSettings();
+          this.renderActiveTab();
+        });
+      });
+
+    if (this.plugin.settings.codeFontSize !== null) {
+      new Setting(containerEl)
+        .setName("Custom code size")
+        .setDesc("Code font size in pixels.")
+        .addSlider((s) => {
+          s.setLimits(8, 24, 0.5);
+          s.setValue(this.plugin.settings.codeFontSize ?? 13.5);
+          s.onChange(async (v) => {
+            this.plugin.settings.codeFontSize = v;
+            this.plugin.applyCodeFontSize();
+            await this.plugin.saveSettings();
+          });
+        });
+    }
+
+    new Setting(containerEl)
       .setName("Line numbers")
       .setDesc("Show line numbers in code blocks (reading view only).")
       .addToggle((t) => {

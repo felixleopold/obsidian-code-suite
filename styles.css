@@ -122,7 +122,7 @@
   border-radius: 0;
   overflow-x: auto;
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: var(--ocode-code-font-size);
   line-height: 1.6;
   tab-size: 4;
 }
@@ -229,7 +229,7 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   margin: 0;
   padding: 0;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--ocode-code-font-size);
   line-height: 1.5;
   color: var(--ocode-fg, #ebdbb2);
 }
@@ -759,7 +759,7 @@ body.ocode-wide-blocks .ocode-wrapper {
 .cm-s-obsidian .cm-line.HyperMD-codeblock {
   background-color: var(--ocode-bg, #1d2021);
   font-family: var(--font-monospace), "Fira Code", "JetBrains Mono", "Cascadia Code", monospace;
-  font-size: 13.5px;
+  font-size: var(--ocode-code-font-size);
   line-height: 1.6;
   border-left: 1px solid var(--ocode-border, #3c3836);
   border-right: 1px solid var(--ocode-border, #3c3836);
@@ -963,7 +963,6 @@ body.ocode-lp-lnum
 /* ─── Mobile ──────────────────────────────────── */
 @media (max-width: 768px) {
   .ocode-wrapper pre.shiki {
-    font-size: 12.5px;
     padding: 10px 12px;
   }
 
@@ -1069,10 +1068,11 @@ body.ocode-lp-lnum
  */
 
 /* Pixel metrics shared by bg and textarea — must match pre.shiki exactly */
-:root {
+body {
+  --ocode-code-font-size: var(--code-size, var(--font-text-size, 13.5px));
   --ocode-editor-pad-v: 12px;
   --ocode-editor-pad-h: 16px;
-  --ocode-editor-font-size: 13.5px;
+  --ocode-editor-font-size: var(--ocode-code-font-size);
   --ocode-editor-line-height: 1.6;
   --ocode-editor-tab-size: 4;
 }
@@ -1222,4 +1222,3 @@ body.ocode-lp-lnum
 .cm-content .ocode-lp-empty {
   display: none;
 }
-
