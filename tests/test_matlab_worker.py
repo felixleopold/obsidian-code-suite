@@ -36,6 +36,7 @@ class FakeEngine:
     def __init__(self, future: FakeFuture) -> None:
         self.future = future
         self.eval_calls: list[str] = []
+        self.feval_calls: list[str] = []
 
     def eval(self, code: str, *args: Any, **kwargs: Any) -> FakeFuture | None:
         self.eval_calls.append(code)
@@ -47,8 +48,8 @@ class FakeEngine:
     def addpath(self, *args: Any, **kwargs: Any) -> None:
         pass
 
-    def feval(self, *args: Any, **kwargs: Any) -> None:
-        pass
+    def feval(self, name: str, *args: Any, **kwargs: Any) -> None:
+        self.feval_calls.append(name)
 
 
 class MatlabClassifierTests(unittest.TestCase):
@@ -106,7 +107,7 @@ class MatlabWorkerCleanupTests(unittest.TestCase):
             assert active.transient_script is not None
             self.assertTrue(active.transient_script.exists())
 
-            worker.finish_run(engine, session_dir, active)
+            worker.finish_run(engine, active)
 
             self.assertFalse(active.transient_script.exists())
             self.assertEqual(self.messages[-1][0], "done")
@@ -129,6 +130,15 @@ class MatlabWorkerCleanupTests(unittest.TestCase):
             self.assertEqual(self.messages[-1][0], "done")
             self.assertEqual(self.messages[-1][1]["exitCode"], 1)
 
+    def test_figure_capture_reuses_the_installed_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            engine = FakeEngine(FakeFuture())
+            figures = worker.capture_figures(engine, Path(temp_dir), "capture-run")
+
+            self.assertEqual(figures, [])
+            self.assertEqual(engine.feval_calls, [worker.CAPTURE_FUNCTION])
+            self.assertEqual(engine.eval_calls, [])
+
     def test_failed_function_update_restores_previous_definition(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             session_dir = Path(temp_dir)
@@ -150,7 +160,7 @@ class MatlabWorkerCleanupTests(unittest.TestCase):
             assert active is not None
             self.assertNotEqual(function_path.read_bytes(), previous)
 
-            worker.finish_run(engine, session_dir, active)
+            worker.finish_run(engine, active)
 
             self.assertEqual(function_path.read_bytes(), previous)
             self.assertEqual(self.messages[-1][0], "done")

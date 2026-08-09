@@ -250,14 +250,10 @@ def close_figures(engine: Any) -> None:
 
 def capture_figures(
     engine: Any,
-    session_dir: Path,
     image_dir: Path,
     run_id: Any,
 ) -> list[dict[str, Any]]:
     try:
-        write_capture_helper(session_dir)
-        restore_session_path(engine, session_dir)
-        engine.eval(f"clear {CAPTURE_FUNCTION}; rehash;", nargout=0)
         capture_stdout = io.StringIO()
         capture_stderr = io.StringIO()
         engine.feval(
@@ -312,13 +308,12 @@ def rollback_function(engine: Any, update: FunctionUpdate, run_id: Any) -> None:
 
 def immediate_failure(
     engine: Any,
-    session_dir: Path,
     run_id: Any,
     image_dir: Path,
     message: str,
 ) -> None:
     emit("stderr", id=run_id, data=message.rstrip() + "\n")
-    figures = capture_figures(engine, session_dir, image_dir, run_id)
+    figures = capture_figures(engine, image_dir, run_id)
     emit(
         "done",
         id=run_id,
@@ -359,7 +354,6 @@ def start_run(
     if mode == "unsupported_class":
         immediate_failure(
             engine,
-            session_dir,
             run_id,
             image_dir,
             "classdef fences are not supported.",
@@ -368,7 +362,6 @@ def start_run(
     if mode == "function" and not function_name:
         immediate_failure(
             engine,
-            session_dir,
             run_id,
             image_dir,
             "Could not determine the primary MATLAB function name.",
@@ -377,7 +370,6 @@ def start_run(
     if mode == "function" and function_name.casefold() == CAPTURE_FUNCTION.casefold():
         immediate_failure(
             engine,
-            session_dir,
             run_id,
             image_dir,
             f"{CAPTURE_FUNCTION} is reserved by Code Suite.",
@@ -427,7 +419,7 @@ def start_run(
                 transient_script.unlink()
             except FileNotFoundError:
                 pass
-        immediate_failure(engine, session_dir, run_id, image_dir, str(exc))
+        immediate_failure(engine, run_id, image_dir, str(exc))
         return None, script_counter
 
     return (
@@ -454,7 +446,7 @@ def request_cancel(active: ActiveRun, reason: Any) -> None:
         emit("stderr", id=active.run_id, data=f"Failed to interrupt MATLAB: {exc}\n")
 
 
-def finish_run(engine: Any, session_dir: Path, active: ActiveRun) -> None:
+def finish_run(engine: Any, active: ActiveRun) -> None:
     execution_error: Exception | None = None
     try:
         active.future.result()
@@ -495,7 +487,6 @@ def finish_run(engine: Any, session_dir: Path, active: ActiveRun) -> None:
     else:
         figures = capture_figures(
             engine,
-            session_dir,
             active.image_dir,
             active.run_id,
         )
@@ -601,7 +592,7 @@ def main() -> int:
             if active is not None:
                 flush_streams(active)
                 if active.future.done():
-                    finish_run(engine, session_dir, active)
+                    finish_run(engine, active)
                     active = None
 
             if shutdown_requested and active is None:
