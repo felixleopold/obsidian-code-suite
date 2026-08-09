@@ -160,6 +160,10 @@ export interface CodePluginSettings {
   executionCwdCustom: string;
   /** Custom Python path or virtualenv path (e.g. /path/to/venv/bin/python) */
   pythonPath: string;
+  /** Python interpreter with a MATLAB-compatible Engine package installed. */
+  matlabPythonPath: string;
+  /** Close an idle per-note MATLAB Engine after this many milliseconds. */
+  matlabSessionIdleTimeout: number;
   /** Custom Node.js path */
   nodePath: string;
   /** Custom path to the bash executable (used by the `bash` language). */
@@ -303,6 +307,8 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   executionCwd: "vault",
   executionCwdCustom: "",
   pythonPath: "",
+  matlabPythonPath: "",
+  matlabSessionIdleTimeout: 10 * 60_000,
   nodePath: "",
   bashPath: "",
   zshPath: "",

@@ -447,7 +447,7 @@ export class CodeSettingTab extends PluginSettingTab {
     execDesc.createEl("code").appendChild(activeDocument.createTextNode("npx tsx"));
     execDesc.appendText("), PowerShell (");
     execDesc.createEl("code").appendChild(activeDocument.createTextNode("pwsh"));
-    execDesc.appendText("), Bash/Shell. The process runs in a child process with your system PATH. Output (stdout/stderr) streams live into the output panel. You can send stdin input while the program is running.");
+    execDesc.appendText("), Bash/Shell, and MATLAB through the Engine API. Output (stdout/stderr) appears in the same output panel. Compatible subprocess runtimes also support interactive stdin.");
 
     new Setting(containerEl)
       .setName("Enable code execution")
@@ -607,6 +607,28 @@ export class CodeSettingTab extends PluginSettingTab {
         t.inputEl["placeholder"] = "python3";
         t.setValue(this.plugin.settings.pythonPath);
         t.onChange(async (v) => { this.plugin.settings.pythonPath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("MATLAB Python path")
+      .setDesc("Absolute path to a Python interpreter with a MATLAB Engine package compatible with your MATLAB release. Clear the note session after changing this path.")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "/path/to/matlab-venv/bin/python3";
+        t.setValue(this.plugin.settings.matlabPythonPath);
+        t.onChange(async (v) => { this.plugin.settings.matlabPythonPath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("Session idle timeout")
+      .setDesc("Shut down an inactive MATLAB Engine after this many minutes to release memory; the next run starts a fresh session. Set to 0 for Never.")
+      .addSlider((s) => {
+        s.setLimits(0, 60, 1);
+        s.setDynamicTooltip();
+        s.setValue(Math.max(0, Math.round(this.plugin.settings.matlabSessionIdleTimeout / 60_000)));
+        s.onChange(async (minutes) => {
+          this.plugin.settings.matlabSessionIdleTimeout = minutes * 60_000;
+          await this.plugin.saveSettings();
+        });
       });
 
     new Setting(containerEl)

@@ -93,6 +93,16 @@ Absolute path to a Python binary or virtualenv. When pointing to a venv binary, 
 /usr/bin/python3                      # system Python
 ```
 
+### MATLAB Python path
+
+Path to a Python interpreter with `matlabengine` installed. The Engine package, Python version, and installed MATLAB release must be mutually compatible; see the [MathWorks compatibility table](https://www.mathworks.com/support/requirements/python-compatibility.html). This setting is separate from **Python path**, and CodeSuite does not install these dependencies.
+
+The first run starts MATLAB and may take longer. Recreate the environment after upgrading MATLAB, and use **Clear Session** after changing the interpreter, environment variables, or initial working directory.
+
+### MATLAB session idle timeout
+
+Number of inactive minutes before CodeSuite closes a note's MATLAB Engine to release its memory. The default is 10 minutes. Running another MATLAB fence starts a fresh Engine and reports that the previous workspace was cleared. Set the slider to **Never** (`0`) to keep the Engine alive until the session is cleared or Obsidian closes.
+
 ### Node.js path
 Absolute path to a Node.js binary. Leave empty to use the system `node`.
 
@@ -147,6 +157,17 @@ Absolute path to a `.env` file on disk. Variables from this file are loaded into
 - Both `KEY=value` and `export KEY=value` are accepted.
 - The first `=` separates key and value; values may contain `=` characters.
 - Values defined in **Extra environment variables** take precedence over `.env`, so per-vault overrides keep working.
+
+---
+
+## MATLAB Engine
+
+- Each note has an isolated MATLAB session. Its fences run serially and share variables, imports, working directory, and path state. **Clear Session**, note rename/deletion, plugin unload, Obsidian shutdown, or the configurable idle timeout ends it.
+- A function-first fence registers its primary function for later fences; subfunctions remain private. A failed update is rolled back. Script-local functions follow MATLAB script semantics. Registered functions take precedence on the MATLAB path and can intentionally shadow an existing function of the same name until the session ends.
+- After each completed run, open figures are exported as inline PNGs and closed. Existing image controls, baking, and HTML/PDF export continue to work.
+- MATLAB state is separate from CodeSuite `vars`, frontmatter, `$var`, and cross-language variables. `input()`/stdin, interactive figures, `classdef` fences, embedded `.m` files, and cross-language conversion are not supported.
+- Cancellation uses MATLAB's native interruption first. If it does not finish within five seconds, CodeSuite terminates and discards that note's session; partial changes may remain after a normal cancellation.
+- When an idle, failed, or force-terminated worker must restart, the next run explicitly reports that the previous workspace was cleared.
 
 ---
 

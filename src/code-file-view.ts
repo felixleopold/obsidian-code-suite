@@ -12,7 +12,7 @@
 
 import { TextFileView, WorkspaceLeaf } from "obsidian";
 import type CodePlugin from "./main";
-import { startExecution, isExecutable, type RunningProcess } from "./executor";
+import { startExecution, isSubprocessExecutable, type RunningProcess } from "./executor";
 import { parseFigureSentinel } from "./python-graphs";
 import { buildFigureEl } from "./output-view";
 
@@ -243,7 +243,7 @@ export class CodeFileView extends TextFileView {
   private async runCode(): Promise<void> {
     if (!this.file) return;
     const lang = this.currentLang();
-    if (!isExecutable(lang)) return;
+    if (!isSubprocessExecutable(lang)) return;
 
     await this.save();
     this.removeOutput();

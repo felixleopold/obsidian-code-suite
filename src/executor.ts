@@ -26,8 +26,14 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
   swift:      { cmd: "swift",    args: [],           ext: ".swift" },
 };
 
-export function isExecutable(lang: string): boolean {
+/** Languages handled directly by this subprocess executor. */
+export function isSubprocessExecutable(lang: string): boolean {
   return lang in RUNTIMES;
+}
+
+/** Executable fenced-block languages, including persistent session runtimes. */
+export function isExecutable(lang: string): boolean {
+  return lang === "matlab" || isSubprocessExecutable(lang);
 }
 
 function isPosixShell(lang: string): boolean {

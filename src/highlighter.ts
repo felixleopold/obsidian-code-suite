@@ -74,6 +74,7 @@ import vesper from "shiki/themes/vesper.mjs";
 
 // Language imports
 import langPython from "shiki/langs/python.mjs";
+import langMatlab from "shiki/langs/matlab.mjs";
 import langJavascript from "shiki/langs/javascript.mjs";
 import langTypescript from "shiki/langs/typescript.mjs";
 import langJava from "shiki/langs/java.mjs";
@@ -135,7 +136,7 @@ const ALL_THEMES = [
 ];
 
 const ALL_LANGS = [
-  langPython, langJavascript, langTypescript, langJava, langC, langCpp,
+  langPython, langMatlab, langJavascript, langTypescript, langJava, langC, langCpp,
   langCsharp, langRust, langGo, langBash, langShell, langHtml, langCss,
   langJson, langYaml, langToml, langSql, langMarkdown, langLatex, langR,
   langRuby, langLua, langSwift, langKotlin, langXml, langDiff,

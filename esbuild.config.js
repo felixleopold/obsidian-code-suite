@@ -18,6 +18,7 @@ const buildOptions = {
   treeShaking: true,
   outfile: "dist/main.js",
   minify: prod,
+  loader: { ".py": "text" },
 };
 
 async function build() {

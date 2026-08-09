@@ -25,6 +25,11 @@ import type { Extension, Text, EditorState } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
+import {
+  MATLAB_RUN_ALL_EXTRA_MS,
+  MatlabSessionManager,
+  type MatlabExecutionStatus,
+} from "./matlab-session";
 import { parseFigureSentinel } from "./python-graphs";
 import {
   type CodePluginSettings,
@@ -418,6 +423,9 @@ export default class CodePlugin extends Plugin {
   highlighter: Highlighter = new Highlighter();
   /** Track running processes per wrapper element for cancel */
   private runningProcs: Map<HTMLElement, RunningProcess> = new Map();
+  /** Note owning each active or queued wrapper, used by Clear Session. */
+  private runNotePaths: Map<HTMLElement, string> = new Map();
+  private matlabSessions = new MatlabSessionManager();
   /**
    * Tail of the per-note run queue: resolves when the most recently started
    * (or queued) run in that note finishes. Shared-context runs chain onto it
@@ -484,7 +492,11 @@ export default class CodePlugin extends Plugin {
    * a second click while a pass is running cancels it (stops the live block and
    * breaks the loop). `current` is the wrapper of the block running right now.
    */
-  private activeRunAll = new WeakMap<MarkdownView, { cancelled: boolean; current: HTMLElement | null }>();
+  private activeRunAll = new WeakMap<MarkdownView, {
+    cancelled: boolean;
+    current: HTMLElement | null;
+    notePath: string | undefined;
+  }>();
 
   /** Monotonically increasing counter — refreshHighlighter checks this to bail if superseded */
   private _refreshSeq = 0;
@@ -664,11 +676,27 @@ export default class CodePlugin extends Plugin {
       this.buildBlockWidgetExtension(),
     ]);
 
-    // A renamed note's cached Live Preview wrappers are keyed by its old path —
-    // drop them so they don't leak (and re-render fresh under the new path).
+    // MATLAB Engines are keyed by note path. Clear them without changing the
+    // established rename/delete behavior of ordinary replay sessions; renamed
+    // notes still drop the exact old-path Live Preview cache as before.
     this.registerEvent(
-      this.app.vault.on("rename", (_file, oldPath) => {
-        this.dropLpWrapperCache(oldPath);
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (file instanceof TFile && (file.extension === "md" || oldPath.toLowerCase().endsWith(".md"))) {
+          this.dropLpWrapperCache(oldPath);
+          void this.matlabSessions.clear(oldPath);
+        } else if (file instanceof TFolder) {
+          this.dropLpWrapperCache(oldPath);
+          this.clearMatlabSessionsUnder(oldPath);
+        }
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (file instanceof TFile && file.extension === "md") {
+          void this.matlabSessions.clear(file.path);
+        } else if (file instanceof TFolder) {
+          this.clearMatlabSessionsUnder(file.path);
+        }
       })
     );
 
@@ -851,11 +879,17 @@ export default class CodePlugin extends Plugin {
       window.clearTimeout(this._skipSyncTimer);
       this._skipSyncTimer = null;
     }
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (leaf.view instanceof MarkdownView) this.cancelRunAll(leaf.view);
+    }
     // Kill all running processes
     for (const proc of this.runningProcs.values()) {
       proc.cancel();
     }
     this.runningProcs.clear();
+    this.runNotePaths.clear();
+    this.noteRunQueue.clear();
+    this.matlabSessions.disposeAll();
     this.lpWrapperCache.clear();
     this.highlighter.dispose();
     activeDocument.body.removeClass("ocode-wide-blocks");
@@ -1362,6 +1396,23 @@ export default class CodePlugin extends Plugin {
 
   /** Clear accumulated context, var store, and inline var DOM state for a note. */
   private clearNoteSession(notePath: string): void {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) continue;
+      const runAll = this.activeRunAll.get(view);
+      if (runAll && (view.file?.path === notePath || runAll.notePath === notePath)) {
+        this.cancelRunAll(view);
+      }
+    }
+    for (const [wrapper, proc] of Array.from(this.runningProcs.entries())) {
+      if (this.runNotePaths.get(wrapper) !== notePath) continue;
+      proc.cancel();
+      if (this.runningProcs.get(wrapper) === proc) this.runningProcs.delete(wrapper);
+      this.runNotePaths.delete(wrapper);
+      wrapper.classList.remove("ocode-running");
+    }
+    this.noteRunQueue.delete(notePath);
+    void this.matlabSessions.clear(notePath);
     this.noteContexts.delete(notePath);
     this.noteStdin.delete(notePath);
     this.noteVarStore.delete(notePath);
@@ -1377,7 +1428,10 @@ export default class CodePlugin extends Plugin {
     // was mid-run back to its idle "Run" pill. Scoped to this note's views.
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       const view = leaf.view;
-      if (!(view instanceof MarkdownView) || view.file?.path !== notePath) continue;
+      if (
+        !(view instanceof MarkdownView) ||
+        view.file?.path !== notePath
+      ) continue;
       view.contentEl.querySelectorAll(".ocode-output").forEach((p) => p.remove());
       view.contentEl.querySelectorAll<HTMLButtonElement>(".ocode-run-pill.ocode-cancel-pill").forEach((btn) => {
         setSvgContent(btn.querySelector(".ocode-pill-icon")!, ICON.play);
@@ -1385,14 +1439,23 @@ export default class CodePlugin extends Plugin {
         btn.classList.remove("ocode-cancel-pill");
       });
     }
-    // Reset all inline $var spans back to their placeholder appearance
+    // Reset only refs rendered from this note (including embeds in other views).
     const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
     for (const el of Array.from(els)) {
+      if (el.dataset.ocodeSourcePath !== notePath) continue;
       const name = el.getAttribute("data-ocode-var");
       if (name) {
         el.textContent = `$${name}`;
         el.removeAttribute("data-resolved");
       }
+    }
+  }
+
+  /** End MATLAB Engines owned by notes below a renamed or deleted folder. */
+  private clearMatlabSessionsUnder(folderPath: string): void {
+    const prefix = `${normalizePath(folderPath).replace(/\/$/, "")}/`;
+    for (const notePath of this.matlabSessions.notePaths()) {
+      if (normalizePath(notePath).startsWith(prefix)) void this.matlabSessions.clear(notePath);
     }
   }
 
@@ -1438,6 +1501,7 @@ export default class CodePlugin extends Plugin {
       if (!liveKeys.has(key)) {
         this.runningProcs.get(wrapper)?.cancel();
         this.runningProcs.delete(wrapper);
+        this.runNotePaths.delete(wrapper);
         perNote.delete(key);
       }
     }
@@ -1451,6 +1515,7 @@ export default class CodePlugin extends Plugin {
     for (const wrapper of perNote.values()) {
       this.runningProcs.get(wrapper)?.cancel();
       this.runningProcs.delete(wrapper);
+      this.runNotePaths.delete(wrapper);
     }
     this.lpWrapperCache.delete(notePath);
   }
@@ -1677,7 +1742,11 @@ export default class CodePlugin extends Plugin {
     this.syncSkipBadges(view);
 
     // Register the pass so the header button can cancel it mid-run.
-    const ctl = { cancelled: false, current: null as HTMLElement | null };
+    const ctl = {
+      cancelled: false,
+      current: null as HTMLElement | null,
+      notePath: view.file?.path,
+    };
     this.activeRunAll.set(view, ctl);
     this.setRunAllButtonState(btnEl, true);
 
@@ -1688,6 +1757,7 @@ export default class CodePlugin extends Plugin {
       for (const entry of runnable) {
         if (ctl.cancelled) { new Notice("Run all stopped."); return; }
         const wrapper = await this.locateRunAllWrapper(view, entry, used);
+        if (ctl.cancelled) { new Notice("Run all stopped."); return; }
         if (!wrapper) { missing++; continue; }
         used.add(wrapper);
         const btn = wrapper.querySelector<HTMLButtonElement>(".ocode-run-pill");
@@ -1778,7 +1848,8 @@ export default class CodePlugin extends Plugin {
       // Safety net sized to the execution timeout (which kills the process)
       // plus slack for spawn/teardown, so Run All never gives up on a block
       // the executor itself would still allow to finish.
-      const deadline = Date.now() + this.settings.executionTimeout + 10_000;
+      const matlabSlack = wrapper.dataset.ocodeLang === "matlab" ? MATLAB_RUN_ALL_EXTRA_MS : 0;
+      const deadline = Date.now() + matlabSlack + this.settings.executionTimeout + 10_000;
       const poll = () => {
         if (!this.runningProcs.has(wrapper) || Date.now() > deadline) {
           resolve();
@@ -2067,9 +2138,10 @@ __ocode_emit_vars
    * the current document. Iterates by class then looks up the var name on each
    * element — avoids any attribute-selector escaping pitfalls.
    */
-  private updateInlineVarRefs(_notePath: string, store: Record<string, string>): void {
+  private updateInlineVarRefs(notePath: string, store: Record<string, string>): void {
     const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
     for (const el of Array.from(els)) {
+      if (el.dataset.ocodeSourcePath !== notePath) continue;
       const name = el.getAttribute("data-ocode-var");
       if (name && Object.prototype.hasOwnProperty.call(store, name)) {
         el.textContent = String(store[name]);
@@ -2484,8 +2556,7 @@ __ocode_emit_vars
     // section is present — then graft in the execution outputs that the live
     // (partial) preview is currently showing.
     const markdown = await this.app.vault.read(file);
-    const full = activeDocument.createElement("div");
-    full.className = "markdown-preview-view ocode-export";
+    const full = createDiv({ cls: "markdown-preview-view ocode-export" });
 
     // Short-lived component owns the render's child lifecycles; unloaded below.
     const comp = new Component();
@@ -3383,6 +3454,7 @@ __ocode_emit_vars
 
       codeEl.addClass("ocode-var-ref");
       codeEl.setAttribute("data-ocode-var", varName);
+      codeEl.dataset.ocodeSourcePath = notePath;
 
       // Apply any already-stored value (e.g. note re-opened after execution)
       const varStore = this.noteVarStore.get(notePath);
@@ -3825,6 +3897,7 @@ __ocode_emit_vars
 
     const wrapper = createDiv();
     wrapper.className = "ocode-wrapper";
+    wrapper.dataset.ocodeLang = lang;
     const parsedHtml = new DOMParser().parseFromString(html, "text/html");
     for (const node of Array.from(parsedHtml.body.childNodes)) {
       wrapper.appendChild(activeDocument.adoptNode(node));
@@ -4468,7 +4541,10 @@ __ocode_emit_vars
       existingProc.cancel();
       return;
     }
-
+    if (lang === "matlab" && sourcePath === undefined) {
+      new Notice("A note is required to run this code block.");
+      return;
+    }
     // ─── Per-note run queue (#25) ──────────────────────────────────
     // With shared context, concurrent runs in one note race the session replay
     // (and each other's variable snapshots). Serialize: each run waits for the
@@ -4477,7 +4553,7 @@ __ocode_emit_vars
     // placeholder process entry (a second click on "Queued" aborts it).
     let releaseQueue: (() => void) | undefined;
     let queueTail: Promise<void> | null = null;
-    if (this.settings.sharedContext && sourcePath !== undefined) {
+    if ((this.settings.sharedContext || lang === "matlab") && sourcePath !== undefined) {
       const prevTail = this.noteRunQueue.get(sourcePath);
       // The executor runs synchronously, so `resolveTail` is assigned here.
       let resolveTail!: () => void;
@@ -4491,19 +4567,24 @@ __ocode_emit_vars
           runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
           runBtn.classList.remove("ocode-cancel-pill");
         };
-        this.runningProcs.set(wrapper, {
+        const queuedProc: RunningProcess = {
           promise: Promise.resolve({ stdout: "", stderr: "", exitCode: null, killed: false, cancelled: true, figures: [] }),
           // Cancelling a queued block must revert the pill immediately — the wait
           // on prevTail below can outlive the click, so deferring the UI update
           // there leaves the button stuck on "Queued" until the prior run ends.
           cancel: () => {
             cancelledWhileQueued = true;
-            this.runningProcs.delete(wrapper);
+            if (this.runningProcs.get(wrapper) === queuedProc) {
+              this.runningProcs.delete(wrapper);
+              this.runNotePaths.delete(wrapper);
+            }
             revertQueuedButton();
           },
           writeStdin: () => {},
           closeStdin: () => {},
-        });
+        };
+        this.runningProcs.set(wrapper, queuedProc);
+        this.runNotePaths.set(wrapper, sourcePath);
         setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.stop);
         runBtn.querySelector(".ocode-pill-text")!.textContent = "Queued";
         runBtn.classList.add("ocode-cancel-pill");
@@ -4513,7 +4594,10 @@ __ocode_emit_vars
           if (this.noteRunQueue.get(sourcePath) === queueTail) this.noteRunQueue.delete(sourcePath);
           return;
         }
-        this.runningProcs.delete(wrapper);
+        if (this.runningProcs.get(wrapper) === queuedProc) {
+          this.runningProcs.delete(wrapper);
+          this.runNotePaths.delete(wrapper);
+        }
       }
     }
 
@@ -4655,7 +4739,7 @@ __ocode_emit_vars
     const vaultPath = (this.app.vault.adapter as unknown as { basePath: string }).basePath;
 
     // Always line-buffer stdout so we can filter __OCODE_VARS__ lines (shared
-    // context) and replace figure sentinels (\x00OCODE_FIG_N\x00) with
+    // context) and replace figure sentinels (OCODE_FIG_N) with
     // placeholder elements that are filled in after execution completes.
     let stdoutLineBuffer = "";
     const appendStdout = (text: string) => {
@@ -4701,14 +4785,14 @@ __ocode_emit_vars
       appendStdout(line + "\n");
     };
 
-    const proc = startExecution(execCode, lang, this.settings, {
-      onStdout: (data) => {
+    const executionCallbacks = {
+      onStdout: (data: string) => {
         stdoutLineBuffer += data;
         const lines = stdoutLineBuffer.split("\n");
         stdoutLineBuffer = lines.pop()!; // last (possibly incomplete) chunk
         for (const line of lines) processStdoutLine(line);
       },
-      onStderr: (data) => {
+      onStderr: (data: string) => {
         stderrText += data;
         // Dynamically detect password prompts so we mask input even when static
         // detection didn't fire (indirect sudo, wrong password retry, ssh keys, etc.)
@@ -4726,8 +4810,19 @@ __ocode_emit_vars
         outContent.appendChild(span);
         outContent.scrollTop = outContent.scrollHeight;
       },
-    }, vaultPath);
+      onStatus: (status: MatlabExecutionStatus) => {
+        outLabel.textContent = status === "starting"
+          ? "Starting MATLAB Engine\u2026"
+          : status === "restarting"
+          ? "Restarting MATLAB Engine\u2026"
+          : "Running\u2026";
+      },
+    };
+    const proc = lang === "matlab"
+      ? this.matlabSessions.run(sourcePath!, code, this.settings, executionCallbacks, vaultPath)
+      : startExecution(execCode, lang, this.settings, executionCallbacks, vaultPath);
     this.runningProcs.set(wrapper, proc);
+    if (sourcePath !== undefined) this.runNotePaths.set(wrapper, sourcePath);
     // Progress cue (#25): highlight the block while its process is live.
     wrapper.classList.add("ocode-running");
 
@@ -4762,10 +4857,27 @@ __ocode_emit_vars
     try {
       const result = await proc.promise;
 
+      if (this.runningProcs.get(wrapper) !== proc) {
+        return;
+      }
+
       // Flush any remaining buffered stdout (no trailing newline at end of script)
       if (stdoutLineBuffer) {
         processStdoutLine(stdoutLineBuffer);
         stdoutLineBuffer = "";
+      }
+
+      // Persistent executors can return figures directly instead of streaming
+      // sentinels. Synthesize any missing placeholders after text output so all
+      // executors still feed the same figure rendering and baking pipeline.
+      const figurePlaceholders = new Set(
+        Array.from(outContent.querySelectorAll<HTMLElement>(".ocode-fig-placeholder"))
+          .map((placeholder) => parseInt(placeholder.dataset.figIdx ?? "0", 10)),
+      );
+      for (const figure of result.figures) {
+        if (!figurePlaceholders.has(figure.figureIndex)) {
+          processStdoutLine(`OCODE_FIG_${figure.figureIndex}`);
+        }
       }
 
       // Process finished — remove input bar
@@ -4906,18 +5018,24 @@ __ocode_emit_vars
     } catch (err: unknown) {
       new Notice(`Execution error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      this.runningProcs.delete(wrapper);
-      wrapper.classList.remove("ocode-running");
+      const ownsWrapper = this.runningProcs.get(wrapper) === proc;
+      if (ownsWrapper) {
+        this.runningProcs.delete(wrapper);
+        this.runNotePaths.delete(wrapper);
+        wrapper.classList.remove("ocode-running");
+      }
       // Hand the note's queue to the next waiting run (and drop the map entry
       // when no one is waiting, so closed notes don't accumulate tails).
       releaseQueue?.();
       if (sourcePath !== undefined && this.noteRunQueue.get(sourcePath) === queueTail) {
         this.noteRunQueue.delete(sourcePath);
       }
-      // Restore run button
-      setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.play);
-      runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
-      runBtn.classList.remove("ocode-cancel-pill");
+      if (ownsWrapper) {
+        // Restore run button
+        setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.play);
+        runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
+        runBtn.classList.remove("ocode-cancel-pill");
+      }
     }
   }
 
