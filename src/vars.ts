@@ -167,6 +167,23 @@ export function toPython(v: VarValue): string {
   }
 }
 
+/** Render a typed value as a JavaScript literal (`5`, `true`, `"x"`, `[...]`). */
+export function toJavaScript(v: VarValue): string {
+  switch (v.kind) {
+    case "string": return JSON.stringify(v.value);
+    case "int": return v.raw;
+    case "float": return v.raw;
+    case "bool": return v.value ? "true" : "false";
+    case "null": return "null";
+    case "json": return JSON.stringify(v.value);
+  }
+}
+
+/** A single JavaScript seed-assignment line for a typed value. */
+export function javascriptSeedLine(name: string, v: VarValue): string {
+  return `var ${name} = ${toJavaScript(v)};`;
+}
+
 /** Render a typed value as the *unquoted* scalar a shell variable should hold.
  *  Shells are stringly typed; structured values become a JSON string. */
 export function toShellScalar(v: VarValue): string {
