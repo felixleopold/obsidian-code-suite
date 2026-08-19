@@ -75,6 +75,7 @@ import {
   toShellScalar,
   pythonSeedLine,
   shellSeedLine,
+  javascriptSeedLine,
   parseTableDirective,
   headerLooksLikeVars,
   buildTableVars,
@@ -1392,7 +1393,7 @@ export default class CodePlugin extends Plugin {
   // ─── Shared Execution Context ────────────────────────────────
 
   /** Languages that support shared context (prepend-and-suppress approach). */
-  private static readonly SHARED_CTX_LANGS = new Set(["python", "bash", "zsh", "shell"]);
+  private static readonly SHARED_CTX_LANGS = new Set(["python", "bash", "zsh", "shell", "javascript"]);
 
   /** Clear accumulated context, var store, and inline var DOM state for a note. */
   private clearNoteSession(notePath: string): void {
@@ -1952,10 +1953,14 @@ export default class CodePlugin extends Plugin {
       m && Object.keys(m).length ? Object.entries(m).map(([k, v]) => pythonSeedLine(k, v)).join("\n") + "\n" : "";
     const renderSh = (m?: Record<string, VarValue>) =>
       m && Object.keys(m).length ? Object.entries(m).map(([k, v]) => shellSeedLine(k, v)).join("\n") + "\n" : "";
+    const renderJs = (m?: Record<string, VarValue>) =>
+      m && Object.keys(m).length ? Object.entries(m).map(([k, v]) => javascriptSeedLine(k, v)).join("\n") + "\n" : "";
     const pythonSeed = renderPy(preSeeds);
     const pythonPost = renderPy(postSeeds);
     const bashSeed   = renderSh(preSeeds);
     const bashPost   = renderSh(postSeeds);
+    const jsSeed     = renderJs(preSeeds);
+    const jsPost     = renderJs(postSeeds);
 
     if (lang === "python") {
       // Fast path: only seed vars, no accumulated blocks
@@ -2035,6 +2040,29 @@ export default class CodePlugin extends Plugin {
         `${accum}\n` +
         `exec 1>&3 2>&4 0<&5 3>&- 4>&- 5<&- 6<&-\n\n` +
         `${bashPost}` +
+        `${currentBlock}`
+      );
+    }
+
+    if (lang === "javascript") {
+      // Fast path: only seed vars, no accumulated blocks
+      if (!accum.trim()) return jsSeed + jsPost + currentBlock;
+
+      // Seed vars (pre), replay prior blocks with output suppressed, then
+      // seed cross-language vars (post) so they win over same-language values.
+      // var declarations land on globalThis in Node so user code sees them.
+      return (
+        `${jsSeed}` +
+        `var __ocode_prev_out = process.stdout.write, __ocode_prev_err = process.stderr.write;\n` +
+        `process.stdout.write = function() { return true; };\n` +
+        `process.stderr.write = function() { return true; };\n` +
+        `try {\n` +
+        `  ${accum}\n` +
+        `} finally {\n` +
+        `  process.stdout.write = __ocode_prev_out;\n` +
+        `  process.stderr.write = __ocode_prev_err;\n` +
+        `}\n\n` +
+        `${jsPost}` +
         `${currentBlock}`
       );
     }
@@ -2132,6 +2160,26 @@ __ocode_emit_vars() {
 }
 __ocode_emit_vars
 `;
+
+  /**
+   * JavaScript postamble: serialize all non-underscore global properties as a
+   * single `__OCODE_VARS__=<json>` line printed to stdout. `var` declarations in
+   * Node.js land on `globalThis`, making them enumerable and readable.
+   */
+  private static readonly JS_VAR_POSTAMBLE =
+    '\ntry {' +
+    '\n  var __ocode_snap = {};' +
+    '\n  for (var __k in globalThis) {' +
+    '\n    if (__k.startsWith(\'_\')) continue;' +
+    '\n    try {' +
+    '\n      var __v = globalThis[__k];' +
+    '\n      if (typeof __v === \'function\' || typeof __v === \'undefined\') continue;' +
+    '\n      __ocode_snap[__k] = JSON.parse(JSON.stringify(__v));' +
+    '\n    } catch (_e) { /* skip non-serializable */ }' +
+    '\n  }' +
+    '\n  console.log(\'\\n__OCODE_VARS__=\' + JSON.stringify(__ocode_snap));' +
+    '\n} catch (_e) {}' +
+    '\n';
 
   /**
    * Broadcast the latest var values to all matching inline `$varname` spans in
@@ -4658,6 +4706,8 @@ __ocode_emit_vars
         execCode = execCode + CodePlugin.BASH_VAR_POSTAMBLE;
       } else if (lang === "zsh") {
         execCode = execCode + CodePlugin.ZSH_VAR_POSTAMBLE;
+      } else if (lang === "javascript") {
+        execCode = execCode + CodePlugin.JS_VAR_POSTAMBLE;
       }
     }
 
