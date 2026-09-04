@@ -21,7 +21,7 @@ import {
 import { ViewPlugin, Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { RangeSetBuilder, StateField, StateEffect, Prec } from "@codemirror/state";
-import type { Extension, Text, EditorState } from "@codemirror/state";
+import type { Extension, Text, EditorState, Range } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
@@ -79,6 +79,10 @@ import {
   headerLooksLikeVars,
   buildTableVars,
 } from "./vars";
+import {
+  JAVASCRIPT_VAR_POSTAMBLE,
+  buildJavascriptContextCode,
+} from "./shared-context";
 import {
   type TemplateContext,
   createContext,
@@ -1123,14 +1127,20 @@ export default class CodePlugin extends Plugin {
         }
 
         buildDecorations(view: EditorView): DecorationSet {
-          const builder = new RangeSetBuilder<Decoration>();
+          const decorations: Range<Decoration>[] = [];
           const doc = view.state.doc;
 
           // Tokenize every closed fenced block that carries a language. Blocks
           // hidden behind a Live Preview widget are simply painted underneath —
           // the replace decoration covers them, so the wasted marks are harmless.
           for (const block of scanFencedBlocks(doc)) {
-            if (!block.lang || block.innerLines.length === 0) continue;
+            if (block.innerLines.length === 0) continue;
+            for (let lineIdx = 0; lineIdx < block.innerLines.length; lineIdx++) {
+              decorations.push(Decoration.line({
+                attributes: { "data-ocode-line-number": String(lineIdx + 1) },
+              }).range(block.innerLines[lineIdx].from));
+            }
+            if (!block.lang) continue;
             const lang = resolveLanguage(block.lang);
             const code = block.code;
 
@@ -1154,10 +1164,8 @@ export default class CodePlugin extends Plugin {
                     if (token.fontStyle & 2) style += "; font-weight: bold";
                     if (token.fontStyle & 4) style += "; text-decoration: underline";
                   }
-                  builder.add(
-                    tokenFrom,
-                    tokenTo,
-                    Decoration.mark({ attributes: { style } })
+                  decorations.push(
+                    Decoration.mark({ attributes: { style } }).range(tokenFrom, tokenTo)
                   );
                 }
 
@@ -1166,7 +1174,7 @@ export default class CodePlugin extends Plugin {
             }
           }
 
-          return builder.finish();
+          return Decoration.set(decorations, true);
         }
       },
       { decorations: (v) => v.decorations }
@@ -1211,6 +1219,10 @@ export default class CodePlugin extends Plugin {
       const info = state.field(editorInfoField, false);
       const notePath = info?.file?.path;
       if (!notePath) return Decoration.none;
+
+      // Live Preview widgets do not pass through Markdown post-processors, so
+      // seed `code_vars:` directly from Obsidian's metadata cache here.
+      this.applyFrontmatterVars(notePath);
 
       const sig = this.lpRenderSig();
       const doc = state.doc;
@@ -1392,7 +1404,7 @@ export default class CodePlugin extends Plugin {
   // ─── Shared Execution Context ────────────────────────────────
 
   /** Languages that support shared context (prepend-and-suppress approach). */
-  private static readonly SHARED_CTX_LANGS = new Set(["python", "bash", "zsh", "shell"]);
+  private static readonly SHARED_CTX_LANGS = new Set(["python", "javascript", "bash", "zsh", "shell"]);
 
   /** Clear accumulated context, var store, and inline var DOM state for a note. */
   private clearNoteSession(notePath: string): void {
@@ -1956,6 +1968,10 @@ export default class CodePlugin extends Plugin {
     const pythonPost = renderPy(postSeeds);
     const bashSeed   = renderSh(preSeeds);
     const bashPost   = renderSh(postSeeds);
+
+    if (lang === "javascript") {
+      return buildJavascriptContextCode(prevBlocks, currentBlock, preSeeds, postSeeds);
+    }
 
     if (lang === "python") {
       // Fast path: only seed vars, no accumulated blocks
@@ -3547,13 +3563,21 @@ __ocode_emit_vars
    * post-processor pass and overwrite anything from frontmatter (so block
    * vars take precedence, matching what the issue spec asks for).
    */
-  private applyFrontmatterVars(ctx: MarkdownPostProcessorContext): void {
-    const fm = ctx.frontmatter as Record<string, unknown> | undefined;
+  private applyFrontmatterVars(ctx: MarkdownPostProcessorContext): void;
+  private applyFrontmatterVars(notePath: string): void;
+  private applyFrontmatterVars(ctxOrPath: MarkdownPostProcessorContext | string): void {
+    const notePath = typeof ctxOrPath === "string" ? ctxOrPath : ctxOrPath.sourcePath;
+    if (!notePath) return;
+    const file = this.app.vault.getAbstractFileByPath(notePath);
+    const cached = file instanceof TFile
+      ? this.app.metadataCache.getFileCache(file)?.frontmatter
+      : undefined;
+    const fm = (typeof ctxOrPath === "string" ? cached : ctxOrPath.frontmatter ?? cached) as
+      | Record<string, unknown>
+      | undefined;
     if (!fm) return;
     const entries = this.collectFrontmatterVars(fm["code_vars"]);
     if (!entries.length) return;
-    const notePath = ctx.sourcePath;
-    if (!notePath) return;
 
     if (!this.noteVarStore.has(notePath)) this.noteVarStore.set(notePath, {});
     if (!this.noteVarsBlockStore.has(notePath)) this.noteVarsBlockStore.set(notePath, {});
@@ -4640,7 +4664,7 @@ __ocode_emit_vars
       // replay and once visibly matches notebook re-run semantics.
       const prevBlocks = this.noteContexts.get(sourcePath)?.get(lang) ?? [];
       const hasSeed    = Object.keys(preSeeds).length > 0 || Object.keys(postSeeds).length > 0;
-      if (prevBlocks.length > 0 || hasSeed) {
+      if (prevBlocks.length > 0 || hasSeed || lang === "javascript") {
         // Replay each prior block's recorded stdin, in block order, so a replayed
         // `input()` / `read` reproduces the value it captured originally.
         const stdinMap = this.noteStdin.get(sourcePath)?.get(lang);
@@ -4654,6 +4678,8 @@ __ocode_emit_vars
       // introspection is intentionally limited to shells with suitable APIs.
       if (lang === "python") {
         execCode = execCode + CodePlugin.PYTHON_VAR_POSTAMBLE;
+      } else if (lang === "javascript") {
+        execCode = execCode + JAVASCRIPT_VAR_POSTAMBLE;
       } else if (lang === "bash") {
         execCode = execCode + CodePlugin.BASH_VAR_POSTAMBLE;
       } else if (lang === "zsh") {

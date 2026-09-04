@@ -758,6 +758,7 @@ body.ocode-wide-blocks .ocode-wrapper {
 /* ─── Code block container ────────────────────── */
 .cm-s-obsidian .cm-line.HyperMD-codeblock {
   background-color: var(--ocode-bg, #1d2021);
+  caret-color: var(--ocode-fg, #ebdbb2);
   font-family: var(--font-monospace), "Fira Code", "JetBrains Mono", "Cascadia Code", monospace;
   font-size: var(--ocode-code-font-size);
   line-height: 1.6;
@@ -799,17 +800,13 @@ body.ocode-wide-blocks .ocode-wrapper {
    When the cursor enters a block its chrome widget is dropped and Obsidian
    shows the raw HyperMD lines. Without numbers there, clicking in flashes a
    gutter-less "native" block before our chrome returns. Mirror the gutter here
-   (CSS counters) so the revealed source lines up with the chrome it replaced.
+   using document-derived attributes so folds and CM virtualization preserve the
+   real code line number.
    Gated by `body.ocode-lp-lnum`, which tracks the Line numbers setting.
    Fence lines (begin/end) are not numbered — they have no number in chrome. */
-body.ocode-lp-lnum .cm-s-obsidian .cm-line.HyperMD-codeblock-begin {
-  counter-reset: ocode-lp-ln;
-}
-
 body.ocode-lp-lnum
   .cm-s-obsidian
   .cm-line.HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) {
-  counter-increment: ocode-lp-ln;
   position: relative;
   padding-left: calc(3em + 28px);
 }
@@ -817,7 +814,7 @@ body.ocode-lp-lnum
 body.ocode-lp-lnum
   .cm-s-obsidian
   .cm-line.HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end)::before {
-  content: counter(ocode-lp-ln);
+  content: attr(data-ocode-line-number);
   position: absolute;
   left: 4px;
   width: 3em;

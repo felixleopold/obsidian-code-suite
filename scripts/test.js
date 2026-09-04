@@ -8,12 +8,17 @@ const testDir = mkdtempSync(join(tmpdir(), "code-suite-tests-"));
 const testBundles = [
   join(testDir, "python-graphs.test.cjs"),
   join(testDir, "matlab-session.test.cjs"),
+  join(testDir, "shared-context.test.cjs"),
 ];
 let exitCode = 1;
 
 try {
   esbuild.buildSync({
-    entryPoints: ["tests/python-graphs.test.ts", "tests/matlab-session.test.ts"],
+    entryPoints: [
+      "tests/python-graphs.test.ts",
+      "tests/matlab-session.test.ts",
+      "tests/shared-context.test.ts",
+    ],
     bundle: true,
     platform: "node",
     format: "cjs",
