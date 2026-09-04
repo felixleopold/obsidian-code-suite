@@ -44,7 +44,7 @@ Run code directly from a code block — no terminal, no switching apps.
 |---|---|---|
 | Python | `python3` | Matplotlib & Plotly graph capture, venv support |
 | MATLAB | `python3` + `matlabengine` + MATLAB | Persistent, isolated session per note; inline PNG figures |
-| JavaScript | `node` | |
+| JavaScript | `node` | Shared variables and functions across blocks |
 | TypeScript | `npx tsx` | |
 | Bash | `bash` | Shared variable state across blocks |
 | Zsh | `zsh` | Shared variable state across blocks |
@@ -84,7 +84,7 @@ Each note maintains an in-memory execution session — notebook-style shared sta
 
 MATLAB uses native persistent state: variables, imports, the current directory, path changes, and registered functions remain in that note's Engine regardless of the **Shared execution context** toggle. Idle Engines close after a configurable timeout to release memory. MATLAB does not participate in CodeSuite's cross-language variable bridge.
 
-- **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python, Bash, and Zsh)
+- **Shared state across blocks** — variables, imports, and function definitions carry over between runs (Python, JavaScript, Bash, and Zsh)
 - **Live cross-language variables** — a shared variable changed by one block is visible to later blocks in *any* language, in execution order. Set `count = 42` in Python and a later Bash block sees `42`; change it in Bash and the next Python block sees the new value. Scalars and JSON structures cross languages; rich objects (functions, DataFrames) stay within their language. See [Variable typing & the execution model](https://github.com/felixleopold/obsidian-code-suite/blob/main/docs/configuration.md#variable-typing).
 - **Inline `$varname` substitution** — write `` `$result` `` anywhere in your note; it updates live in Reading view after each run
 - **Run All** — runs every executable block top-to-bottom, stopping on the first error; the view scrolls along and highlights the executing block. Skip a block with a `skip` fence tag or a `codesuite:skip` comment marker
@@ -304,6 +304,7 @@ Track progress or vote on the linked GitHub issues.
 
 **Recent releases**
 
+- **1.19.0**: add complete JavaScript notebook context, including `vars`/frontmatter input, functions and closures across blocks, and JSON-safe values shared with other languages ([#54](https://github.com/felixleopold/obsidian-code-suite/issues/54)). Fix invisible carets in dark CodeSuite blocks under Obsidian's Default Light theme ([#58](https://github.com/felixleopold/obsidian-code-suite/issues/58)) and preserve true line numbers through folds and long-block virtualization ([#59](https://github.com/felixleopold/obsidian-code-suite/issues/59)).
 - **1.18.0** — add MATLAB Engine execution with per-note workspaces, native cancellation, inline figure capture, startup and restart status, configurable idle shutdown, and reduced warm-run overhead. Inline `$var` references are now scoped to their source note, so references inside an embed resolve against the embedded note rather than the host note ([#51](https://github.com/felixleopold/obsidian-code-suite/pull/51)).
 - **1.17.2** — follow Obsidian's semantic code font size across rendered blocks, Live Preview, Source Mode, execution output, and standalone code files, with an optional 8–24px Code Suite override that updates immediately across windows ([#52](https://github.com/felixleopold/obsidian-code-suite/issues/52)).
 - **1.17.1** — fix inline Matplotlib and Plotly graphs on Windows: Python's CRLF figure markers are now recognized correctly, and temporary scripts no longer shadow Python's standard-library `code` module and trigger a Plotly/IPython circular import ([#53](https://github.com/felixleopold/obsidian-code-suite/issues/53)).

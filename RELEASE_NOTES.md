@@ -1,17 +1,15 @@
-This release adds native MATLAB Engine execution with persistent per-note workspaces, inline figures, cancellation, and managed Engine lifecycles.
+This release adds complete JavaScript notebook context and fixes caret visibility and Live Preview line numbering.
 
 ## What's New
 
-- **MATLAB Engine execution** — run `matlab` fences through the official MATLAB Engine for Python, with an isolated persistent base workspace for each note ([#51](https://github.com/felixleopold/obsidian-code-suite/pull/51)).
-- **Figures and cancellation** — MATLAB figures render inline through Code Suite's existing output pipeline, and long-running code supports native interruption from the Stop button.
-- **Managed Engine lifecycle** — startup and restart status is visible, inactive Engines close after a configurable timeout, and workspace resets are disclosed instead of happening silently.
-- **Efficient warm runs** — repeated MATLAB fences reuse the Engine and figure helper, substantially reducing per-run overhead after startup.
+- **JavaScript shared context**: JavaScript blocks can consume `vars`, `code_vars:` frontmatter, and values published by other languages ([#54](https://github.com/felixleopold/obsidian-code-suite/issues/54)).
+- **JavaScript notebook state**: top-level variables, functions, classes, closures, and JSON-safe values carry across JavaScript blocks, with serializable values published back to other languages.
 
 ## Bug Fixes
 
-- **Embedded variable references use the correct note** — inline `$var` references are now scoped to their source note, so references inside embeds resolve against the embedded note rather than the host note.
+- **Visible editing caret**: code blocks use the active CodeSuite foreground color for the caret, keeping it visible with Obsidian's Default Light theme ([#58](https://github.com/felixleopold/obsidian-code-suite/issues/58)).
+- **Stable Live Preview line numbers**: folded and virtualized code keeps its true source line numbers, including very long blocks ([#59](https://github.com/felixleopold/obsidian-code-suite/issues/59)).
 
 ## Upgrade Notes
 
-- Existing installations are unchanged unless MATLAB fences are used.
-- To enable MATLAB execution, install a MATLAB Engine package compatible with your MATLAB release and select that Python interpreter under Settings → Code Suite → Languages.
+- No manual steps are required. Existing settings and sessions continue to work.

@@ -55,7 +55,7 @@ Show the Run button on supported language blocks. Disable to use CodeSuite as a 
 Show the **Clear execution session** button in the note header bar. Turn it off to declutter the tab bar — the **Clear execution session for this note** command still works from the command palette. Desktop only; the button is never shown on mobile.
 
 ### Shared execution context *(on by default)*
-When enabled, each block run in a note accumulates into a per-note in-memory session. Later blocks can reference variables, functions, and imports from earlier blocks (Python, Bash, and Zsh). Also enables inline `` `$varname` `` substitution.
+When enabled, each block run in a note accumulates into a per-note in-memory session. Later blocks can reference variables, functions, and imports from earlier blocks (Python, JavaScript, Bash, and Zsh). Also enables inline `` `$varname` `` substitution.
 
 > **Tip:** Run blocks top-to-bottom to build up state correctly. Use **Run All** to execute the entire note in sequence automatically.
 
