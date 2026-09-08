@@ -326,9 +326,11 @@ Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**
 
 Track progress or vote on the linked GitHub issues.
 
-Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) are implemented for the next release.
+Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0.
 
 **Recent releases**
+
+- **1.20.0**: add static blocks, per-block titles, line-number and collapse overrides, line and diff highlighting, and configurable inline code styling with `{lang}` syntax colors ([#62](https://github.com/felixleopold/obsidian-code-suite/pull/62)). Fix TypeScript execution when using a custom Node installation ([#61](https://github.com/felixleopold/obsidian-code-suite/pull/61)).
 
 - **1.19.0**: add complete JavaScript notebook context, including `vars`/frontmatter input, functions and closures across blocks, and JSON-safe values shared with other languages ([#54](https://github.com/felixleopold/obsidian-code-suite/issues/54)). Fix invisible carets in dark CodeSuite blocks under Obsidian's Default Light theme ([#58](https://github.com/felixleopold/obsidian-code-suite/issues/58)) and preserve true line numbers through folds and long-block virtualization ([#59](https://github.com/felixleopold/obsidian-code-suite/issues/59)).
 - **1.18.0** — add MATLAB Engine execution with per-note workspaces, native cancellation, inline figure capture, startup and restart status, configurable idle shutdown, and reduced warm-run overhead. Inline `$var` references are now scoped to their source note, so references inside an embed resolve against the embedded note rather than the host note ([#51](https://github.com/felixleopold/obsidian-code-suite/pull/51)).
