@@ -2597,7 +2597,14 @@ __ocode_emit_vars
     if (!options) return; // user cancelled
     await this.persistExportOptions(options);
 
-    const html = await this.buildNoteHtml(previewEl, file, format, options);
+    let html: string;
+    try {
+      html = await this.buildNoteHtml(previewEl, file, format, options);
+    } catch (err) {
+      console.error(`CodeSuite: ${format.toUpperCase()} export render failed`, err);
+      new Notice(`${format.toUpperCase()} export failed: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
 
     if (format === "html") {
       await this.saveExport(this.exportDefaultPath(file, "html"), "HTML", ["html"], html);
@@ -2650,9 +2657,12 @@ __ocode_emit_vars
     try {
       await MarkdownRenderer.render(this.app, markdown, full, file.path, comp);
 
-      // Flush the MathJax stylesheet into the live document so any LaTeX in the
-      // note is fully typeset and its styles are capturable below.
-      try { await finishRenderMath(); } catch { /* no math in note / MathJax unavailable */ }
+      // finishRenderMath assumes MathJax has been loaded. Obsidian 1.13 loads it
+      // lazily, and calling this for a note without math throws asynchronously
+      // and leaves the export render pending forever.
+      if (full.querySelector("mjx-container")) {
+        try { await finishRenderMath(); } catch { /* MathJax unavailable */ }
+      }
       this.cloneMathGlobalCache(full);
 
       await this.buildExportHtmlFrames(full, file.path);
