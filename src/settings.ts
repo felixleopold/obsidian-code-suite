@@ -114,6 +114,10 @@ export interface CodePluginSettings {
   demoThemeCycle?: boolean;
   /** Custom code font size in pixels. Null follows Obsidian's --code-size. */
   codeFontSize: number | null;
+  /** Give ordinary Markdown inline code CodeSuite's stronger visual treatment. */
+  styleInlineCode: boolean;
+  /** Apply Shiki token colors to inline code prefixed with `{lang}`. */
+  highlightInlineCode: boolean;
   showLineNumbers: boolean;
   showLanguageLabel: boolean;
   /**
@@ -124,6 +128,8 @@ export interface CodePluginSettings {
   /** Soft-wrap long lines in reading view instead of showing a horizontal scrollbar. */
   wrapCodeInReadingView: boolean;
   enableExecution: boolean;
+  /** Treat blocks as highlighted, non-executable code unless `static=false` overrides it. */
+  staticBlocksByDefault: boolean;
   renderEmbeddedFiles: boolean;
   /**
    * When true, `html` code blocks render as a live HTML preview by default
@@ -291,11 +297,14 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   darkAutoTheme: "gruvbox-dark-hard",
   lightAutoTheme: "github-light",
   codeFontSize: null,
+  styleInlineCode: true,
+  highlightInlineCode: true,
   showLineNumbers: true,
   showLanguageLabel: true,
   additionalPassthroughLanguages: "base\nd2\nvid",
   wrapCodeInReadingView: true,
   enableExecution: true,
+  staticBlocksByDefault: false,
   renderEmbeddedFiles: true,
   renderHtmlBlocks: false,
   htmlBlockPdfExport: false,

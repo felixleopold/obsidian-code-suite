@@ -10,6 +10,8 @@ const testBundles = [
   join(testDir, "python-graphs.test.cjs"),
   join(testDir, "matlab-session.test.cjs"),
   join(testDir, "shared-context.test.cjs"),
+  join(testDir, "inline-code.test.cjs"),
+  join(testDir, "block-options.test.cjs"),
 ];
 let exitCode = 1;
 
@@ -20,6 +22,8 @@ try {
       "tests/python-graphs.test.ts",
       "tests/matlab-session.test.ts",
       "tests/shared-context.test.ts",
+      "tests/inline-code.test.ts",
+      "tests/block-options.test.ts",
     ],
     bundle: true,
     platform: "node",

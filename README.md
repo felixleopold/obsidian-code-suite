@@ -32,6 +32,34 @@ Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses 
 - **Editor highlighting** — full token colors in Live Preview and Source mode via a CodeMirror 6 ViewPlugin, not just in Reading view
 - **Full chrome in Live Preview** — code blocks and `![[file.py]]` embeds render with the same header, Run/Copy buttons, live output, line numbers, and collapse as Reading view. The block your cursor is in reveals its raw source for editing; every other block shows the rendered chrome, with running output preserved as you move around
 
+
+### Per-block formatting
+
+Add space-separated attributes after the language on the opening fence:
+
+````md
+```python title="data_pipeline.py" {3, 7-10} showLineNumbers static
+# Highlighted code, with no Run button
+```
+````
+
+| Attribute | Effect |
+|---|---|
+| `static` | Keep syntax colors and block styling, disable Run and exclude the block from Run All |
+| `title="My Script.py"` | Show a title in the header, preserving spaces and case |
+| `showLineNumbers` / `hideLineNumbers` | Override the global line-number setting |
+| `{1, 5-10}` | Highlight the specified lines, numbered from 1 |
+| `ins={3}` / `del={7-10}` | Highlight inserted lines green or deleted lines red |
+| `collapse` | Start the block collapsed |
+
+Boolean options accept `=true` or `=false`. `ln=true` / `ln:false` are aliases for line numbering, and `fold=true` / `fold:false` control collapse. Existing `collapsed` and `expanded` flags still work. Per-block values override the global defaults; `static=false` makes a block runnable when **Static blocks by default** is enabled, provided execution is enabled globally. Static HTML blocks also suppress live previews.
+
+Titles and initial collapse apply in Reading View and Live Preview. Line backgrounds and numbering also appear while editing source. A `diff` block automatically colors `+` and `-` lines, excluding `+++` / `---` file headers. Explicit line ranges take precedence, with deletion over insertion over ordinary highlighting. Invalid range entries are ignored.
+
+Ordinary inline code receives stronger styling, configurable with **Enhanced inline code styling**. Add a language prefix for syntax colors, for example `` `{python} result = df.groupby("region").sum()` ``. Reading View hides a recognized prefix; the editor retains it for editing and highlights single-line spans. Unknown prefixes and existing `` `$variable` `` references retain their meaning. **Inline syntax highlighting** controls language-aware coloring separately.
+
+Inspired by [mProjectsCode’s Shiki Highlighter](https://github.com/mProjectsCode/obsidian-shiki-plugin), [Expressive Code](https://expressive-code.com/) by Hippo, and [Codeblock Customizer](https://github.com/mugiwara85/CodeblockCustomizer).
+
 ---
 
 <a id="run"></a>
@@ -298,9 +326,7 @@ Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**
 
 Track progress or vote on the linked GitHub issues.
 
-| # | Feature | Issue |
-|---|---------|-------|
-| 1 | **Per-block code formatting** — line highlighting `{1,5-10}`, diff highlighting `ins`/`del`, per-block titles, `showLineNumbers` override, and inline code syntax highlighting | [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) |
+Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) are implemented for the next release.
 
 **Recent releases**
 

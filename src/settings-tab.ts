@@ -316,13 +316,13 @@ export class CodeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Line numbers")
-      .setDesc("Show line numbers in code blocks (reading view only).")
+      .setDesc("Show line numbers in code blocks. Per-block line-number fence options override this default.")
       .addToggle((t) => {
         t.setValue(this.plugin.settings.showLineNumbers);
         t.onChange(async (v) => {
           this.plugin.settings.showLineNumbers = v;
-          activeDocument.body.toggleClass("ocode-lp-lnum", v);
           await this.plugin.saveSettings();
+          this.plugin.refreshRenderedBlocks();
         });
       });
 
@@ -360,12 +360,42 @@ export class CodeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Collapse code blocks by default")
-      .setDesc("Start every code block collapsed in reading view and live preview. Code blocks are always collapsible — click the header to expand/collapse; this only sets the initial state. Per-block 'collapsed'/'expanded' fence flags override it.")
+      .setDesc("Start every code block collapsed in reading view and live preview. Click the header to expand or collapse it. Per-block collapse/collapsed/expanded flags and fold=true/fold=false aliases override this default.")
       .addToggle((t) => {
         t.setValue(this.plugin.settings.inlineCollapsedByDefault);
         t.onChange(async (v) => {
           this.plugin.settings.inlineCollapsedByDefault = v;
           await this.plugin.saveSettings();
+          this.plugin.refreshRenderedBlocks();
+        });
+      });
+
+    // ─── Inline code ─────────────────────────────
+    new Setting(containerEl).setName("Inline code").setHeading();
+
+    new Setting(containerEl)
+      .setName("Enhanced inline code styling")
+      .setDesc("Give ordinary Markdown inline code a stronger background, border, and spacing so it stands out in prose.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.styleInlineCode);
+        t.onChange(async (v) => {
+          this.plugin.settings.styleInlineCode = v;
+          await this.plugin.saveSettings();
+          this.app.workspace.updateOptions();
+          this.plugin.refreshRenderedBlocks();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Inline syntax highlighting")
+      .setDesc("Highlight inline code that starts with a language prefix, for example `{python} result = values.sum()`.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.highlightInlineCode);
+        t.onChange(async (v) => {
+          this.plugin.settings.highlightInlineCode = v;
+          await this.plugin.saveSettings();
+          this.app.workspace.updateOptions();
+          this.plugin.refreshRenderedBlocks();
         });
       });
 
@@ -455,6 +485,18 @@ export class CodeSettingTab extends PluginSettingTab {
       .addToggle((t) => {
         t.setValue(this.plugin.settings.enableExecution);
         t.onChange(async (v) => { this.plugin.settings.enableExecution = v; await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("Static blocks by default")
+      .setDesc("Keep fenced code blocks highlighted but non-executable by default. Add static=false to a fence to make an individual block executable.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.staticBlocksByDefault);
+        t.onChange(async (v) => {
+          this.plugin.settings.staticBlocksByDefault = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshRenderedBlocks();
+        });
       });
 
     new Setting(containerEl)

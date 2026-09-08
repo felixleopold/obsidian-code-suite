@@ -28,7 +28,9 @@ Imported themes are saved in plugin settings and appear in the theme picker imme
 
 | Setting | Description |
 |---|---|
-| **Line numbers** | Show or hide line numbers in reading view. Does not affect editor mode. |
+| **Line numbers** | Show or hide line numbers in rendered blocks and editable source. Override per block with `showLineNumbers`, `hideLineNumbers`, or `ln=true` / `ln=false`. |
+| **Enhanced inline code styling** *(on by default)* | Give ordinary inline code a stronger background, border, and spacing. |
+| **Inline syntax highlighting** *(on by default)* | Color language-prefixed inline code, such as `` `{python} sum(values)` ``. Known prefixes are hidden in Reading View and remain editable in source. |
 | **Language label** | Show or hide the language name in the header bar of each code block. |
 | **Wide code blocks** | Allow code blocks to extend beyond the normal note content width. Useful for wide tables or long output lines. |
 | **Soft-wrap long lines** *(on by default)* | Wrap long lines in reading view instead of showing a horizontal scrollbar, matching the editor's behaviour. Turn off to restore horizontal scrolling. |
@@ -50,6 +52,9 @@ Enter one fenced-code language per line for CodeSuite to leave untouched in both
 
 ### Enable code execution
 Show the Run button on supported language blocks. Disable to use CodeSuite as a syntax-highlighting-only plugin. Desktop only — no effect on mobile.
+
+### Static blocks by default *(off by default)*
+Keep fenced blocks highlighted with no Run controls or Run All participation. Set `static=false` on a fence to make that block runnable, or `static` to disable execution for one block with this setting off. Static HTML blocks suppress live previews. Embedded code files keep their existing execution behavior.
 
 ### Show clear-session button *(on by default)*
 Show the **Clear execution session** button in the note header bar. Turn it off to declutter the tab bar — the **Clear execution session for this note** command still works from the command palette. Desktop only; the button is never shown on mobile.
@@ -177,7 +182,7 @@ Absolute path to a `.env` file on disk. Variables from this file are loaded into
 |---|---|
 | **Render embedded code files** | Replace Obsidian's default plain-text rendering of `![[file.py]]` embeds with fully syntax-highlighted, interactive CodeSuite blocks. |
 | **Collapse embedded files** | Start all embedded file blocks in the collapsed state. The header shows filename and line count; click to expand. |
-| **Collapse code blocks by default** | Every code block is always collapsible — click its header to fold/unfold. This setting only chooses the initial state (collapsed vs. expanded) in Reading view and Live Preview. Per-block `collapsed`/`expanded` fence flags override it. |
+| **Collapse code blocks by default** | Every code block is always collapsible — click its header to fold/unfold. This setting only chooses the initial state (collapsed vs. expanded) in Reading view and Live Preview. Per-block `collapse`, `collapsed`, `expanded`, and `fold=true` / `fold=false` fence flags override it. |
 
 ---
 
