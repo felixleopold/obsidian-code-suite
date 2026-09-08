@@ -1,13 +1,10 @@
-This patch fixes two live-formatting regressions introduced in CodeSuite 1.20.0.
+This patch restores HTML and PDF note export on Obsidian 1.13.
 
 ## Bug Fixes
 
-- **Unified inline code boxes**: Source mode and Live Preview now apply the enhanced background, border, and spacing only to the code content. Opening and closing backticks remain outside the box instead of appearing as separate boxes.
-- **Immediate static updates**: changing fence options such as `static` now refreshes Reading View code chrome when switching from Source mode or in an open reading pane. The Run button disappears or reappears without closing and reopening the note.
+- **PDF and HTML export works without MathJax**: Code Suite now flushes MathJax styles only when the rendered note actually contains math. Notes without math no longer stop silently after the export options dialog.
+- **Visible export failures**: errors while building the standalone document now appear in an Obsidian notice and the developer console, instead of leaving the command apparently unresponsive.
 
-## Upgrade Notes
+No manual steps are required.
 
-- No manual steps are required.
-- Static blocks retain syntax highlighting, line numbers, Copy, and collapse controls. They remove Run controls and Run All participation.
-
-See [PR #65](https://github.com/felixleopold/obsidian-code-suite/pull/65).
+See [PR #66](https://github.com/felixleopold/obsidian-code-suite/pull/66).
