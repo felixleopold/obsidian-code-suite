@@ -34,6 +34,11 @@ export interface InlineCodeSpan {
   text: string;
 }
 
+/** Range that receives the editor's inline-code box decoration. */
+export function inlineCodeStyleRange(span: InlineCodeSpan): readonly [number, number] {
+  return [span.from, span.to];
+}
+
 const PLAIN_TEXT_LANGUAGES = new Set(["text", "txt", "plaintext", "plain"]);
 
 /** Parse CodeSuite's `{lang} code` form without deciding whether lang is known. */
@@ -211,8 +216,9 @@ export function buildInlineCodeEditorExtension(getOptions: () => InlineCodeOptio
         const decorations: Range<Decoration>[] = [];
         for (const span of scanInlineCodeSpans(view.state.doc.toString())) {
           if (options.styleInlineCode && span.markerFrom < span.markerTo) {
+            const [from, to] = inlineCodeStyleRange(span);
             decorations.push(
-              Decoration.mark({ class: "ocode-inline-code" }).range(span.markerFrom, span.markerTo),
+              Decoration.mark({ class: "ocode-inline-code" }).range(from, to),
             );
           }
           if (!options.highlightInlineCode) continue;

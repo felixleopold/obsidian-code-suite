@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseLanguageInlineCode, scanInlineCodeSpans } from "../src/inline-code";
+import {
+  inlineCodeStyleRange,
+  parseLanguageInlineCode,
+  scanInlineCodeSpans,
+} from "../src/inline-code";
 
 test("parses language-prefixed inline code", () => {
   assert.deepEqual(parseLanguageInlineCode('{Python} result = df.groupby("region").sum()'), {
@@ -19,6 +23,12 @@ test("scans inline code delimiters without crossing lines", () => {
     "code with ` tick",
     "plain",
   ]);
+});
+
+test("editor box styling excludes the opening and closing backticks", () => {
+  const [span] = scanInlineCodeSpans("Before `{c}int value = 0;` after");
+  assert.ok(span);
+  assert.deepEqual(inlineCodeStyleRange(span), [span.from, span.to]);
 });
 
 test("ignores escaped delimiters and treats backslashes inside spans literally", () => {
