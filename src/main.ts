@@ -23,7 +23,14 @@ import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { RangeSetBuilder, StateField, StateEffect, Prec } from "@codemirror/state";
 import type { Extension, Text, EditorState, Range } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
-import { parseBlockOptions, isStaticBlock, lineHighlightClass, fencedBlockInfos, type BlockOptions } from "./block-options";
+import {
+  parseBlockOptions,
+  isStaticBlock,
+  lineHighlightClass,
+  fencedBlockInfos,
+  fencedBlockOptionsSignature,
+  type BlockOptions,
+} from "./block-options";
 import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
@@ -513,6 +520,10 @@ export default class CodePlugin extends Plugin {
    *  {@link scheduleFrontmatterPanelSync}). */
   private _fmPanelSyncTimer: number | null = null;
 
+  /** Notes whose reading-view code chrome is stale after a fence option edit. */
+  private dirtyReadingBlockNotes = new Set<string>();
+  private _readingBlockRefreshTimer: number | null = null;
+
   /** Demo/recording only — curated themes the demo-cycle command steps through. */
   private static readonly DEMO_THEME_CYCLE = [
     // popular darks
@@ -710,12 +721,14 @@ export default class CodePlugin extends Plugin {
       this.app.workspace.on("layout-change", () => {
         this.applyCodeFontSize();
         this.forceLpRebuild();
+        this.refreshDirtyReadingBlocks();
         this.scheduleFrontmatterPanelSync();
       })
     );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         this.forceLpRebuild();
+        this.refreshDirtyReadingBlocks();
         this.scheduleFrontmatterPanelSync();
       })
     );
@@ -882,6 +895,11 @@ export default class CodePlugin extends Plugin {
       window.clearTimeout(this._skipSyncTimer);
       this._skipSyncTimer = null;
     }
+    if (this._readingBlockRefreshTimer !== null) {
+      window.clearTimeout(this._readingBlockRefreshTimer);
+      this._readingBlockRefreshTimer = null;
+    }
+    this.dirtyReadingBlockNotes.clear();
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (leaf.view instanceof MarkdownView) this.cancelRunAll(leaf.view);
     }
@@ -1376,6 +1394,11 @@ export default class CodePlugin extends Plugin {
       return builder.finish();
     };
 
+    const queueReadingRefreshFor = (state: EditorState): void => {
+      const notePath = state.field(editorInfoField, false)?.file?.path;
+      if (notePath) this.queueReadingBlockRefresh(notePath);
+    };
+
     // Highest precedence so our block-replace widgets win over Obsidian's own
     // Live Preview code-block rendering. Without this, the two compete over the
     // same fence lines and Obsidian's native render (language flag, no chrome)
@@ -1389,6 +1412,13 @@ export default class CodePlugin extends Plugin {
         const lpChanged =
           tr.startState.field(editorLivePreviewField, false) !==
           tr.state.field(editorLivePreviewField, false);
+        if (
+          tr.docChanged &&
+          fencedBlockOptionsSignature(tr.startState.doc.toString()) !==
+            fencedBlockOptionsSignature(tr.state.doc.toString())
+        ) {
+          queueReadingRefreshFor(tr.state);
+        }
         if (
           lpChanged ||
           tr.docChanged ||
@@ -1682,6 +1712,39 @@ export default class CodePlugin extends Plugin {
       if (views.length === 0) return;
       for (const view of views) this.syncSkipBadges(view);
     }, delay);
+  }
+
+  /**
+   * Re-render a note's reading-view block chrome after an opening fence changes.
+   * Keep the note dirty when it is currently in Source mode, then flush as soon
+   * as the mode switch produces a reading view.
+   */
+  private queueReadingBlockRefresh(notePath: string): void {
+    this.dirtyReadingBlockNotes.add(notePath);
+    if (this._readingBlockRefreshTimer !== null) {
+      window.clearTimeout(this._readingBlockRefreshTimer);
+    }
+    this._readingBlockRefreshTimer = window.setTimeout(() => {
+      this._readingBlockRefreshTimer = null;
+      this.refreshDirtyReadingBlocks();
+    }, 150);
+  }
+
+  private refreshDirtyReadingBlocks(): void {
+    if (this._readingBlockRefreshTimer !== null) {
+      window.clearTimeout(this._readingBlockRefreshTimer);
+      this._readingBlockRefreshTimer = null;
+    }
+    const refreshed = new Set<string>();
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) return;
+      const notePath = view.file?.path;
+      if (!notePath || view.getMode() !== "preview" || !this.dirtyReadingBlockNotes.has(notePath)) return;
+      view.previewMode.rerender(true);
+      refreshed.add(notePath);
+    });
+    for (const notePath of refreshed) this.dirtyReadingBlockNotes.delete(notePath);
   }
 
   /**
