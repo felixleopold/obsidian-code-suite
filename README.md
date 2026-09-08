@@ -330,6 +330,7 @@ Per-block formatting and inline highlighting from [#13](https://github.com/felix
 
 **Recent releases**
 
+- **1.20.1**: keep inline-code backticks outside the styled content box and refresh Reading View code chrome immediately after fence options such as `static` change ([#65](https://github.com/felixleopold/obsidian-code-suite/pull/65)).
 - **1.20.0**: add static blocks, per-block titles, line-number and collapse overrides, line and diff highlighting, and configurable inline code styling with `{lang}` syntax colors ([#62](https://github.com/felixleopold/obsidian-code-suite/pull/62)). Fix TypeScript execution when using a custom Node installation ([#61](https://github.com/felixleopold/obsidian-code-suite/pull/61)).
 
 - **1.19.0**: add complete JavaScript notebook context, including `vars`/frontmatter input, functions and closures across blocks, and JSON-safe values shared with other languages ([#54](https://github.com/felixleopold/obsidian-code-suite/issues/54)). Fix invisible carets in dark CodeSuite blocks under Obsidian's Default Light theme ([#58](https://github.com/felixleopold/obsidian-code-suite/issues/58)) and preserve true line numbers through folds and long-block virtualization ([#59](https://github.com/felixleopold/obsidian-code-suite/issues/59)).
