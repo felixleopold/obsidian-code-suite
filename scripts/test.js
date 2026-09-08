@@ -6,6 +6,7 @@ const esbuild = require("esbuild");
 
 const testDir = mkdtempSync(join(tmpdir(), "code-suite-tests-"));
 const testBundles = [
+  join(testDir, "executor.test.cjs"),
   join(testDir, "python-graphs.test.cjs"),
   join(testDir, "matlab-session.test.cjs"),
   join(testDir, "shared-context.test.cjs"),
@@ -15,6 +16,7 @@ let exitCode = 1;
 try {
   esbuild.buildSync({
     entryPoints: [
+      "tests/executor.test.ts",
       "tests/python-graphs.test.ts",
       "tests/matlab-session.test.ts",
       "tests/shared-context.test.ts",

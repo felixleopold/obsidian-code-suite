@@ -220,8 +220,8 @@ export function startExecution(
   let cmd = runtime.cmd;
   if (lang === "python" && settings.pythonPath) {
     cmd = settings.pythonPath;
-  } else if ((lang === "javascript" || lang === "typescript") && settings.nodePath) {
-    cmd = lang === "javascript" ? settings.nodePath : runtime.cmd;
+  } else if (lang === "javascript" && settings.nodePath) {
+    cmd = settings.nodePath;
   } else if (lang === "bash" && settings.bashPath) {
     cmd = settings.bashPath;
   } else if (lang === "zsh" && settings.zshPath) {
@@ -259,6 +259,11 @@ export function startExecution(
       env["VIRTUAL_ENV"] = venvDir;
       env["PATH"] = venvBin + path.delimiter + (env["PATH"] || "");
     }
+  }
+
+  // npx and its /usr/bin/env node launcher must use the configured Node installation.
+  if ((lang === "javascript" || lang === "typescript") && settings.nodePath) {
+    env["PATH"] = path.dirname(settings.nodePath) + path.delimiter + (env["PATH"] || "");
   }
 
   // On Windows, WSL shells can't resolve the Windows temp path we just wrote
@@ -353,9 +358,11 @@ export function startExecution(
     proc.on("error", (err: Error) => {
       window.clearTimeout(timer);
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
+      const message = `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`;
+      callbacks?.onStderr?.(message);
       resolve({
         stdout: "",
-        stderr: `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`,
+        stderr: message,
         exitCode: 1, killed: false, cancelled: false, figures: [],
       });
     });
