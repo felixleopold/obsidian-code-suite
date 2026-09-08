@@ -802,18 +802,16 @@ body.ocode-wide-blocks .ocode-wrapper {
    gutter-less "native" block before our chrome returns. Mirror the gutter here
    using document-derived attributes so folds and CM virtualization preserve the
    real code line number.
-   Gated by `body.ocode-lp-lnum`, which tracks the Line numbers setting.
+   The numbered-line class reflects the global setting and per-block overrides.
    Fence lines (begin/end) are not numbered — they have no number in chrome. */
-body.ocode-lp-lnum
-  .cm-s-obsidian
-  .cm-line.HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) {
+.cm-s-obsidian
+  .cm-line.ocode-numbered-line.HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) {
   position: relative;
   padding-left: calc(3em + 28px);
 }
 
-body.ocode-lp-lnum
-  .cm-s-obsidian
-  .cm-line.HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end)::before {
+.cm-s-obsidian
+  .cm-line.ocode-numbered-line.HyperMD-codeblock:not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end)::before {
   content: attr(data-ocode-line-number);
   position: absolute;
   left: 4px;
@@ -1218,4 +1216,52 @@ body {
 /* Highlighting failed for this block — hide the empty fallback box. */
 .cm-content .ocode-lp-empty {
   display: none;
+}
+
+/* ─── Inline code ─────────────────────────────── */
+/* Added only to spans selected by the inline-code setting. The language prefix
+   is removed in reading view; Shiki token colors are applied inline. */
+.markdown-rendered code.ocode-inline-code,
+.cm-s-obsidian .ocode-inline-code {
+  background-color: var(--ocode-bg, var(--background-secondary));
+  color: var(--ocode-fg, var(--text-normal));
+  border: 1px solid color-mix(in srgb, var(--ocode-fg, var(--text-normal)) 18%, transparent);
+  border-radius: 4px;
+  padding: 0.12em 0.38em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  font-size: 0.92em;
+}
+
+.markdown-rendered code.ocode-inline-code-highlighted {
+  white-space: break-spaces;
+}
+
+/* Per-block line emphasis, shared by rendered blocks and editable source. */
+.ocode-wrapper pre .line.ocode-line-highlight,
+.cm-s-obsidian .cm-line.ocode-line-highlight {
+  background-color: color-mix(in srgb, var(--text-accent) 16%, transparent);
+}
+.ocode-wrapper pre .line.ocode-line-insert,
+.cm-s-obsidian .cm-line.ocode-line-insert {
+  background-color: color-mix(in srgb, var(--color-green) 18%, transparent);
+}
+.ocode-wrapper pre .line.ocode-line-delete,
+.cm-s-obsidian .cm-line.ocode-line-delete {
+  background-color: color-mix(in srgb, var(--color-red) 18%, transparent);
+}
+
+.ocode-block-title {
+  text-transform: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Native token spans sit inside our editor mark; only the outer mark adds spacing. */
+.cm-s-obsidian .ocode-inline-code .cm-inline-code {
+  background: none;
+  color: inherit;
+  border: none;
+  padding: 0;
+  font-size: inherit;
 }

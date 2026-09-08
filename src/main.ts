@@ -23,6 +23,8 @@ import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { RangeSetBuilder, StateField, StateEffect, Prec } from "@codemirror/state";
 import type { Extension, Text, EditorState, Range } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
+import { parseBlockOptions, isStaticBlock, lineHighlightClass, fencedBlockInfos, type BlockOptions } from "./block-options";
+import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
 import {
@@ -292,15 +294,15 @@ interface FmPanelGroup {
 }
 
 /**
- * Walk an editor document and return every *closed* ```-fenced code block with
+ * Walk an editor document and return every closed fenced code block with
  * absolute positions covering the fence lines. Shared by the Shiki token-color
  * extension and the Live Preview block-widget extension so both agree on block
- * boundaries. Only backtick fences are recognized (matches the editor's
- * historical behavior); unclosed blocks are skipped so they stay editable.
+ * boundaries. Unclosed blocks are skipped so they stay editable.
  */
 function scanFencedBlocks(doc: Text): FencedBlock[] {
   const blocks: FencedBlock[] = [];
   let inBlock = false;
+  let fence = "";
   let lang = "";
   let info = "";
   let indent = "";
@@ -309,14 +311,16 @@ function scanFencedBlocks(doc: Text): FencedBlock[] {
   for (let i = 1; i <= doc.lines; i++) {
     const line = doc.line(i);
     const trimmed = line.text.trimStart();
-    if (!inBlock && trimmed.startsWith("```")) {
+    const marker = trimmed.match(/^(`{3,}|~{3,})(.*)$/);
+    if (!inBlock && marker && !(marker[1][0] === "`" && marker[2].includes("`"))) {
       inBlock = true;
-      info = trimmed.slice(3).trim();
+      fence = marker[1];
+      info = marker[2].trim();
       lang = info.split(/\s/)[0];
       indent = line.text.slice(0, line.text.length - trimmed.length);
       openFrom = line.from;
       innerLines = [];
-    } else if (inBlock && /^`{3,}\s*$/.test(trimmed)) {
+    } else if (inBlock && marker && marker[1][0] === fence[0] && marker[1].length >= fence.length && !marker[2].trim()) {
       blocks.push({
         lang,
         info,
@@ -637,13 +641,6 @@ export default class CodePlugin extends Plugin {
       activeDocument.body.addClass("ocode-wrap-code");
     }
 
-    // Mirror line-number chrome onto the raw lines Obsidian shows while a Live
-    // Preview block is being edited, so clicking in doesn't flash a gutter-less
-    // "native" block before our chrome returns.
-    if (this.settings.showLineNumbers) {
-      activeDocument.body.addClass("ocode-lp-lnum");
-    }
-
     // Apply theme CSS variables
     this.applyThemeColors();
     this.applyCodeFontSize();
@@ -677,6 +674,7 @@ export default class CodePlugin extends Plugin {
     // Editor (CM6): Shiki token colors + full block-chrome widgets (Live Preview)
     this.registerEditorExtension([
       this.buildShikiEditorExtension(),
+      buildInlineCodeEditorExtension(() => ({ highlighter: this.highlighter, ...this.settings })),
       this.buildBlockWidgetExtension(),
     ]);
 
@@ -750,6 +748,7 @@ export default class CodePlugin extends Plugin {
     this.registerMarkdownPostProcessor(
       (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
         this.processInlineVarRefs(el, ctx);
+        processInlineCode(el, { highlighter: this.highlighter, ...this.settings });
       },
       1001
     );
@@ -898,7 +897,6 @@ export default class CodePlugin extends Plugin {
     this.highlighter.dispose();
     activeDocument.body.removeClass("ocode-wide-blocks");
     activeDocument.body.removeClass("ocode-wrap-code");
-    activeDocument.body.removeClass("ocode-lp-lnum");
     for (const doc of this._codeFontDocuments) {
       doc.body.style.removeProperty("--ocode-code-font-size");
     }
@@ -1107,6 +1105,7 @@ export default class CodePlugin extends Plugin {
     const tokenize = (code: string, lang: string, theme: string) =>
       this.highlighter.tokenize(code, lang, theme);
     const getTheme = () => this.settings.theme;
+    const getLineNumbers = () => this.settings.showLineNumbers;
 
     return ViewPlugin.fromClass(
       class {
@@ -1120,7 +1119,7 @@ export default class CodePlugin extends Plugin {
 
         update(update: ViewUpdate) {
           const currentTheme = getTheme();
-          if (update.docChanged || update.viewportChanged || currentTheme !== this.lastTheme) {
+          if (update.docChanged || update.viewportChanged || currentTheme !== this.lastTheme || update.transactions.some((tr) => tr.effects.some((e) => e.is(lpRebuildEffect)))) {
             this.lastTheme = currentTheme;
             this.decorations = this.buildDecorations(update.view);
           }
@@ -1135,9 +1134,14 @@ export default class CodePlugin extends Plugin {
           // the replace decoration covers them, so the wasted marks are harmless.
           for (const block of scanFencedBlocks(doc)) {
             if (block.innerLines.length === 0) continue;
+            const options = parseBlockOptions(block.info);
             for (let lineIdx = 0; lineIdx < block.innerLines.length; lineIdx++) {
+              const lineClass = lineHighlightClass(options, lineIdx + 1, stripFenceIndent(block.innerLines[lineIdx].text, block.indent), block.lang);
               decorations.push(Decoration.line({
-                attributes: { "data-ocode-line-number": String(lineIdx + 1) },
+                attributes: {
+                  "data-ocode-line-number": String(lineIdx + 1),
+                  class: [lineClass, (options.showLineNumbers ?? getLineNumbers()) ? "ocode-numbered-line" : ""].filter(Boolean).join(" "),
+                },
               }).range(block.innerLines[lineIdx].from));
             }
             if (!block.lang) continue;
@@ -1195,6 +1199,7 @@ export default class CodePlugin extends Plugin {
       s.showLanguageLabel,
       s.showLineNumbers,
       s.enableExecution,
+      s.staticBlocksByDefault,
       s.inlineCollapsedByDefault,
       s.collapseEmbeds,
       s.renderEmbeddedFiles,
@@ -1265,12 +1270,10 @@ export default class CodePlugin extends Plugin {
           continue;
         }
 
-        const attrs = new Set(
-          block.info.split(/\s+/).slice(1).map((w) => w.toLowerCase()).filter(Boolean)
-        );
+        const options = parseBlockOptions(block.info);
+        const attrs = options.flags;
         const forceSkip = attrs.has("skip");
-        const forceCollapsed: boolean | null =
-          attrs.has("collapsed") ? true : attrs.has("expanded") ? false : null;
+        const forceCollapsed = options.collapsed ?? null;
         const htmlPdf = this.htmlPdfState(rawLang, attrs);
 
         const isVars = rawLang === "vars";
@@ -1294,7 +1297,7 @@ export default class CodePlugin extends Plugin {
         const tmplSig = htmlTemplate ? this.frontmatterSig(notePath) : "";
         // Visual indent in editor columns, so the widget lines up with its list.
         const indentCols = this.indentColumns(block.indent, state.tabSize);
-        const key = `${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${htmlPdf}\0${htmlTemplate}\0${tmplSig}\0${indentCols}\0${sig}`;
+        const key = `${block.info}\0${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${htmlPdf}\0${htmlTemplate}\0${tmplSig}\0${indentCols}\0${sig}`;
         // Register the key BEFORE the cursor check so a block being edited (or
         // running) is never pruned out from under its live output / process.
         liveKeys.add(key);
@@ -1307,7 +1310,7 @@ export default class CodePlugin extends Plugin {
             const w = isVars
               ? this.buildVarsWrapper(code, notePath)
               : this.buildCodeBlockWrapper(
-                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate,
+                  code, resolvedLang, block.lang, undefined, notePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate, options,
                 );
             // Indent the widget to match its list nesting (#27); ch units track
             // the indent's column width closely enough for a clear visual cue.
@@ -1630,7 +1633,8 @@ export default class CodePlugin extends Plugin {
       const infoStr   = fenceMatch[3].trim();
       const parts     = infoStr.split(/\s+/);
       const rawLang   = (parts[0] ?? "").toLowerCase();
-      const forceSkip = parts.slice(1).map((w) => w.toLowerCase()).includes("skip");
+      const options = parseBlockOptions(infoStr);
+      const forceSkip = options.flags.has("skip");
       const openLine  = i;
       // Collect block content
       const contentLines: string[] = [];
@@ -1648,7 +1652,7 @@ export default class CodePlugin extends Plugin {
       // vars blocks, and non-executable languages (those don't get Run buttons).
       if (passthroughLanguages.has(rawLang) || rawLang === "vars") continue;
       const resolvedLang = this.highlighter.resolveLanguage(rawLang);
-      if (!isExecutable(resolvedLang)) continue;
+      if (!isExecutable(resolvedLang) || isStaticBlock(options, this.settings.staticBlocksByDefault)) continue;
       // Dedent like the markdown renderer so the hash matches the rendered code.
       const code = contentLines.map((l) => stripFenceIndent(l, indent)).join("\n");
       entries.push({
@@ -2995,7 +2999,7 @@ __ocode_emit_vars
   // ─── Code Block Processing ────────────────────────────────────
 
   private processCodeBlocks(el: HTMLElement, ctx: MarkdownPostProcessorContext) {
-    const codeBlocks = el.querySelectorAll("pre > code");
+    const codeBlocks = el.querySelectorAll<HTMLElement>("pre > code");
     if (!codeBlocks.length) return;
 
     // Seed any `code_vars:` frontmatter variables into the note's var stores
@@ -3004,37 +3008,8 @@ __ocode_emit_vars
     // *after* this in renderVarsBlock and therefore override frontmatter vars.
     this.applyFrontmatterVars(ctx);
 
-    // Extract OPENING fence info strings from the raw section source so we can
-    // read space-separated attributes next to the language, e.g.
-    //     ```python skip collapsed
-    // Important: a code fence is a *pair* of fence lines. We must skip the
-    // closing fence; otherwise `fenceInfoStrings[bi]` becomes off-by-one as
-    // soon as the section contains more than one code block.
-    const fenceInfoStrings: string[] = [];
     const passthroughLanguages = this.passthroughLanguages();
-    const sectionInfo = ctx.getSectionInfo(el);
-    if (sectionInfo) {
-      // sectionInfo.text is the WHOLE file, not just this section — scanning
-      // it all would make every section's block inherit the attrs of the
-      // first fence in the note. Slice to this section's own lines.
-      const lines = sectionInfo.text
-        .split("\n")
-        .slice(sectionInfo.lineStart, sectionInfo.lineEnd + 1);
-      let openFence: string | null = null;  // current open fence chars (``` or ~~~), or null when outside
-      for (const line of lines) {
-        const m = line.match(/^([`~]{3,})(.*)$/);
-        if (!m) continue;
-        const fenceChars = m[1][0].repeat(m[1].length);
-        if (openFence === null) {
-          // Opening fence
-          fenceInfoStrings.push(m[2].trim());
-          openFence = fenceChars;
-        } else if (line.startsWith(openFence) && m[2].trim() === "") {
-          // Closing fence (same char, length ≥ opener, no info text)
-          openFence = null;
-        }
-      }
-    }
+    const matchedFenceLines = new Set<number>();
 
     for (let bi = 0; bi < codeBlocks.length; bi++) {
       const codeEl = codeBlocks[bi];
@@ -3074,12 +3049,19 @@ __ocode_emit_vars
         continue;
       }
 
-      // Parse space-separated attributes from the fence info string, e.g.:
-      //   ```python skip collapsed   → attrs: { "skip", "collapsed" }
-      const infoStr = fenceInfoStrings[bi] ?? "";
-      const blockAttrs = new Set(
-        infoStr.split(/\s+/).slice(1).map((w) => w.toLowerCase()).filter(Boolean)
-      );
+      // Match source content within this element's section. Native renderers can
+      // remove earlier fences from the DOM, so a positional index is unreliable.
+      const section = ctx.getSectionInfo(pre) ?? ctx.getSectionInfo(codeEl) ?? ctx.getSectionInfo(el);
+      const renderedCode = (codeEl.textContent ?? "").replace(/\n$/, "");
+      const fence = section ? fencedBlockInfos(section.text.split("\n")
+        .slice(section.lineStart, section.lineEnd + 1).join("\n"))
+        .find((candidate) => !matchedFenceLines.has(section.lineStart + candidate.line)
+          && candidate.info.split(/\s+/)[0].toLowerCase() === rawLang.toLowerCase()
+          && candidate.code === renderedCode) : undefined;
+      if (fence && section) matchedFenceLines.add(section.lineStart + fence.line);
+      const infoStr = fence?.info ?? "";
+      const options = parseBlockOptions(infoStr);
+      const blockAttrs = options.flags;
       // Also pick up any extra classes Obsidian might add from the info string
       for (const cls of Array.from(codeEl.classList)) {
         if (!cls.startsWith("language-")) blockAttrs.add(cls.toLowerCase());
@@ -3087,10 +3069,7 @@ __ocode_emit_vars
       const forceSkip = blockAttrs.has("skip");
       // `collapsed` / `expanded` per-block overrides for the default state.
       // `null` means "use the global setting".
-      const forceCollapsed: boolean | null =
-        blockAttrs.has("collapsed") ? true
-        : blockAttrs.has("expanded") ? false
-        : null;
+      const forceCollapsed = options.collapsed ?? null;
 
       const lang = this.highlighter.resolveLanguage(rawLang);
       const code = codeEl.textContent || "";
@@ -3101,7 +3080,7 @@ __ocode_emit_vars
       if (htmlTemplate && htmlPreview === null) htmlPreview = true;
       const htmlPdf = this.htmlPdfState(rawLang, blockAttrs);
 
-      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate);
+      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate, options);
     }
   }
 
@@ -3888,9 +3867,10 @@ __ocode_emit_vars
     htmlPreview: boolean | null = null,
     htmlPdf = false,
     htmlTemplate = false,
+    options?: BlockOptions,
   ) {
     const wrapper = this.buildCodeBlockWrapper(
-      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate,
+      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate, options,
     );
     if (wrapper) originalPre.replaceWith(wrapper);
   }
@@ -3912,6 +3892,7 @@ __ocode_emit_vars
     htmlPreview: boolean | null = null,
     htmlPdf = false,
     htmlTemplate = false,
+    options?: BlockOptions,
   ): HTMLElement | null {
     // Strip a single trailing newline so Shiki doesn't emit a dangling empty
     // `.line` span — that's what made every block render one line too tall (#24).
@@ -3922,6 +3903,8 @@ __ocode_emit_vars
     const wrapper = createDiv();
     wrapper.className = "ocode-wrapper";
     wrapper.dataset.ocodeLang = lang;
+    const staticBlock = !fileName && (options?.static ?? this.settings.staticBlocksByDefault);
+    wrapper.toggleClass("ocode-static", staticBlock);
     const parsedHtml = new DOMParser().parseFromString(html, "text/html");
     for (const node of Array.from(parsedHtml.body.childNodes)) {
       wrapper.appendChild(activeDocument.adoptNode(node));
@@ -3931,10 +3914,10 @@ __ocode_emit_vars
     const header = createDiv();
     header.className = "ocode-header";
 
-    if (fileName || (this.settings.showLanguageLabel && displayLang)) {
+    if (options?.title || fileName || (this.settings.showLanguageLabel && displayLang)) {
       const label = createSpan();
-      label.className = "ocode-label";
-      label.textContent = fileName || displayLang;
+      label.className = options?.title ? "ocode-label ocode-block-title" : "ocode-label";
+      label.textContent = options?.title || fileName || displayLang;
       header.appendChild(label);
     }
 
@@ -3964,7 +3947,7 @@ __ocode_emit_vars
     });
     btnGroup.appendChild(copyBtn);
 
-    if (this.settings.enableExecution && isExecutable(lang) && Platform.isDesktop) {
+    if (!staticBlock && this.settings.enableExecution && isExecutable(lang) && Platform.isDesktop) {
       const runBtn = this.createPillButton("Run", ICON.play, () => {
         void this.runCode(code, lang, wrapper, runBtn, sourcePath);
       }, "ocode-run-pill");
@@ -3985,7 +3968,7 @@ __ocode_emit_vars
     wrapper.prepend(header);
 
     // ─── Line numbers ───
-    if (this.settings.showLineNumbers) {
+    if (options?.showLineNumbers ?? this.settings.showLineNumbers) {
       const shikiPre = wrapper.querySelector("pre");
       if (shikiPre) {
         const lines = shikiPre.querySelectorAll(".line");
@@ -4002,6 +3985,13 @@ __ocode_emit_vars
         if (lines.length) wrapper.addClass("ocode-has-lnum");
       }
     }
+
+    const lineOptions = options ?? parseBlockOptions("");
+    const sourceLines = displayCode.split("\n");
+    wrapper.querySelectorAll("pre .line").forEach((line, index) => {
+      const cls = lineHighlightClass(lineOptions, index + 1, sourceLines[index] ?? "", lang);
+      if (cls) line.classList.add(cls);
+    });
 
     // ─── Collapsible (reading view + Live Preview) ───
     // Every fenced code block is collapsible via its header — Python, html,
@@ -4020,21 +4010,21 @@ __ocode_emit_vars
     // non-runnable code blocks are excluded because parseSkipStatesFromSource()
     // does not count them. The code hash lets Run All match a source-parsed
     // block to its rendered wrapper even when duplicates exist (#25).
-    if (!fileName && isExecutable(lang)) {
+    if (!fileName && !staticBlock && isExecutable(lang)) {
       wrapper.setAttribute("data-ocode-fenced", "1");
       wrapper.setAttribute("data-ocode-hash", codeHash(code.trim()));
     }
 
     // Re-attach a previously-run output (this session) so it survives reading-
     // view section eviction and is present for HTML/PDF export.
-    if (!fileName && isExecutable(lang) && sourcePath) {
+    if (!fileName && !staticBlock && isExecutable(lang) && sourcePath) {
       this.restoreBlockOutput(sourcePath, code, wrapper);
     }
 
     // ─── HTML live preview ───
     // Render the block's HTML alongside its source and add a Preview/Code
     // toggle. `htmlPreview` is non-null only for preview-eligible html blocks.
-    if (htmlPreview !== null) {
+    if (!staticBlock && htmlPreview !== null) {
       this.addHtmlPreview(wrapper, code, htmlPreview, htmlPdf, sourcePath, htmlTemplate);
     }
     return wrapper;
