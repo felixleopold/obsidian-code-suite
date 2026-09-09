@@ -365,6 +365,8 @@ const lpRebuildEffect = StateEffect.define<null>();
  * CM never recreates a widget whose content is unchanged.
  */
 class CodeBlockWidget extends WidgetType {
+  private heightChangeHandler: EventListener | null = null;
+
   constructor(
     private readonly key: string,
     private readonly resolve: () => HTMLElement | null,
@@ -379,7 +381,16 @@ class CodeBlockWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const wrapper = this.resolve() ?? createDiv({ cls: "ocode-wrapper ocode-lp-empty" });
     this.wireReveal(view, wrapper);
+    this.heightChangeHandler = () => view.requestMeasure();
+    wrapper.addEventListener("ocode-height-change", this.heightChangeHandler);
     return wrapper;
+  }
+
+  destroy(dom: HTMLElement): void {
+    if (this.heightChangeHandler) {
+      dom.removeEventListener("ocode-height-change", this.heightChangeHandler);
+      this.heightChangeHandler = null;
+    }
   }
 
   /**
@@ -4582,6 +4593,9 @@ __ocode_emit_vars
       e.stopPropagation();
       const collapsed = wrapper.classList.toggle("ocode-collapsed");
       codeArea.classList.toggle("ocode-hidden", collapsed);
+      window.requestAnimationFrame(() => {
+        wrapper.dispatchEvent(new Event("ocode-height-change"));
+      });
     };
 
     // Clicking anywhere on the header (except buttons / links) also toggles.
