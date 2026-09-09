@@ -110,10 +110,10 @@ export function fencedBlockInfos(source: string): { info: string; code: string; 
   return blocks;
 }
 
-/** Fingerprint fence option lines without changing when only block code changes. */
+/** Fingerprint ordered fence info strings without changing when block code moves. */
 export function fencedBlockOptionsSignature(source: string): string {
   return fencedBlockInfos(source)
-    .map(({ line, info }) => `${line}:${info}`)
+    .map(({ info }) => info)
     .join("\0");
 }
 

@@ -982,6 +982,18 @@ export default class CodePlugin extends Plugin {
     });
   }
 
+  /** Fully rebuild a Reading view without losing its current source position. */
+  private rerenderReadingView(view: MarkdownView): void {
+    const notePath = view.file?.path;
+    const scroll = view.previewMode.getScroll();
+    view.previewMode.rerender(true);
+    window.requestAnimationFrame(() => {
+      if (view.getMode() === "preview" && view.file?.path === notePath) {
+        view.previewMode.applyScroll(scroll);
+      }
+    });
+  }
+
   /**
    * Re-render all open notes so a rendering-related setting change (e.g. the
    * html-preview default) takes effect immediately. Drops cached Live Preview
@@ -994,7 +1006,7 @@ export default class CodePlugin extends Plugin {
     this.app.workspace.iterateAllLeaves((leaf) => {
       const view = leaf.view;
       if (view instanceof MarkdownView && view.getMode() === "preview") {
-        view.previewMode.rerender(true);
+        this.rerenderReadingView(view);
       }
     });
   }
@@ -1394,11 +1406,6 @@ export default class CodePlugin extends Plugin {
       return builder.finish();
     };
 
-    const queueReadingRefreshFor = (state: EditorState): void => {
-      const notePath = state.field(editorInfoField, false)?.file?.path;
-      if (notePath) this.queueReadingBlockRefresh(notePath);
-    };
-
     // Highest precedence so our block-replace widgets win over Obsidian's own
     // Live Preview code-block rendering. Without this, the two compete over the
     // same fence lines and Obsidian's native render (language flag, no chrome)
@@ -1413,13 +1420,6 @@ export default class CodePlugin extends Plugin {
           tr.startState.field(editorLivePreviewField, false) !==
           tr.state.field(editorLivePreviewField, false);
         if (
-          tr.docChanged &&
-          fencedBlockOptionsSignature(tr.startState.doc.toString()) !==
-            fencedBlockOptionsSignature(tr.state.doc.toString())
-        ) {
-          queueReadingRefreshFor(tr.state);
-        }
-        if (
           lpChanged ||
           tr.docChanged ||
           tr.selection ||
@@ -1431,7 +1431,16 @@ export default class CodePlugin extends Plugin {
       },
       provide: (f) => EditorView.decorations.from(f),
     });
-    return Prec.highest(field);
+    const readingRefreshListener = EditorView.updateListener.of((update) => {
+      if (
+        !update.docChanged ||
+        fencedBlockOptionsSignature(update.startState.doc.toString()) ===
+          fencedBlockOptionsSignature(update.state.doc.toString())
+      ) return;
+      const notePath = update.state.field(editorInfoField, false)?.file?.path;
+      if (notePath) this.queueReadingBlockRefresh(notePath);
+    });
+    return [Prec.highest(field), readingRefreshListener];
   }
 
   // ─── Shared Execution Context ────────────────────────────────
@@ -1741,7 +1750,7 @@ export default class CodePlugin extends Plugin {
       if (!(view instanceof MarkdownView)) return;
       const notePath = view.file?.path;
       if (!notePath || view.getMode() !== "preview" || !this.dirtyReadingBlockNotes.has(notePath)) return;
-      view.previewMode.rerender(true);
+      this.rerenderReadingView(view);
       refreshed.add(notePath);
     });
     for (const notePath of refreshed) this.dirtyReadingBlockNotes.delete(notePath);
@@ -3441,7 +3450,7 @@ __ocode_emit_vars
       // so removing on-screen panels would leave scrolled-out ones behind. Force a
       // full preview re-render instead — every section rebuilds from the cleared
       // cache (no live panel restored) and the baked blocks render in their place.
-      view.previewMode?.rerender(true);
+      this.rerenderReadingView(view);
     }
     this.forceLpRebuild();
   }

@@ -104,17 +104,28 @@ test("backtick inline spans do not swallow later block metadata", () => {
   ]);
 });
 
-test("fence option signatures change for static edits but not code edits", () => {
+test("fence option signatures change for info edits but not code edits", () => {
   const runnable = "```python\nprint(1)\n```";
+  const javascript = "```javascript\nprint(1)\n```";
   const staticBlock = "```python static\nprint(1)\n```";
   const editedCode = "```python static\nprint(2)\n```";
+  const twoBlocks = "```python static\nprint(1)\n```\n\n```js title=Example\nrun()\n```";
+  const extraCodeLine = "```python static\nprint(1)\nprint(2)\n```\n\n```js title=Example\nrun()\n```";
 
   assert.notEqual(
     fencedBlockOptionsSignature(runnable),
     fencedBlockOptionsSignature(staticBlock),
   );
+  assert.notEqual(
+    fencedBlockOptionsSignature(runnable),
+    fencedBlockOptionsSignature(javascript),
+  );
   assert.equal(
     fencedBlockOptionsSignature(staticBlock),
     fencedBlockOptionsSignature(editedCode),
+  );
+  assert.equal(
+    fencedBlockOptionsSignature(twoBlocks),
+    fencedBlockOptionsSignature(extraCodeLine),
   );
 });
