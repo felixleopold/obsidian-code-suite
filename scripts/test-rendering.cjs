@@ -101,14 +101,24 @@ async function checkRendering() {
       blockEl.querySelector('.ocode-header').click();
       await pause(150);
       check(blockEl.getBoundingClientRect().height > 5000, 'Large block did not expand');
+      if (index === 1 && cycle === 0) {
+        // Evict the following sections while the tall block is expanded. A
+        // collapse without scrolling can leave them mounted and hide this bug.
+        for (let pass = 0; pass < 2; pass++) {
+          root.scrollTop = 4000;
+          await pause(600);
+          root.scrollTop = 0;
+          await pause(600);
+        }
+      }
       blockEl.querySelector('.ocode-header').click();
       await pause(150);
-      const after = [...root.querySelectorAll(index === 0 ? '.cm-line' : '.el-p')].find(el => el.textContent.startsWith('After 0.'));
+      const after = [...root.querySelectorAll(index === 0 ? '.cm-line' : '.el-p')].find(el => el.textContent.startsWith('After 1.'));
       check(after && after.getBoundingClientRect().top < innerHeight, 'Content below collapsed block is not rendered in viewport');
       if (index === 0) check(Math.abs(view.editor.cm.contentHeight - root.getBoundingClientRect().height) < 2, 'CodeMirror height map is stale');
     }
   }
-  results.push('500-line blocks expand/collapse repeatedly with following content visible and accurate editor height');
+  results.push('500-line blocks expand/scroll/collapse with evicted following content restored and accurate editor height');
   return results;
 }
 

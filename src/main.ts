@@ -459,6 +459,8 @@ export default class CodePlugin extends Plugin {
   private _fmPanelSyncTimer: number | null = null;
 
   private readingBlocks = new Set<ReadingCodeBlock>();
+  private readingLayoutChanges = new Set<HTMLElement>();
+  private readingLayoutFrame: number | null = null;
 
   /** Demo/recording only — curated themes the demo-cycle command steps through. */
   private static readonly DEMO_THEME_CYCLE = [
@@ -831,6 +833,9 @@ export default class CodePlugin extends Plugin {
     }
     for (const block of this.readingBlocks) block.unload();
     this.readingBlocks.clear();
+    if (this.readingLayoutFrame !== null) window.cancelAnimationFrame(this.readingLayoutFrame);
+    this.readingLayoutFrame = null;
+    this.readingLayoutChanges.clear();
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (leaf.view instanceof MarkdownView) this.cancelRunAll(leaf.view);
     }
@@ -1660,6 +1665,22 @@ export default class CodePlugin extends Plugin {
       });
     }
     return entries;
+  }
+
+  /** Remeasure affected panes without rebuilding their Markdown or moving scroll. */
+  private queueReadingLayout(wrapper: HTMLElement): void {
+    this.readingLayoutChanges.add(wrapper);
+    if (this.readingLayoutFrame !== null) return;
+    this.readingLayoutFrame = window.requestAnimationFrame(() => {
+      this.readingLayoutFrame = null;
+      const changed = [...this.readingLayoutChanges];
+      this.readingLayoutChanges.clear();
+      this.app.workspace.iterateAllLeaves((leaf) => {
+        const view = leaf.view;
+        if (view instanceof MarkdownView && view.getMode() === "preview" &&
+          changed.some((element) => view.contentEl.contains(element))) view.onResize();
+      });
+    });
   }
 
   /** Coalesce edits across notes, then update only mounted Reading view blocks. */
@@ -3054,7 +3075,7 @@ __ocode_emit_vars
           }
           previousOptions = nextOptions;
           return next;
-        }, this.readingBlocks));
+        }, this.readingBlocks, (element) => this.queueReadingLayout(element)));
       }
     }
   }
