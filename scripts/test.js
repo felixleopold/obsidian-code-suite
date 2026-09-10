@@ -12,6 +12,8 @@ const testBundles = [
   join(testDir, "shared-context.test.cjs"),
   join(testDir, "inline-code.test.cjs"),
   join(testDir, "block-options.test.cjs"),
+  join(testDir, "code-block-widget.test.cjs"),
+  join(testDir, "reading-code-block.test.cjs"),
 ];
 let exitCode = 1;
 
@@ -24,6 +26,8 @@ try {
       "tests/shared-context.test.ts",
       "tests/inline-code.test.ts",
       "tests/block-options.test.ts",
+      "tests/code-block-widget.test.ts",
+      "tests/reading-code-block.test.ts",
     ],
     bundle: true,
     platform: "node",
