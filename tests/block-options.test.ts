@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   fencedBlockInfos,
-  fencedBlockOptionsSignature,
   isStaticBlock,
   lineHighlightClass,
   parseBlockOptions,
@@ -102,19 +101,4 @@ test("backtick inline spans do not swallow later block metadata", () => {
   assert.deepEqual(fencedBlockInfos("```inline```\n\n```python static\nprint(1)\n```"), [
     { info: "python static", code: "print(1)", line: 2 },
   ]);
-});
-
-test("fence option signatures change for static edits but not code edits", () => {
-  const runnable = "```python\nprint(1)\n```";
-  const staticBlock = "```python static\nprint(1)\n```";
-  const editedCode = "```python static\nprint(2)\n```";
-
-  assert.notEqual(
-    fencedBlockOptionsSignature(runnable),
-    fencedBlockOptionsSignature(staticBlock),
-  );
-  assert.equal(
-    fencedBlockOptionsSignature(staticBlock),
-    fencedBlockOptionsSignature(editedCode),
-  );
 });

@@ -18,9 +18,9 @@ import {
   editorInfoField,
   editorLivePreviewField,
 } from "obsidian";
-import { ViewPlugin, Decoration, EditorView, WidgetType } from "@codemirror/view";
+import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
-import { RangeSetBuilder, StateField, StateEffect, Prec } from "@codemirror/state";
+import { RangeSetBuilder, StateField, StateEffect, Prec, MapMode } from "@codemirror/state";
 import type { Extension, Text, EditorState, Range } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import {
@@ -28,9 +28,10 @@ import {
   isStaticBlock,
   lineHighlightClass,
   fencedBlockInfos,
-  fencedBlockOptionsSignature,
   type BlockOptions,
 } from "./block-options";
+import { CodeBlockWidget } from "./code-block-widget";
+import { ReadingCodeBlock } from "./reading-code-block";
 import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
@@ -356,69 +357,12 @@ function scanFencedBlocks(doc: Text): FencedBlock[] {
  */
 const lpRebuildEffect = StateEffect.define<null>();
 
-/**
- * CM6 block widget that renders a CodeSuite `ocode-wrapper` in Live Preview.
- * The wrapper DOM is owned by the plugin's per-block cache (via `resolve`), so
- * the *same* node — with its live output and running process — is reused across
- * cursor moves and reveal/re-render cycles. `eq()` compares the cache key, which
- * already folds in language, source, block attributes, and the settings sig, so
- * CM never recreates a widget whose content is unchanged.
- */
-class CodeBlockWidget extends WidgetType {
-  constructor(
-    private readonly key: string,
-    private readonly resolve: () => HTMLElement | null,
-  ) {
-    super();
-  }
-
-  eq(other: CodeBlockWidget): boolean {
-    return other.key === this.key;
-  }
-
-  toDOM(view: EditorView): HTMLElement {
-    const wrapper = this.resolve() ?? createDiv({ cls: "ocode-wrapper ocode-lp-empty" });
-    this.wireReveal(view, wrapper);
-    return wrapper;
-  }
-
-  /**
-   * The widget owns all of its own events. We dispatch reveal explicitly on a
-   * code-body click (below), and the chrome's buttons have their own handlers,
-   * so CM6 must never treat a click as an editor gesture — otherwise a tall
-   * block (one with output) maps clicks to a position *outside* its range and
-   * the block never reveals for editing.
-   */
-  ignoreEvent(): boolean {
-    return true;
-  }
-
-  /**
-   * Clicking the code body reveals the raw source for editing. We can't rely on
-   * CM6's click-to-coordinate mapping (a block widget is atomic — clicks land at
-   * its edges, and output makes that unreliable), so we move the selection into
-   * the block ourselves. The next render sees the cursor overlap and drops the
-   * widget, exposing the editable lines.
-   */
-  private wireReveal(view: EditorView, wrapper: HTMLElement): void {
-    if (wrapper.dataset.ocodeRevealWired === "1") return;
-    wrapper.dataset.ocodeRevealWired = "1";
-    const codeArea = wrapper.querySelector<HTMLElement>("pre.shiki");
-    if (!codeArea) return;
-    codeArea.addEventListener("mousedown", (e) => {
-      // Let users still select text inside the code body (drag / modifier).
-      if (e.button !== 0 || e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
-      const pos = view.posAtDOM(wrapper);
-      e.preventDefault();
-      view.dispatch({ selection: { anchor: pos } });
-      view.focus();
-    });
-  }
-
-  /** Let CM6 measure the real DOM height rather than guessing. */
-  get estimatedHeight(): number {
-    return -1;
-  }
+interface LivePreviewCache {
+  notePath: string;
+  wrappers: Map<string, HTMLElement>;
+  liveKeys: Set<string>;
+  invalidated: boolean;
+  nextIdentity: number;
 }
 
 /** Parse an SVG string into a DOM element without using innerHTML */
@@ -447,14 +391,8 @@ export default class CodePlugin extends Plugin {
    * so rapid manual clicks execute in click order instead of racing (#25).
    */
   private noteRunQueue: Map<string, Promise<void>> = new Map();
-  /**
-   * Live Preview block-widget DOM cache. Maps note path → blockKey
-   * (`lang\0code`) → the rendered `ocode-wrapper`. CM6 recreates widgets on
-   * every cursor move; returning the *same* DOM node keeps a block's streaming
-   * output and running process alive across cursor movement and reveal/re-render.
-   * In-memory only; pruned on rebuild and cleared on unload / rename / session clear.
-   */
-  private lpWrapperCache: Map<string, Map<string, HTMLElement>> = new Map();
+  /** Each mounted editor owns its retained block DOM, including duplicate blocks. */
+  private lpWrapperCache = new Set<LivePreviewCache>();
   /**
    * Shared execution context. Maps note path → language → ordered list of
    * previously-executed code blocks. In-memory only; cleared on unload.
@@ -520,9 +458,9 @@ export default class CodePlugin extends Plugin {
    *  {@link scheduleFrontmatterPanelSync}). */
   private _fmPanelSyncTimer: number | null = null;
 
-  /** Notes whose reading-view code chrome is stale after a fence option edit. */
-  private dirtyReadingBlockNotes = new Set<string>();
-  private _readingBlockRefreshTimer: number | null = null;
+  private readingBlocks = new Set<ReadingCodeBlock>();
+  private readingLayoutChanges = new Set<HTMLElement>();
+  private readingLayoutFrame: number | null = null;
 
   /** Demo/recording only — curated themes the demo-cycle command steps through. */
   private static readonly DEMO_THEME_CYCLE = [
@@ -537,8 +475,8 @@ export default class CodePlugin extends Plugin {
   private _demoThemeIdx = 0;
   /** Debounce timer for auto-theme switching (css-change can fire many times per mode switch) */
   private _autoThemeTimer: number | null = null;
-  /** Debounce timer for queued skip-badge sync passes. */
-  private _skipSyncTimer: number | null = null;
+  /** Debounce timer for mounted Reading view block updates. */
+  private _readingSyncTimer: number | null = null;
   /** Documents whose CodeSuite font-size override must be cleared on unload. */
   private _codeFontDocuments = new Set<Document>();
   /** True when no persisted data existed at load — i.e. a genuinely fresh install. */
@@ -664,21 +602,20 @@ export default class CodePlugin extends Plugin {
       })
     );
 
-    // Sync skip badges whenever the file is saved to disk (covers reading-view
-    // tabs open alongside an editing tab, and reloads after external changes).
+    // Refresh reused Reading view chrome after saves and external changes.
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (!(file instanceof TFile)) return;
-        this.queueSkipBadgeSync(file.path);
+        this.queueReadingBlockSync();
       })
     );
 
-    // Sync skip badges while typing in live preview (debounced 400 ms so we
-    // don't run on every keystroke).
+    // The native preview handles source edits; fence-only formatting may reuse
+    // its HTML, so refresh mounted block options once that render has settled.
     this.registerEvent(
       this.app.workspace.on("editor-change", (_editor, info) => {
         if (!(info instanceof MarkdownView)) return;
-        this.queueSkipBadgeSync(info.file?.path, 400);
+        this.queueReadingBlockSync(150);
       })
     );
 
@@ -721,14 +658,12 @@ export default class CodePlugin extends Plugin {
       this.app.workspace.on("layout-change", () => {
         this.applyCodeFontSize();
         this.forceLpRebuild();
-        this.refreshDirtyReadingBlocks();
         this.scheduleFrontmatterPanelSync();
       })
     );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         this.forceLpRebuild();
-        this.refreshDirtyReadingBlocks();
         this.scheduleFrontmatterPanelSync();
       })
     );
@@ -742,6 +677,7 @@ export default class CodePlugin extends Plugin {
     this.registerEvent(
       this.app.metadataCache.on("changed", () => {
         this.forceLpRebuild();
+        this.queueReadingBlockSync();
         this.scheduleFrontmatterPanelSync();
       })
     );
@@ -891,15 +827,15 @@ export default class CodePlugin extends Plugin {
       window.clearTimeout(this._autoThemeTimer);
       this._autoThemeTimer = null;
     }
-    if (this._skipSyncTimer !== null) {
-      window.clearTimeout(this._skipSyncTimer);
-      this._skipSyncTimer = null;
+    if (this._readingSyncTimer !== null) {
+      window.clearTimeout(this._readingSyncTimer);
+      this._readingSyncTimer = null;
     }
-    if (this._readingBlockRefreshTimer !== null) {
-      window.clearTimeout(this._readingBlockRefreshTimer);
-      this._readingBlockRefreshTimer = null;
-    }
-    this.dirtyReadingBlockNotes.clear();
+    for (const block of this.readingBlocks) block.unload();
+    this.readingBlocks.clear();
+    if (this.readingLayoutFrame !== null) window.cancelAnimationFrame(this.readingLayoutFrame);
+    this.readingLayoutFrame = null;
+    this.readingLayoutChanges.clear();
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (leaf.view instanceof MarkdownView) this.cancelRunAll(leaf.view);
     }
@@ -911,7 +847,7 @@ export default class CodePlugin extends Plugin {
     this.runNotePaths.clear();
     this.noteRunQueue.clear();
     this.matlabSessions.disposeAll();
-    this.lpWrapperCache.clear();
+    for (const cache of this.lpWrapperCache) this.disposeLpCache(cache);
     this.highlighter.dispose();
     activeDocument.body.removeClass("ocode-wide-blocks");
     activeDocument.body.removeClass("ocode-wrap-code");
@@ -989,7 +925,7 @@ export default class CodePlugin extends Plugin {
    * views — without the full highlighter teardown {@link refreshHighlighter} does.
    */
   refreshRenderedBlocks(): void {
-    this.lpWrapperCache.clear();
+    for (const cache of this.lpWrapperCache) this.disposeLpCache(cache);
     this.forceLpRebuild();
     this.app.workspace.iterateAllLeaves((leaf) => {
       const view = leaf.view;
@@ -1236,7 +1172,14 @@ export default class CodePlugin extends Plugin {
    * come from a StateField, not a ViewPlugin, so they can affect line layout.
    */
   private buildBlockWidgetExtension(): Extension {
-    const build = (state: EditorState): DecorationSet => {
+    const createCache = (state: EditorState): LivePreviewCache => ({
+      notePath: state.field(editorInfoField, false)?.file?.path ?? "",
+      wrappers: new Map(),
+      liveKeys: new Set(),
+      invalidated: false,
+      nextIdentity: 0,
+    });
+    const build = (state: EditorState, cache: LivePreviewCache, positions: Map<number, number>): DecorationSet => {
       // Only in Live Preview — raw Source mode must stay plain text.
       if (!state.field(editorLivePreviewField)) return Decoration.none;
       const info = state.field(editorInfoField, false);
@@ -1254,6 +1197,16 @@ export default class CodePlugin extends Plugin {
         sel.ranges.some((r) => r.from <= to && r.to >= from);
 
       const liveKeys = new Set<string>();
+      const livePositions = new Set<number>();
+      const uniqueKey = (position: number, signature: string): string => {
+        livePositions.add(position);
+        let identity = positions.get(position);
+        if (identity === undefined) {
+          identity = cache.nextIdentity++;
+          positions.set(position, identity);
+        }
+        return `${identity}\0${signature}`;
+      };
       const items: { from: number; to: number; deco: Decoration }[] = [];
       const passthroughLanguages = this.passthroughLanguages();
 
@@ -1272,16 +1225,16 @@ export default class CodePlugin extends Plugin {
           const output = parseBakedOutput(block.code);
           if (output) {
             const stale = prevCodeHash !== null && prevCodeHash !== output.hash;
-            const key = `baked\0${output.hash}\0${stale}\0${block.code}\0${sig}`;
+            const key = uniqueKey(block.openFrom, `baked\0${output.hash}\0${stale}\0${block.code}\0${sig}`);
             liveKeys.add(key);
             if (!overlapsSelection(block.openFrom, block.closeTo)) {
               const resolve = (): HTMLElement | null =>
-                this.getCachedLpWrapper(notePath, key, () =>
+                this.getCachedLpWrapper(cache, key, () =>
                   this.buildBakedOutputWrapper(output, notePath, stale));
               items.push({
                 from: block.openFrom,
                 to: block.closeTo,
-                deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(key, resolve) }),
+                deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(cache, key, resolve) }),
               });
             }
           }
@@ -1315,7 +1268,7 @@ export default class CodePlugin extends Plugin {
         const tmplSig = htmlTemplate ? this.frontmatterSig(notePath) : "";
         // Visual indent in editor columns, so the widget lines up with its list.
         const indentCols = this.indentColumns(block.indent, state.tabSize);
-        const key = `${block.info}\0${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${htmlPdf}\0${htmlTemplate}\0${tmplSig}\0${indentCols}\0${sig}`;
+        const key = uniqueKey(block.openFrom, `${block.info}\0${this.lpBlockKey(resolvedLang, code)}\0${forceSkip}\0${forceCollapsed}\0${htmlPreview}\0${htmlPdf}\0${htmlTemplate}\0${tmplSig}\0${indentCols}\0${sig}`);
         // Register the key BEFORE the cursor check so a block being edited (or
         // running) is never pruned out from under its live output / process.
         liveKeys.add(key);
@@ -1324,7 +1277,7 @@ export default class CodePlugin extends Plugin {
         if (overlapsSelection(block.openFrom, block.closeTo)) continue;
 
         const resolve = (): HTMLElement | null =>
-          this.getCachedLpWrapper(notePath, key, () => {
+          this.getCachedLpWrapper(cache, key, () => {
             const w = isVars
               ? this.buildVarsWrapper(code, notePath)
               : this.buildCodeBlockWrapper(
@@ -1342,7 +1295,7 @@ export default class CodePlugin extends Plugin {
         items.push({
           from: block.openFrom,
           to: block.closeTo,
-          deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(key, resolve) }),
+          deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(cache, key, resolve) }),
         });
       }
 
@@ -1369,11 +1322,11 @@ export default class CodePlugin extends Plugin {
           // costs a harmless extra rebuild on a frontmatter edit.
           const maybeTemplate = this.embedMaybeTemplate(ext, alias);
           const tmplSig = maybeTemplate ? this.frontmatterSig(notePath) : "";
-          const key = `embed\0${file.path}\0${htmlPreview}\0${htmlPdf}\0${maybeTemplate}\0${tmplSig}\0${sig}`;
+          const key = uniqueKey(line.from, `embed\0${file.path}\0${htmlPreview}\0${htmlPdf}\0${maybeTemplate}\0${tmplSig}\0${sig}`);
           liveKeys.add(key);
           if (overlapsSelection(line.from, line.to)) continue;
           const resolve = (): HTMLElement | null =>
-            this.getCachedLpWrapper(notePath, key, () => {
+            this.getCachedLpWrapper(cache, key, () => {
               const container = createDiv({ cls: "ocode-embed-container" });
               void this.populateEmbedContainer(container, file, ext, notePath, alias);
               return container;
@@ -1381,12 +1334,15 @@ export default class CodePlugin extends Plugin {
           items.push({
             from: line.from,
             to: line.to,
-            deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(key, resolve) }),
+            deco: Decoration.replace({ block: true, widget: new CodeBlockWidget(cache, key, resolve) }),
           });
         }
       }
 
-      this.pruneLpWrapperCache(notePath, liveKeys);
+      cache.liveKeys = liveKeys;
+      for (const position of positions.keys()) {
+        if (!livePositions.has(position)) positions.delete(position);
+      }
 
       items.sort((a, b) => a.from - b.from);
       const builder = new RangeSetBuilder<Decoration>();
@@ -1394,17 +1350,20 @@ export default class CodePlugin extends Plugin {
       return builder.finish();
     };
 
-    const queueReadingRefreshFor = (state: EditorState): void => {
-      const notePath = state.field(editorInfoField, false)?.file?.path;
-      if (notePath) this.queueReadingBlockRefresh(notePath);
-    };
-
     // Highest precedence so our block-replace widgets win over Obsidian's own
     // Live Preview code-block rendering. Without this, the two compete over the
     // same fence lines and Obsidian's native render (language flag, no chrome)
     // intermittently shows through until a selection change re-asserts ours.
-    const field = StateField.define<DecorationSet>({
-      create: (state) => build(state),
+    const field = StateField.define<{
+      decorations: DecorationSet;
+      cache: LivePreviewCache;
+      positions: Map<number, number>;
+    }>({
+      create: (state) => {
+        const cache = createCache(state);
+        const positions = new Map<number, number>();
+        return { decorations: build(state, cache, positions), cache, positions };
+      },
       update(value, tr) {
         // Toggling Live Preview ↔ Source mode flips this field with no doc or
         // selection change — rebuild so chrome appears/disappears immediately
@@ -1412,26 +1371,48 @@ export default class CodePlugin extends Plugin {
         const lpChanged =
           tr.startState.field(editorLivePreviewField, false) !==
           tr.state.field(editorLivePreviewField, false);
+        const cacheChanged = value.cache.invalidated ||
+          value.cache.notePath !== (tr.state.field(editorInfoField, false)?.file?.path ?? "");
         if (
-          tr.docChanged &&
-          fencedBlockOptionsSignature(tr.startState.doc.toString()) !==
-            fencedBlockOptionsSignature(tr.state.doc.toString())
-        ) {
-          queueReadingRefreshFor(tr.state);
-        }
-        if (
+          cacheChanged ||
           lpChanged ||
           tr.docChanged ||
           tr.selection ||
           tr.effects.some((e) => e.is(lpRebuildEffect))
         ) {
-          return build(tr.state);
+          const cache = cacheChanged ? createCache(tr.state) : value.cache;
+          const positions = new Map<number, number>();
+          if (!cacheChanged) {
+            // Follow each opening fence through edits, keeping identical blocks
+            // distinct when another occurrence is inserted, edited, or removed.
+            for (const [position, identity] of value.positions) {
+              const mapped = tr.changes.mapPos(position, 1, MapMode.TrackAfter);
+              if (mapped !== null) positions.set(mapped, identity);
+            }
+          }
+          return { decorations: build(tr.state, cache, positions), cache, positions };
         }
-        return value.map(tr.changes);
+        return value;
       },
-      provide: (f) => EditorView.decorations.from(f),
+      provide: (f) => EditorView.decorations.from(f, (value) => value.decorations),
     });
-    return Prec.highest(field);
+    const lifecycle = ViewPlugin.define((view) => {
+      let cache = view.state.field(field).cache;
+      this.lpWrapperCache.add(cache);
+      return {
+        update: (update: ViewUpdate) => {
+          const next = update.state.field(field).cache;
+          if (next !== cache) {
+            this.disposeLpCache(cache);
+            cache = next;
+            this.lpWrapperCache.add(cache);
+          }
+          this.pruneLpWrapperCache(cache);
+        },
+        destroy: () => this.disposeLpCache(cache),
+      };
+    });
+    return [Prec.highest(field), lifecycle];
   }
 
   // ─── Shared Execution Context ────────────────────────────────
@@ -1523,46 +1504,37 @@ export default class CodePlugin extends Plugin {
    * `build()` on a miss. Reusing the same node keeps streaming output and the
    * running process alive across the cursor moving in/out of the block.
    */
-  private getCachedLpWrapper(notePath: string, key: string, build: () => HTMLElement | null): HTMLElement | null {
-    let perNote = this.lpWrapperCache.get(notePath);
-    const existing = perNote?.get(key);
+  private getCachedLpWrapper(cache: LivePreviewCache, key: string, build: () => HTMLElement | null): HTMLElement | null {
+    const existing = cache.wrappers.get(key);
     if (existing) return existing;
     const wrapper = build();
-    if (!wrapper) return null;
-    if (!perNote) { perNote = new Map(); this.lpWrapperCache.set(notePath, perNote); }
-    perNote.set(key, wrapper);
+    if (wrapper) cache.wrappers.set(key, wrapper);
     return wrapper;
   }
 
-  /**
-   * Evict cached wrappers for a note whose keys are no longer present in the
-   * document, so edited/removed blocks don't leak DOM (and their processes).
-   * `liveKeys` is the set of block keys currently in the doc.
-   */
-  private pruneLpWrapperCache(notePath: string, liveKeys: Set<string>): void {
-    const perNote = this.lpWrapperCache.get(notePath);
-    if (!perNote) return;
-    for (const [key, wrapper] of perNote) {
-      if (!liveKeys.has(key)) {
-        this.runningProcs.get(wrapper)?.cancel();
-        this.runningProcs.delete(wrapper);
-        this.runNotePaths.delete(wrapper);
-        perNote.delete(key);
-      }
-    }
-    if (perNote.size === 0) this.lpWrapperCache.delete(notePath);
-  }
-
-  /** Drop all cached wrappers for a note, cancelling any processes they own. */
-  private dropLpWrapperCache(notePath: string): void {
-    const perNote = this.lpWrapperCache.get(notePath);
-    if (!perNote) return;
-    for (const wrapper of perNote.values()) {
+  /** Prune after the editor commits its state, never while computing decorations. */
+  private pruneLpWrapperCache(cache: LivePreviewCache): void {
+    for (const [key, wrapper] of cache.wrappers) {
+      if (cache.liveKeys.has(key)) continue;
       this.runningProcs.get(wrapper)?.cancel();
       this.runningProcs.delete(wrapper);
       this.runNotePaths.delete(wrapper);
+      cache.wrappers.delete(key);
     }
-    this.lpWrapperCache.delete(notePath);
+  }
+
+  private disposeLpCache(cache: LivePreviewCache): void {
+    cache.liveKeys.clear();
+    this.pruneLpWrapperCache(cache);
+    cache.invalidated = true;
+    this.lpWrapperCache.delete(cache);
+  }
+
+  /** Invalidate every editor showing the note, retaining no DOM across owners. */
+  private dropLpWrapperCache(notePath: string): void {
+    for (const cache of this.lpWrapperCache) {
+      if (cache.notePath === notePath) this.disposeLpCache(cache);
+    }
   }
 
   /**
@@ -1695,105 +1667,29 @@ export default class CodePlugin extends Plugin {
     return entries;
   }
 
-  /** Queue a lightweight skip-badge DOM sync for already-rendered views. */
-  private queueSkipBadgeSync(notePath?: string, delay = 0): void {
-    if (this._skipSyncTimer !== null) {
-      window.clearTimeout(this._skipSyncTimer);
-    }
-    this._skipSyncTimer = window.setTimeout(() => {
-      this._skipSyncTimer = null;
-      const views: MarkdownView[] = [];
+  /** Remeasure affected panes without rebuilding their Markdown or moving scroll. */
+  private queueReadingLayout(wrapper: HTMLElement): void {
+    this.readingLayoutChanges.add(wrapper);
+    if (this.readingLayoutFrame !== null) return;
+    this.readingLayoutFrame = window.requestAnimationFrame(() => {
+      this.readingLayoutFrame = null;
+      const changed = [...this.readingLayoutChanges];
+      this.readingLayoutChanges.clear();
       this.app.workspace.iterateAllLeaves((leaf) => {
         const view = leaf.view;
-        if (!(view instanceof MarkdownView)) return;
-        if (notePath && view.file?.path !== notePath) return;
-        views.push(view);
+        if (view instanceof MarkdownView && view.getMode() === "preview" &&
+          changed.some((element) => view.contentEl.contains(element))) view.onResize();
       });
-      if (views.length === 0) return;
-      for (const view of views) this.syncSkipBadges(view);
-    }, delay);
-  }
-
-  /**
-   * Re-render a note's reading-view block chrome after an opening fence changes.
-   * Keep the note dirty when it is currently in Source mode, then flush as soon
-   * as the mode switch produces a reading view.
-   */
-  private queueReadingBlockRefresh(notePath: string): void {
-    this.dirtyReadingBlockNotes.add(notePath);
-    if (this._readingBlockRefreshTimer !== null) {
-      window.clearTimeout(this._readingBlockRefreshTimer);
-    }
-    this._readingBlockRefreshTimer = window.setTimeout(() => {
-      this._readingBlockRefreshTimer = null;
-      this.refreshDirtyReadingBlocks();
-    }, 150);
-  }
-
-  private refreshDirtyReadingBlocks(): void {
-    if (this._readingBlockRefreshTimer !== null) {
-      window.clearTimeout(this._readingBlockRefreshTimer);
-      this._readingBlockRefreshTimer = null;
-    }
-    const refreshed = new Set<string>();
-    this.app.workspace.iterateAllLeaves((leaf) => {
-      const view = leaf.view;
-      if (!(view instanceof MarkdownView)) return;
-      const notePath = view.file?.path;
-      if (!notePath || view.getMode() !== "preview" || !this.dirtyReadingBlockNotes.has(notePath)) return;
-      view.previewMode.rerender(true);
-      refreshed.add(notePath);
     });
-    for (const notePath of refreshed) this.dirtyReadingBlockNotes.delete(notePath);
   }
 
-  /**
-   * Sync the skip-badge and ocode-skip-run-all class for every inline fenced
-   * code block in the view against the current source state. Called on every
-    * file save and (debounced) on every editor change so already-rendered badges
-    * stay live without forcing a markdown preview rerender.
-   */
-  private syncSkipBadges(view: MarkdownView): void {
-    const source = view.getViewData();
-    if (!source) return;
-    // Match wrappers to source blocks by code hash, not by index — the reading
-    // view virtualizes sections, so off-screen blocks have no wrapper and any
-    // positional alignment shifts the skip states onto the wrong blocks (#25).
-    // Duplicate blocks share a hash; their states queue up in source order.
-    const statesByHash = new Map<string, boolean[]>();
-    for (const entry of this.parseRunAllPlan(source)) {
-      if (entry.kind !== "fence" || !entry.hash) continue;
-      let queue = statesByHash.get(entry.hash);
-      if (!queue) statesByHash.set(entry.hash, (queue = []));
-      queue.push(entry.skip);
-    }
-    // Scope to the reading view only. Live Preview widgets bake their skip
-    // badge in at build time, and the cursor's block has no widget.
-    const wrappers = Array.from(
-      view.contentEl.querySelectorAll<HTMLElement>('.markdown-reading-view .ocode-wrapper[data-ocode-fenced="1"]')
-    );
-    for (const wrapper of wrappers) {
-      const queue = statesByHash.get(wrapper.getAttribute("data-ocode-hash") ?? "");
-      // No source entry for this wrapper (stale render mid-edit) — leave it.
-      const shouldSkip = queue && queue.length > 0
-        ? queue.shift()!
-        : wrapper.classList.contains("ocode-skip-run-all");
-      const wasMarked = wrapper.classList.contains("ocode-skip-run-all");
-      if (shouldSkip === wasMarked) continue;
-      if (shouldSkip) {
-        wrapper.classList.add("ocode-skip-run-all");
-        const btnGroup = wrapper.querySelector(".ocode-btn-group");
-        if (btnGroup && !btnGroup.querySelector(".ocode-skip-badge")) {
-          const badge = createSpan({ cls: "ocode-skip-badge", text: "skip" });
-          badge.setAttribute("aria-label", "Excluded from run all");
-          badge.setAttribute("title", "Excluded from run all");
-          btnGroup.insertBefore(badge, btnGroup.firstChild);
-        }
-      } else {
-        wrapper.classList.remove("ocode-skip-run-all");
-        wrapper.querySelector(".ocode-skip-badge")?.remove();
-      }
-    }
+  /** Coalesce edits across notes, then update only mounted Reading view blocks. */
+  private queueReadingBlockSync(delay = 0): void {
+    if (this._readingSyncTimer !== null) window.clearTimeout(this._readingSyncTimer);
+    this._readingSyncTimer = window.setTimeout(() => {
+      this._readingSyncTimer = null;
+      for (const block of this.readingBlocks) block.sync();
+    }, delay);
   }
 
   /**
@@ -1818,7 +1714,7 @@ export default class CodePlugin extends Plugin {
       return;
     }
     // Sync badges first so the visual state is correct before we start running.
-    this.syncSkipBadges(view);
+    for (const block of this.readingBlocks) block.sync();
 
     // Register the pass so the header button can cancel it mid-run.
     const ctl = {
@@ -3126,9 +3022,9 @@ __ocode_emit_vars
       // remove earlier fences from the DOM, so a positional index is unreliable.
       const section = ctx.getSectionInfo(pre) ?? ctx.getSectionInfo(codeEl) ?? ctx.getSectionInfo(el);
       const renderedCode = (codeEl.textContent ?? "").replace(/\n$/, "");
-      const fence = section ? fencedBlockInfos(section.text.split("\n")
-        .slice(section.lineStart, section.lineEnd + 1).join("\n"))
-        .find((candidate) => !matchedFenceLines.has(section.lineStart + candidate.line)
+      const fences = section ? fencedBlockInfos(section.text.split("\n")
+        .slice(section.lineStart, section.lineEnd + 1).join("\n")) : [];
+      const fence = section ? fences.find((candidate) => !matchedFenceLines.has(section.lineStart + candidate.line)
           && candidate.info.split(/\s+/)[0].toLowerCase() === rawLang.toLowerCase()
           && candidate.code === renderedCode) : undefined;
       if (fence && section) matchedFenceLines.add(section.lineStart + fence.line);
@@ -3153,7 +3049,34 @@ __ocode_emit_vars
       if (htmlTemplate && htmlPreview === null) htmlPreview = true;
       const htmlPdf = this.htmlPdfState(rawLang, blockAttrs);
 
-      this.renderCodeBlock(pre, code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate, options);
+      const wrapper = this.buildCodeBlockWrapper(code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate, options);
+      if (!wrapper) continue;
+      pre.replaceWith(wrapper);
+      if (fence) {
+        let previousOptions = options;
+        ctx.addChild(new ReadingCodeBlock(wrapper, ctx, fences.indexOf(fence), fence, (info, current) => {
+          // A running process owns its output and controls until it finishes.
+          if (this.runningProcs.has(current)) return null;
+          const nextOptions = parseBlockOptions(info);
+          const attrs = nextOptions.flags;
+          const template = this.htmlTemplateState(rawLang, attrs, code);
+          let preview = this.htmlPreviewState(rawLang, attrs);
+          if (template && preview === null) preview = true;
+          const collapsed = nextOptions.collapsed === previousOptions.collapsed
+            ? current.classList.contains("ocode-collapsed")
+            : nextOptions.collapsed ?? this.settings.inlineCollapsedByDefault;
+          const next = this.buildCodeBlockWrapper(code, lang, rawLang, undefined, ctx.sourcePath,
+            attrs.has("skip"), collapsed, preview, this.htmlPdfState(rawLang, attrs), template, nextOptions);
+          if (!next) return null;
+          const output = current.querySelector(":scope > .ocode-output");
+          if (output) {
+            next.querySelector(":scope > .ocode-output")?.remove();
+            next.appendChild(output);
+          }
+          previousOptions = nextOptions;
+          return next;
+        }, this.readingBlocks, (element) => this.queueReadingLayout(element)));
+      }
     }
   }
 
@@ -3928,30 +3851,10 @@ __ocode_emit_vars
     return this.settings.htmlTemplating;
   }
 
-  private renderCodeBlock(
-    originalPre: HTMLElement,
-    code: string,
-    lang: string,
-    displayLang: string,
-    fileName?: string,
-    sourcePath?: string,
-    forceSkip = false,
-    forceCollapsed: boolean | null = null,
-    htmlPreview: boolean | null = null,
-    htmlPdf = false,
-    htmlTemplate = false,
-    options?: BlockOptions,
-  ) {
-    const wrapper = this.buildCodeBlockWrapper(
-      code, lang, displayLang, fileName, sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate, options,
-    );
-    if (wrapper) originalPre.replaceWith(wrapper);
-  }
-
   /**
    * Build the `ocode-wrapper` chrome (header, Shiki body, line numbers, collapse)
-   * for a code block and return it. Shared by the reading-view post-processor
-   * ({@link renderCodeBlock}) and the Live Preview block widget so both views
+   * for a code block and return it. Shared by the Reading view post-processor
+   * and the Live Preview block widget so both views
    * render identical chrome. Returns `null` only when highlighting fails.
    */
   private buildCodeBlockWrapper(
@@ -5124,6 +5027,7 @@ __ocode_emit_vars
         setSvgContent(runBtn.querySelector(".ocode-pill-icon")!, ICON.play);
         runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
         runBtn.classList.remove("ocode-cancel-pill");
+        this.queueReadingBlockSync();
       }
     }
   }
