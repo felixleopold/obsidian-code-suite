@@ -1,4 +1,5 @@
 import { App, PluginSettingTab, Setting, Notice, setIcon, Platform } from "obsidian";
+import type { SettingDefinitionItem } from "obsidian";
 import type CodePlugin from "./main";
 import { BUNDLED_THEMES, parsePassthroughLanguages, type CustomTheme, type ExecutionCwdMode } from "./settings";
 
@@ -9,14 +10,66 @@ interface TabDef {
   label: string;
   /** Lucide icon id rendered via setIcon(). */
   icon: string;
+  desc: string;
+  searchAliases: string[];
 }
 
 const TABS: TabDef[] = [
-  { id: "appearance", label: "Appearance", icon: "palette" },
-  { id: "execution", label: "Execution", icon: "play" },
-  { id: "languages", label: "Languages", icon: "code" },
-  { id: "files", label: "Files", icon: "folder" },
-  { id: "advanced", label: "Advanced", icon: "flask-conical" },
+  {
+    id: "appearance",
+    label: "Appearance",
+    icon: "palette",
+    desc: "Syntax themes and code block display.",
+    searchAliases: [
+      "Theme", "Auto-switch theme", "Dark mode theme", "Light mode theme", "Syntax theme",
+      "Import VS Code theme", "Follow Obsidian code size", "Custom code size", "Line numbers",
+      "Language label", "Wide code blocks", "Soft-wrap long lines", "Collapse code blocks by default",
+      "Enhanced inline code styling", "Inline syntax highlighting", "CodeSuite variables panel",
+      "Render HTML blocks", "PDF export for HTML blocks", "HTML block templating",
+    ],
+  },
+  {
+    id: "execution",
+    label: "Execution",
+    icon: "play",
+    desc: "Code execution, environment, and plots.",
+    searchAliases: [
+      "Enable code execution", "Static blocks by default", "Show clear-session button",
+      "Shared execution context", "Execution timeout", "Working directory", "Custom working directory",
+      "Extra environment variables", ".env file path", "Interactive plots", "Embed Plotly.js offline",
+      "Matplotlib style",
+    ],
+  },
+  {
+    id: "languages",
+    label: "Languages",
+    icon: "code",
+    desc: "Passthrough languages, interpreters, and shell startup.",
+    searchAliases: [
+      "Additional passthrough languages", "Python path", "MATLAB Python path", "Session idle timeout",
+      "Node.js path", "Bash path", "Zsh path", "Shell (sh) path", "WSL path translation",
+      "Run bash/zsh as login shell", "Shell source files", "Auto-prepend php opening tag",
+    ],
+  },
+  {
+    id: "files",
+    label: "Files",
+    icon: "folder",
+    desc: "Embedded and vault code files.",
+    searchAliases: [
+      "Render embedded code files", "Collapse embedded files", "Show code files in the file explorer",
+      "Imports folder",
+    ],
+  },
+  {
+    id: "advanced",
+    label: "Advanced",
+    icon: "flask-conical",
+    desc: "Experimental features and baked outputs.",
+    searchAliases: [
+      "Data tables", "Enable baked outputs", "Baked figures folder", "Inline images instead of files",
+    ],
+  },
 ];
 
 export class CodeSettingTab extends PluginSettingTab {
@@ -31,6 +84,25 @@ export class CodeSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  getSettingDefinitions(): SettingDefinitionItem[] {
+    return TABS.map((tab): SettingDefinitionItem => ({
+      type: "page",
+      name: tab.label,
+      desc: tab.desc,
+      items: [{
+        name: `${tab.label} settings`,
+        aliases: tab.searchAliases,
+        render: (setting) => {
+          setting.settingEl.addClass("ocode-settings-page");
+          this.activeTab = tab.id;
+          this.contentEl = setting.settingEl;
+          this.renderActiveTab();
+        },
+      }],
+    }));
+  }
+
+  /** Fallback for Obsidian versions before the declarative settings API. */
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -266,7 +338,11 @@ export class CodeSettingTab extends PluginSettingTab {
           .setDesc("Custom imported theme")
           .addButton((btn) => {
             btn.setButtonText("Remove");
-            btn.setWarning();
+            if (typeof btn.setDestructive === "function") {
+              btn.setDestructive();
+            } else {
+              btn.buttonEl.addClass("mod-warning");
+            }
             btn.onClick(async () => {
               this.plugin.settings.customThemes = this.plugin.settings.customThemes.filter((t) => t.name !== ct.name);
               // If this was the active theme, switch to default
@@ -525,7 +601,6 @@ export class CodeSettingTab extends PluginSettingTab {
       .addSlider((s) => {
         s.setLimits(5, 300, 5);
         s.setValue(this.plugin.settings.executionTimeout / 1000);
-        s.setDynamicTooltip();
         s.onChange(async (v) => { this.plugin.settings.executionTimeout = v * 1000; await this.plugin.saveSettings(); });
       });
 
@@ -665,7 +740,6 @@ export class CodeSettingTab extends PluginSettingTab {
       .setDesc("Shut down an inactive MATLAB Engine after this many minutes to release memory; the next run starts a fresh session. Set to 0 for Never.")
       .addSlider((s) => {
         s.setLimits(0, 60, 1);
-        s.setDynamicTooltip();
         s.setValue(Math.max(0, Math.round(this.plugin.settings.matlabSessionIdleTimeout / 60_000)));
         s.onChange(async (minutes) => {
           this.plugin.settings.matlabSessionIdleTimeout = minutes * 60_000;
