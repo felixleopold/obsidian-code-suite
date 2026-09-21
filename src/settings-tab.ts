@@ -359,6 +359,46 @@ export class CodeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Tab key in code blocks")
+      .setDesc("Use Tab and Shift+Tab for indentation inside fenced code blocks. Press Escape, then Tab to move focus out of the editor.")
+      .addToggle((t) => {
+        t.setValue(this.plugin.settings.enableCodeBlockTab);
+        t.onChange(async (v) => {
+          this.plugin.settings.enableCodeBlockTab = v;
+          await this.plugin.saveSettings();
+          this.renderActiveTab();
+        });
+      });
+
+    if (this.plugin.settings.enableCodeBlockTab) {
+      new Setting(containerEl)
+        .setName("Code block indentation")
+        .setDesc("Detect indentation from the current block and matching language blocks, or always insert a specific style. Automatic mode falls back to tabs.")
+        .addDropdown((d) => {
+          d.addOption("auto", "Detect automatically");
+          d.addOption("tabs", "Tabs");
+          d.addOption("2-spaces", "2 spaces");
+          d.addOption("4-spaces", "4 spaces");
+          d.addOption("8-spaces", "8 spaces");
+          d.setValue(this.plugin.settings.codeBlockIndentation);
+          d.onChange(async (v) => {
+            switch (v) {
+              case "auto":
+              case "tabs":
+              case "2-spaces":
+              case "4-spaces":
+              case "8-spaces":
+                this.plugin.settings.codeBlockIndentation = v;
+                break;
+              default:
+                return;
+            }
+            await this.plugin.saveSettings();
+          });
+        });
+    }
+
+    new Setting(containerEl)
       .setName("Collapse code blocks by default")
       .setDesc("Start every code block collapsed in reading view and live preview. Click the header to expand or collapse it. Per-block collapse/collapsed/expanded flags and fold=true/fold=false aliases override this default.")
       .addToggle((t) => {

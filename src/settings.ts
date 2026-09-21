@@ -1,6 +1,7 @@
 /** Settings types and defaults for CodeSuite plugin */
 
 import { getFs } from "./node-builtins";
+import type { CodeBlockIndentation } from "./code-block-tab";
 
 /** All bundled Shiki themes available */
 export const BUNDLED_THEMES: Record<string, string> = {
@@ -127,6 +128,10 @@ export interface CodePluginSettings {
   additionalPassthroughLanguages: string;
   /** Soft-wrap long lines in reading view instead of showing a horizontal scrollbar. */
   wrapCodeInReadingView: boolean;
+  /** Let Tab indent or align text while the cursor is inside a fenced code block. */
+  enableCodeBlockTab: boolean;
+  /** Whitespace inserted by Tab in fenced code blocks. */
+  codeBlockIndentation: CodeBlockIndentation;
   enableExecution: boolean;
   /** Treat blocks as highlighted, non-executable code unless `static=false` overrides it. */
   staticBlocksByDefault: boolean;
@@ -303,6 +308,8 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   showLanguageLabel: true,
   additionalPassthroughLanguages: "base\nd2\nvid",
   wrapCodeInReadingView: true,
+  enableCodeBlockTab: true,
+  codeBlockIndentation: "auto",
   enableExecution: true,
   staticBlocksByDefault: false,
   renderEmbeddedFiles: true,
