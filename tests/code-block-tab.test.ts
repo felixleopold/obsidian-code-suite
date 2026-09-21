@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EditorSelection, EditorState } from "@codemirror/state";
-import { codeBlockTabChanges, type CodeBlockIndentation } from "../src/code-block-tab";
+import type { TransactionSpec } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
+import {
+  codeBlockTabChanges,
+  codeBlockTabCommand,
+  type CodeBlockIndentation,
+} from "../src/code-block-tab";
 
 function applyTab(
   doc: string,
@@ -43,6 +49,21 @@ test("explicit space indentation uses the configured width", () => {
   const doc = "```c\nvoidname(void);\n```";
   const cursor = doc.indexOf("name");
   assert.equal(applyTab(doc, cursor, "4-spaces"), "```c\nvoid    name(void);\n```");
+});
+
+test("moves the cursor after whitespace inserted by Tab", () => {
+  const doc = "```c\nvoidname(void);\n```";
+  const cursor = doc.indexOf("name");
+  const state = EditorState.create({ doc, selection: EditorSelection.cursor(cursor) });
+  let nextState: EditorState | null = null;
+  const view = {
+    state,
+    dispatch: (spec: TransactionSpec) => { nextState = state.update(spec).state; },
+  } as unknown as EditorView;
+
+  assert.equal(codeBlockTabCommand(() => ({ enabled: true, indentation: "4-spaces" }), false)(view), true);
+  assert.equal(nextState!.doc.toString(), "```c\nvoid    name(void);\n```");
+  assert.equal(nextState!.selection.main.head, cursor + 4);
 });
 
 test("selections indent whole lines and Shift-Tab removes one unit", () => {

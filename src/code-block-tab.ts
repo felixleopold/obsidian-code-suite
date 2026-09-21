@@ -1,4 +1,4 @@
-import { countColumn, Prec } from "@codemirror/state";
+import { countColumn, EditorSelection, Prec } from "@codemirror/state";
 import type { EditorState, Text } from "@codemirror/state";
 import { keymap } from "@codemirror/view";
 import type { Command, EditorView } from "@codemirror/view";
@@ -191,7 +191,7 @@ export function codeBlockTabChanges(
   });
 }
 
-function tabCommand(
+export function codeBlockTabCommand(
   getSettings: () => { enabled: boolean; indentation: CodeBlockIndentation },
   outdent: boolean,
 ): Command {
@@ -200,7 +200,16 @@ function tabCommand(
     if (!settings.enabled) return false;
     const changes = codeBlockTabChanges(view.state, settings.indentation, outdent);
     if (changes === null) return false;
-    if (changes.length > 0) view.dispatch({ changes, scrollIntoView: true, userEvent: "input" });
+    if (changes.length > 0) {
+      const changeSet = view.state.changes(changes);
+      const selection = !outdent && view.state.selection.ranges.every((range) => range.empty)
+        ? EditorSelection.create(
+          view.state.selection.ranges.map((range) => EditorSelection.cursor(changeSet.mapPos(range.head, 1))),
+          view.state.selection.mainIndex,
+        )
+        : undefined;
+      view.dispatch({ changes: changeSet, selection, scrollIntoView: true, userEvent: "input" });
+    }
     return true;
   };
 }
@@ -210,7 +219,7 @@ export function buildCodeBlockTabExtension(
 ) {
   return Prec.highest(keymap.of([{
     key: "Tab",
-    run: tabCommand(getSettings, false),
-    shift: tabCommand(getSettings, true),
+    run: codeBlockTabCommand(getSettings, false),
+    shift: codeBlockTabCommand(getSettings, true),
   }]));
 }
