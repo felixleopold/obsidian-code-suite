@@ -5,6 +5,15 @@ VS Code–quality syntax highlighting, live code execution with streaming output
 
 ![CodeSuite in action](assets/hero.gif)
 
+<p align="center">
+  <strong>Enjoying CodeSuite?</strong><br>
+  If it makes your Obsidian workflow better and you'd like to support its continued development, you can buy me a coffee. Every contribution is appreciated. ☕
+</p>
+
+<p align="center">
+  <a href="https://buymeacoffee.com/felixleopold"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Support me on Buy Me a Coffee" height="50"></a>
+</p>
+
 ---
 
 ## At a glance
