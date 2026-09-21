@@ -33,6 +33,7 @@ import {
 import { CodeBlockWidget } from "./code-block-widget";
 import { ReadingCodeBlock } from "./reading-code-block";
 import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code";
+import { buildCodeBlockTabExtension } from "./code-block-tab";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
 import {
@@ -621,6 +622,10 @@ export default class CodePlugin extends Plugin {
 
     // Editor (CM6): Shiki token colors + full block-chrome widgets (Live Preview)
     this.registerEditorExtension([
+      buildCodeBlockTabExtension(() => ({
+        enabled: this.settings.enableCodeBlockTab,
+        indentation: this.settings.codeBlockIndentation,
+      })),
       this.buildShikiEditorExtension(),
       buildInlineCodeEditorExtension(() => ({ highlighter: this.highlighter, ...this.settings })),
       this.buildBlockWidgetExtension(),
