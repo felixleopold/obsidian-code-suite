@@ -21,7 +21,9 @@ function runJavascript(
     preSeeds,
     postSeeds,
   ) + JAVASCRIPT_VAR_POSTAMBLE;
-  const result = spawnSync(process.execPath, ["-e", source], { encoding: "utf8" });
+  // node --test sets FORCE_COLOR when attached to a TTY, which would colorize console.log output.
+  const { FORCE_COLOR: _forceColor, ...env } = process.env;
+  const result = spawnSync(process.execPath, ["-e", source], { encoding: "utf8", env });
   assert.equal(result.status, 0, result.stderr);
   const snapshotLine = result.stdout.split("\n").find((line) => line.startsWith(marker));
   assert.ok(snapshotLine, `Missing JavaScript variable snapshot in: ${result.stdout}`);
