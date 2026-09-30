@@ -25,7 +25,9 @@ import type { Extension, Text, EditorState, Range } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import {
   parseBlockOptions,
+  fenceLanguage,
   isStaticBlock,
+  CELL_OPTION_RE,
   lineHighlightClass,
   fencedBlockInfos,
   type BlockOptions,
@@ -164,7 +166,7 @@ type ElectronBrowserWindowCtor = new (opts: Record<string, unknown>) => Electron
 const SKIP_MARKER_RE = /^\s*(?:#|\/\/|--|%|\/\*)\s*codesuite\s*:\s*skip(?:[\s*/]|$)/i;
 function blockHasSkipMarker(code: string): boolean {
   for (const raw of code.split("\n")) {
-    if (!raw.trim()) continue;
+    if (!raw.trim() || CELL_OPTION_RE.test(raw)) continue;
     return SKIP_MARKER_RE.test(raw);
   }
   return false;
@@ -324,7 +326,7 @@ function scanFencedBlocks(doc: Text): FencedBlock[] {
       inBlock = true;
       fence = marker[1];
       info = marker[2].trim();
-      lang = info.split(/\s/)[0];
+      lang = fenceLanguage(info);
       indent = line.text.slice(0, line.text.length - trimmed.length);
       openFrom = line.from;
       innerLines = [];
@@ -1633,8 +1635,7 @@ export default class CodePlugin extends Plugin {
       const fenceChar = fenceMatch[2][0];
       const fenceLen  = fenceMatch[2].length;
       const infoStr   = fenceMatch[3].trim();
-      const parts     = infoStr.split(/\s+/);
-      const rawLang   = (parts[0] ?? "").toLowerCase();
+      const rawLang   = fenceLanguage(infoStr).toLowerCase();
       const options = parseBlockOptions(infoStr);
       const forceSkip = options.flags.has("skip");
       const openLine  = i;
@@ -1654,9 +1655,9 @@ export default class CodePlugin extends Plugin {
       // vars blocks, and non-executable languages (those don't get Run buttons).
       if (passthroughLanguages.has(rawLang) || rawLang === "vars") continue;
       const resolvedLang = this.highlighter.resolveLanguage(rawLang);
-      if (!isExecutable(resolvedLang) || isStaticBlock(options, this.settings.staticBlocksByDefault)) continue;
       // Dedent like the markdown renderer so the hash matches the rendered code.
       const code = contentLines.map((l) => stripFenceIndent(l, indent)).join("\n");
+      if (!isExecutable(resolvedLang) || isStaticBlock(options, this.settings.staticBlocksByDefault, code)) continue;
       entries.push({
         kind: "fence",
         line: openLine,
@@ -2998,7 +2999,7 @@ __ocode_emit_vars
       const langClass = Array.from(codeEl.classList).find((c) =>
         c.startsWith("language-")
       );
-      const rawLang = langClass ? langClass.replace("language-", "") : "";
+      const rawLang = langClass ? fenceLanguage(langClass.replace("language-", "")) : "";
 
       // Skip languages that Obsidian (or its plugins) render natively — let
       // them handle the block so we don't swallow their output.
@@ -3025,7 +3026,7 @@ __ocode_emit_vars
       const fences = section ? fencedBlockInfos(section.text.split("\n")
         .slice(section.lineStart, section.lineEnd + 1).join("\n")) : [];
       const fence = section ? fences.find((candidate) => !matchedFenceLines.has(section.lineStart + candidate.line)
-          && candidate.info.split(/\s+/)[0].toLowerCase() === rawLang.toLowerCase()
+          && fenceLanguage(candidate.info).toLowerCase() === rawLang.toLowerCase()
           && candidate.code === renderedCode) : undefined;
       if (fence && section) matchedFenceLines.add(section.lineStart + fence.line);
       const infoStr = fence?.info ?? "";
@@ -3879,7 +3880,7 @@ __ocode_emit_vars
     const wrapper = createDiv();
     wrapper.className = "ocode-wrapper";
     wrapper.dataset.ocodeLang = lang;
-    const staticBlock = !fileName && (options?.static ?? this.settings.staticBlocksByDefault);
+    const staticBlock = !fileName && isStaticBlock(options, this.settings.staticBlocksByDefault, displayCode);
     wrapper.toggleClass("ocode-static", staticBlock);
     const parsedHtml = new DOMParser().parseFromString(html, "text/html");
     for (const node of Array.from(parsedHtml.body.childNodes)) {

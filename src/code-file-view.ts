@@ -317,11 +317,16 @@ export class CodeFileView extends TextFileView {
         : `Output (exit: ${result.exitCode})`;
 
       // Replace figure placeholders with actual image/widget elements.
+      const placed = new Set<number>();
       for (const placeholder of Array.from(outContent.querySelectorAll<HTMLElement>(".ocode-fig-placeholder"))) {
         const idx = parseInt(placeholder.dataset.figIdx ?? "0", 10);
         const fig = result.figures.find((f) => f.figureIndex === idx);
-        if (fig) { placeholder.replaceWith(buildFigureEl(fig, this.app)); }
+        if (fig) { placeholder.replaceWith(buildFigureEl(fig, this.app)); placed.add(idx); }
         else { placeholder.remove(); }
+      }
+      // Figures written without a stdout marker (R's default device) follow the text.
+      for (const fig of result.figures) {
+        if (!placed.has(fig.figureIndex)) outContent.appendChild(buildFigureEl(fig, this.app));
       }
 
       // Copy-output button — only shown when there is actual text in the panel.

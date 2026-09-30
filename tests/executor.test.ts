@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
 import { join } from "node:path";
@@ -52,4 +53,12 @@ test("process launch failures reach the output callback", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("R plots are captured from the default graphics device", {
+  skip: spawnSync("Rscript", ["--version"]).status !== 0,
+}, async () => {
+  const result = await startExecution("plot(1:3)\ndev.off()\nhist(1:3)\ncat('done\\n')", "r", DEFAULT_SETTINGS).promise;
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.deepEqual(result.figures.map((figure) => [figure.kind, figure.figureIndex]), [["image", 1001], ["image", 2001]]);
 });

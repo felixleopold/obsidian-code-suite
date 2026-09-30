@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  fenceLanguage,
   fencedBlockInfos,
   isStaticBlock,
   lineHighlightClass,
@@ -22,6 +23,26 @@ test("static overrides the default only when explicitly specified", () => {
   assert.equal(isStaticBlock(parseBlockOptions("python static=true")), true);
   assert.equal(isStaticBlock(parseBlockOptions("python static=false"), true), false);
   assert.equal(parseBlockOptions("python static=maybe").static, undefined);
+});
+
+test("Quarto cells name their language in braces and keep their attributes to themselves", () => {
+  assert.equal(fenceLanguage("{r}"), "r");
+  assert.equal(fenceLanguage("{python} static"), "python");
+  assert.equal(fenceLanguage("{r, echo=FALSE}"), "r");
+  assert.equal(fenceLanguage("{r"), "r"); // Reading View class for `{r label="x"}`
+  assert.equal(fenceLanguage("{=html}"), "{=html}");
+  assert.equal(fenceLanguage("python title=x"), "python");
+  const options = parseBlockOptions('{r title="plot" fig.cap="Set {x}" collapse=TRUE static=false} static');
+  assert.equal(options.title, undefined);
+  assert.equal(options.collapsed, undefined);
+  assert.equal(options.static, true);
+});
+
+test("Quarto's leading #| eval option applies unless the fence sets static", () => {
+  assert.equal(isStaticBlock(parseBlockOptions("r"), false, "#| label: a\n#| eval: false # slow\nplot(1)"), true);
+  assert.equal(isStaticBlock(parseBlockOptions("r"), true, "#| eval: true\nplot(1)"), false);
+  assert.equal(isStaticBlock(parseBlockOptions("r"), false, "plot(1)\n#| eval: false"), false);
+  assert.equal(isStaticBlock(parseBlockOptions("r static=false"), false, "#| eval: false"), false);
 });
 
 test("line-number and folding aliases support explicit booleans and last attribute wins", () => {
