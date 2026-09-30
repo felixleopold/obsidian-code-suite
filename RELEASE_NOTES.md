@@ -1,19 +1,22 @@
-This patch fixes code-block scroll jumps and disappearing content in Reading view and Live Preview.
+This release makes CodeSuite work better with Quarto notebooks and brings automatic R plot capture.
 
 ## What's New
 
-- Code-block formatting updates locally without refreshing the entire Reading view.
+- Quarto-style `{r}`, `{python}`, and `{r, echo=FALSE}` fences now highlight and run like `r` and `python` in Live Preview, Reading view, Run All, and Jupyter export. Attributes inside the braces are left for Quarto ([#70](https://github.com/felixleopold/obsidian-code-suite/issues/70)).
+- A leading `#| eval: false` cell option makes a block static, and `#| eval: true` makes it runnable. A `static` attribute on the fence line still takes precedence.
+- R plots appear below the block automatically, with no code changes needed. This covers base graphics, grid, and ggplot2, and `dev.new(width=, height=)` sizes are respected. R no longer leaves an `Rplots.pdf` file behind.
+- Every runtime receives a `CODESUITE_OUTPUT_DIR` environment variable. Writing `fig_N.png` there shows the figure in the output panel.
+- New **Rscript path** setting under **Languages → Interpreters**, for systems where R is not on PATH (R's Windows installer does not add itself).
+- A **Buy me a coffee** link in the settings and plugin listing for anyone who wants to support development.
 
 ## Bug Fixes
 
-- Fix notes jumping when editing code blocks beside a Reading view pane, including changes to the language, content, or options such as `static` ([#67](https://github.com/felixleopold/obsidian-code-suite/issues/67)).
-- Fix blank content below large blocks after scrolling through them and collapsing them in Reading view.
-- Keep duplicate code blocks and blocks in separate editor panes independent, preserving the correct block state through edits.
-- Remeasure Live Preview blocks when collapse, output, or embedded content changes their height.
+- Fix accented, CJK, and emoji text in MATLAB sessions on Windows by running the MATLAB worker in Python UTF-8 mode ([#74](https://github.com/felixleopold/obsidian-code-suite/pull/74)). Thanks to @RarityBrown.
+- Standalone code-file views now show figures that were written without an output marker.
 
 ## Upgrade Notes
 
-- No settings changes or manual migration are required.
-- Thanks to @luckman212 for the detailed report and investigation.
+- No settings changes or manual migration are required. Existing ```` ```r ```` and ```` ```python ```` blocks behave as before.
+- Other Quarto cell options (`echo`, `output`, `fig-width`, …) are treated as ordinary comments for now.
 
-See [PR #69](https://github.com/felixleopold/obsidian-code-suite/pull/69).
+See [PR #76](https://github.com/felixleopold/obsidian-code-suite/pull/76), [PR #74](https://github.com/felixleopold/obsidian-code-suite/pull/74), and [PR #73](https://github.com/felixleopold/obsidian-code-suite/pull/73).
