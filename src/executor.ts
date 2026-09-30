@@ -36,6 +36,14 @@ export function isExecutable(lang: string): boolean {
   return lang === "matlab" || isSubprocessExecutable(lang);
 }
 
+/**
+ * Make R's default graphics device a PNG in CODESUITE_OUTPUT_DIR instead of
+ * Rplots.pdf, so plots (base, grid, ggplot) appear without code changes. Each
+ * device opening gets its own number block (fig_1001.png, fig_2001.png, …) so
+ * pages stay ordered across dev.off(). dev.new(width=, height=) sizes in inches.
+ */
+const R_GRAPHS_PREAMBLE = 'local({ d <- Sys.getenv("CODESUITE_OUTPUT_DIR"); n <- 0L; if (nzchar(d)) options(device = function(width = 7, height = 5, ...) { n <<- n + 1L; grDevices::png(file.path(d, sprintf("fig_%d%%03d.png", n)), width = width, height = height, units = "in", res = 144) }) })\n';
+
 function isPosixShell(lang: string): boolean {
   return lang === "bash" || lang === "zsh" || lang === "shell";
 }
@@ -189,13 +197,18 @@ export function startExecution(
   const tmpDir = path.join(os.tmpdir(), `ocode-${execId}`);
   fs.mkdirSync(tmpDir, { recursive: true });
 
+  // Any runtime may write fig_N.png / fig_N.html here (CODESUITE_OUTPUT_DIR);
+  // the files are collected after the process exits.
   const imgDir = path.join(tmpDir, "images");
+  fs.mkdirSync(imgDir);
   const tmpFile = path.join(tmpDir, executionScriptName(lang, runtime.ext));
 
-  // For Python: wrap code to capture graphs
+  // Capture Python and R graphs
   let execCode = code;
   if (lang === "python") {
     execCode = wrapPythonForGraphs(code, imgDir, settings.interactivePlots, settings.embedPlotlyJs, settings.matplotlibStyle);
+  } else if (lang === "r") {
+    execCode = R_GRAPHS_PREAMBLE + code;
   }
 
   if (lang === "php" && settings.autoPrependPhpOpenTag) {
@@ -228,6 +241,8 @@ export function startExecution(
     cmd = settings.zshPath;
   } else if (lang === "shell" && settings.shPath) {
     cmd = settings.shPath;
+  } else if (lang === "r" && settings.rPath) {
+    cmd = settings.rPath;
   }
 
   // Build env. Order of precedence (later overrides earlier):
@@ -236,7 +251,7 @@ export function startExecution(
   // and override or add note-specific values via the settings UI.
   const dotEnv = parseDotEnvFile(settings.envFilePath);
   const extraEnv = parseExtraEnv(settings.extraEnv);
-  const env: Record<string, string | undefined> = { ...getProcess().env, ...dotEnv, ...extraEnv };
+  const env: Record<string, string | undefined> = { ...getProcess().env, ...dotEnv, ...extraEnv, CODESUITE_OUTPUT_DIR: imgDir };
 
   // On macOS, GUI apps (like Obsidian) don't inherit the user's shell PATH,
   // so Homebrew tools (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel)

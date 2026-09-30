@@ -709,6 +709,15 @@ export class CodeSettingTab extends PluginSettingTab {
         t.onChange(async (v) => { this.plugin.settings.shPath = v.trim(); await this.plugin.saveSettings(); });
       });
 
+    new Setting(containerEl)
+      .setName("Rscript path")
+      .setDesc("Absolute path to Rscript, used by `r` code blocks. Leave empty to resolve `Rscript` via PATH. On Windows, R's installer does not add itself to PATH (e.g. C:\\Program Files\\R\\R-4.5.1\\bin\\Rscript.exe).")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "Rscript";
+        t.setValue(this.plugin.settings.rPath);
+        t.onChange(async (v) => { this.plugin.settings.rPath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
     if (Platform.isWin) {
       new Setting(containerEl)
         .setName("WSL path translation")

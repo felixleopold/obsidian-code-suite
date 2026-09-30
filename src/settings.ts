@@ -178,6 +178,8 @@ export interface CodePluginSettings {
   zshPath: string;
   /** Custom path used by the `shell`/`sh` languages (default POSIX `/bin/sh`). */
   shPath: string;
+  /** Custom path to Rscript (used by the `r` language). */
+  rPath: string;
   /**
    * Windows only: how to hand temp script paths to POSIX shells (bash/zsh/sh).
    * WSL bash lives in a Linux filesystem namespace, so a Windows path like
@@ -322,6 +324,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   bashPath: "",
   zshPath: "",
   shPath: "",
+  rPath: "",
   wslMode: "auto",
   autoPrependPhpOpenTag: true,
   shellLogin: false,

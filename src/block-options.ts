@@ -26,6 +26,16 @@ function parseRanges(value: string): LineRange[] {
   return ranges;
 }
 
+/**
+ * Language token of a fence info string. Quarto/Pandoc cells name it inside
+ * braces (`{r}`, `{r, echo=FALSE}`), and Reading View's `language-{r` class
+ * carries the same token truncated at the first space.
+ */
+export function fenceLanguage(info: string): string {
+  const token = info.trim().split(/\s/)[0] ?? "";
+  return /^\{([A-Za-z][^\s,}]*)/.exec(token)?.[1] ?? token;
+}
+
 /** Parse the complete info string following the fence, including its language. */
 export function parseBlockOptions(info: string): BlockOptions {
   const options: BlockOptions = {
@@ -35,7 +45,9 @@ export function parseBlockOptions(info: string): BlockOptions {
     delete: [],
   };
   // Keep quoted titles and spaced line ranges together as single attributes.
-  const attributes = info.trim().replace(/^\S+\s*/, "");
+  // A Quarto `{r ...}` header belongs to Quarto, so drop it whole.
+  const attributes = info.trim()
+    .replace(/^(?:\{[A-Za-z](?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^}"'])*\}|\S+)\s*/, "");
   const tokens = attributes.match(/(?:[^\s"'{}]+|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\{[^}]*\})+/g) ?? [];
   for (const token of tokens) {
     if (token.startsWith("{")) {
@@ -76,8 +88,24 @@ export function parseBlockOptions(info: string): BlockOptions {
   return options;
 }
 
-export function isStaticBlock(options: BlockOptions, defaultStatic = false): boolean {
-  return options.static ?? defaultStatic;
+/** Quarto cell-option comment (`#| key: value`, or `//|` for C-style languages). */
+export const CELL_OPTION_RE = /^\s*(?:#|\/\/)\|/;
+
+/** Quarto's `eval` option from the cell options leading the block, if set. */
+function cellEval(code: string): boolean | undefined {
+  for (const line of code.split("\n")) {
+    if (!CELL_OPTION_RE.test(line)) return undefined;
+    const match = /^\s*(?:#|\/\/)\|\s*eval\s*:\s*(true|false)\s*(?:#.*)?$/i.exec(line);
+    if (match) return match[1].toLowerCase() === "true";
+  }
+  return undefined;
+}
+
+/** A fence `static` attribute wins over Quarto's `#| eval:`, which wins over the default. */
+export function isStaticBlock(options: BlockOptions | undefined, defaultStatic = false, code = ""): boolean {
+  if (options?.static !== undefined) return options.static;
+  const evaluate = cellEval(code);
+  return evaluate === undefined ? defaultStatic : !evaluate;
 }
 
 /** Source fences for matching rendered blocks without relying on DOM order. */

@@ -120,6 +120,9 @@ Absolute path to the zsh executable used by `zsh` blocks. Leave empty to resolve
 ### Shell (sh) path
 Absolute path used by `shell` and `sh` blocks. Defaults to `/bin/sh` (POSIX sh). Point it at a modern bash if you want these blocks to run under bash.
 
+### Rscript path
+Absolute path to the Rscript executable used by `r` blocks. Leave empty to resolve `Rscript` via PATH. On Windows, R's installer does not add itself to PATH, so point this at e.g. `C:\Program Files\R\R-4.5.1\bin\Rscript.exe`.
+
 ### Auto-prepend PHP opening tag
 When enabled, CodeSuite adds `<?php` to the temporary execution file for PHP blocks that do not already start with a PHP opening tag. Your note content is not modified.
 

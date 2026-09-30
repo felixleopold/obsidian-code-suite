@@ -54,6 +54,8 @@ Add space-separated attributes after the language on the opening fence:
 
 Boolean options accept `=true` or `=false`. `ln=true` / `ln:false` are aliases for line numbering, and `fold=true` / `fold:false` control collapse. Existing `collapsed` and `expanded` flags still work. Per-block values override the global defaults; `static=false` makes a block runnable when **Static blocks by default** is enabled, provided execution is enabled globally. Static HTML blocks also suppress live previews.
 
+Quarto-style cells work too: `{r}`, `{python}`, and `{r, echo=FALSE}` fences highlight and run like `r` and `python`, and the brace attributes are left for Quarto. A leading `#| eval: false` cell option makes a block static (`#| eval: true` makes it runnable); a `static` attribute on the fence line still wins. Other `#|` options stay ordinary comments, so the same note renders with `quarto render`.
+
 Titles and initial collapse apply in Reading View and Live Preview. Line backgrounds and numbering also appear while editing source. A `diff` block automatically colors `+` and `-` lines, excluding `+++` / `---` file headers. Explicit line ranges take precedence, with deletion over insertion over ordinary highlighting. Invalid range entries are ignored.
 
 Ordinary inline code receives stronger styling, configurable with **Enhanced inline code styling**. Add a language prefix for syntax colors, for example `` `{python} result = df.groupby("region").sum()` ``. Reading View hides a recognized prefix; the editor retains it for editing and highlights single-line spans. Unknown prefixes and existing `` `$variable` `` references retain their meaning. **Inline syntax highlighting** controls language-aware coloring separately.
@@ -82,7 +84,7 @@ Run code directly from a code block — no terminal, no switching apps.
 | Ruby | `ruby` | |
 | Lua | `lua` | |
 | Perl | `perl` | |
-| R | `Rscript` | |
+| R | `Rscript` | Automatic plot capture (base graphics, grid, ggplot2) |
 | PHP | `php` | Automatically prepends `<?php` for snippets that omit the opening tag |
 | Swift | `swift` | |
 
@@ -91,7 +93,7 @@ Run code directly from a code block — no terminal, no switching apps.
 - **Live streaming** — stdout and stderr appear as the process runs, not after it finishes
 - **Interactive stdin** — an input bar appears automatically when your code calls `input()` or reads from stdin
 - **Password masking** — `sudo` is detected automatically; the input bar masks characters for sensitive prompts
-- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted without a display server. Matplotlib figures render as static images; Plotly figures render as interactive HTML widgets (zoom, pan, hover, legend toggles). Click a plot for full-screen view; hover an image for copy/download buttons. Toggle interactivity and offline Plotly.js embedding in settings. By default plots use Matplotlib's own look — to theme every plot (e.g. to match a dark vault), set **Settings → Python → Matplotlib style** to a built-in style name such as `dark_background` or `seaborn-v0_8-darkgrid`, or an absolute path to a `.mplstyle` file
+- **Inline graphs** — `plt.show()` and `fig.show()` are intercepted without a display server. Matplotlib figures render as static images; Plotly figures render as interactive HTML widgets (zoom, pan, hover, legend toggles). Click a plot for full-screen view; hover an image for copy/download buttons. Toggle interactivity and offline Plotly.js embedding in settings. By default plots use Matplotlib's own look — to theme every plot (e.g. to match a dark vault), set **Settings → Python → Matplotlib style** to a built-in style name such as `dark_background` or `seaborn-v0_8-darkgrid`, or an absolute path to a `.mplstyle` file. R plots need no `plt.show()` equivalent: R's default graphics device writes PNGs that appear after the block's text output. Any other runtime can write `fig_N.png` into the directory named by the `CODESUITE_OUTPUT_DIR` environment variable to show a figure
 
 <details>
 <summary><b>More execution options</b> — venv, PHP snippets, shells, interpreter paths</summary>
@@ -326,7 +328,7 @@ Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**
 
 Track progress or vote on the linked GitHub issues.
 
-Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0.
+Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0. Quarto-style `{r}` / `{python}` cells, `#| eval`, R plot capture, and an Rscript path setting from [#70](https://github.com/felixleopold/obsidian-code-suite/issues/70) ship in 1.21.0.
 
 **Recent releases**
 

@@ -9,6 +9,8 @@
  *   - rendered note DOM → self-contained themed HTML string
  */
 
+import { fenceLanguage } from "./block-options";
+
 // ─── Jupyter notebook types (nbformat 4) ──────────────────────────
 
 export interface NotebookCell {
@@ -187,7 +189,7 @@ function scanMarkdown(
     const fenceChar = m[2][0];
     const fenceLen = m[2].length;
     const info = m[3].trim();
-    const rawLang = (info.split(/\s+/)[0] ?? "").toLowerCase();
+    const rawLang = fenceLanguage(info).toLowerCase();
     const body: string[] = [];
     i++;
     let closed = false;
