@@ -6,5 +6,6 @@
   "description": "Execute code inside your notes: Shiki syntax highlighting with 65+ themes, live streaming output, inline Matplotlib and Plotly graphs, shared variables, and styled HTML and PDF export with outputs.",
   "author": "Felix Leopold",
   "authorUrl": "https://github.com/felixleopold",
+  "fundingUrl": "https://buymeacoffee.com/felixleopold",
   "isDesktopOnly": false
 }

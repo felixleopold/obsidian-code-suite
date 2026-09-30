@@ -40,6 +40,15 @@ export class CodeSettingTab extends PluginSettingTab {
       attr: { role: "tabpanel", "aria-labelledby": `ocode-settings-tab-${this.activeTab}` },
     });
     this.renderActiveTab();
+
+    new Setting(containerEl)
+      .setName("Support development")
+      .setDesc("If you like the plugin and want to support its development, you can buy me a coffee.")
+      .addButton((btn) =>
+        btn.setButtonText("Buy me a coffee").onClick(() => {
+          window.open("https://buymeacoffee.com/felixleopold");
+        })
+      );
   }
 
   // ─── Tab navigation ──────────────────────────
