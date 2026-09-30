@@ -358,7 +358,7 @@ export class MatlabSessionManager {
       const env = this.buildEnv(settings);
       proc = getChildProcess().spawn(
         settings.matlabPythonPath.trim(),
-        ["-u", workerPath, "--session-dir", tempDir, "--cwd", cwd],
+        ["-X", "utf8", "-u", workerPath, "--session-dir", tempDir, "--cwd", cwd],
         {
           cwd,
           env,
