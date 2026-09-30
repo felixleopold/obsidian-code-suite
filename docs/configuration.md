@@ -34,6 +34,8 @@ Imported themes are saved in plugin settings and appear in the theme picker imme
 | **Language label** | Show or hide the language name in the header bar of each code block. |
 | **Wide code blocks** | Allow code blocks to extend beyond the normal note content width. Useful for wide tables or long output lines. |
 | **Soft-wrap long lines** *(on by default)* | Wrap long lines in reading view instead of showing a horizontal scrollbar, matching the editor's behaviour. Turn off to restore horizontal scrolling. |
+| **Tab key in code blocks** *(on by default)* | Use Tab and Shift+Tab for indentation inside fenced code blocks without changing Tab's behaviour elsewhere in Obsidian. Press Escape, then Tab to move focus out of the editor. |
+| **Code block indentation** *(detect automatically)* | Detect tabs or 2-, 4-, or 8-space indentation from the current block and matching-language blocks in the note. When no style can be detected, insert a literal tab. A specific style can be selected instead. |
 | **Render HTML blocks** *(off by default)* | Show `html` code blocks as a live preview (sandboxed iframe) by default instead of their source. Override per block with a `preview` or `source` flag on the fence (e.g. ` ```html preview `) or in an embed alias (`![[page.html\|preview]]`). Eligible blocks always get a Preview/Code toggle in the header. |
 
 ---
