@@ -105,6 +105,9 @@ export function processInlineCode(root: HTMLElement, options: InlineCodeOptions)
 export function scanInlineCodeSpans(source: string): InlineCodeSpan[] {
   const spans: InlineCodeSpan[] = [];
   let activeFence: { marker: string; length: number } | null = null;
+  let inList = false;
+  let inIndentedCode = false;
+  let afterBlockBoundary = true;
   let lineFrom = 0;
 
   const isEscaped = (line: string, position: number) => {
@@ -123,15 +126,34 @@ export function scanInlineCodeSpans(source: string): InlineCodeSpan[] {
     const containerPrefix = /^(?:(?:[ \t]*>[ \t]?)|(?:[ \t]*(?:[-+*]|\d+[.)])[ \t]+))*/.exec(line)?.[0] ?? "";
     const rest = line.slice(containerPrefix.length);
     const fence = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(rest);
+    const blank = !line.trim();
+    const listItem = /(?:[-+*]|\d+[.)])[ \t]/.test(containerPrefix);
+    const indented = /^(?: {4}|\t)/.test(line);
+    // Indented lines inside a list are nested items or continuations, and an
+    // indented code block cannot interrupt a paragraph.
+    const indentedCode: boolean = indented && !listItem && !inList
+      && (afterBlockBoundary || inIndentedCode);
 
+    let scanLine = false;
     if (activeFence) {
       if (fence && fence[1][0] === activeFence.marker
           && fence[1].length >= activeFence.length && !fence[2].trim()) {
         activeFence = null;
       }
+      afterBlockBoundary = true;
     } else if (fence && (fence[1][0] === "~" || !fence[2].includes("`"))) {
       activeFence = { marker: fence[1][0], length: fence[1].length };
-    } else if (!/^(?: {4}|\t)/.test(line)) {
+      if (listItem) inList = true;
+      afterBlockBoundary = true;
+    } else {
+      if (listItem) inList = true;
+      else if (!blank && !indented) inList = false;
+      inIndentedCode = indentedCode;
+      afterBlockBoundary = blank || indentedCode;
+      scanLine = !indentedCode;
+    }
+
+    if (scanLine) {
       let cursor = 0;
       while (cursor < line.length) {
         const opening = line.indexOf("`", cursor);

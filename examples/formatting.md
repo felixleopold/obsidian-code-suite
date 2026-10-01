@@ -13,6 +13,7 @@ Language-aware inline code uses a `{language}` prefix inside the backticks:
 - TypeScript alias: `{ts} const count: number = 3`
 - Bash: `{bash} printf '%s\n' "$HOME"`
 - JSON: `{json} {"enabled": true}`
+	- Nested list items keep the same styling: `nested` and `{python} print("nested")`
 
 In Reading View, each recognized prefix should disappear and the code after it should receive syntax colors. In Source mode and Live Preview, the prefix remains visible and the code is highlighted. Editor highlighting supports single-line inline spans.
 
