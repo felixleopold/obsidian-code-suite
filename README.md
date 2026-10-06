@@ -341,6 +341,7 @@ Per-block formatting and inline highlighting from [#13](https://github.com/felix
 
 **Recent releases**
 
+- **1.21.1**: render Mermaid diagrams in HTML and PDF exports ([#78](https://github.com/felixleopold/obsidian-code-suite/pull/78)).
 - **1.21.0**: run Quarto-style `{r}` / `{python}` cells, honor `#| eval`, capture R plots automatically, and add an Rscript path setting ([#76](https://github.com/felixleopold/obsidian-code-suite/pull/76)). Fix non-ASCII text in MATLAB sessions on Windows ([#74](https://github.com/felixleopold/obsidian-code-suite/pull/74)).
 - **1.20.3**: fix scroll jumps while editing code blocks beside Reading view, restore missing content after collapsing large blocks, and keep duplicate blocks independent across editor panes ([#69](https://github.com/felixleopold/obsidian-code-suite/pull/69)).
 - **1.20.2**: restore HTML and PDF note export on Obsidian 1.13 when MathJax has not been loaded, and show a useful error when export rendering fails ([#66](https://github.com/felixleopold/obsidian-code-suite/pull/66)).

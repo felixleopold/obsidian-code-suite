@@ -1247,3 +1247,14 @@ body {
   white-space: normal;
   overflow-wrap: anywhere;
 }
+
+/* HTML/PDF export renders the note offscreen (not display:none) so Obsidian
+   renders Mermaid diagrams, which it skips for detached or hidden containers. */
+.ocode-export-render {
+  position: absolute;
+  top: 0;
+  left: -100000px;
+  width: var(--ocode-export-render-width, 700px);
+  visibility: hidden;
+  pointer-events: none;
+}

@@ -2543,7 +2543,12 @@ __ocode_emit_vars
     // section is present — then graft in the execution outputs that the live
     // (partial) preview is currently showing.
     const markdown = await this.app.vault.read(file);
-    const full = createDiv({ cls: "markdown-preview-view ocode-export" });
+    const full = createDiv({ cls: "markdown-preview-view ocode-export ocode-export-render" });
+    // Obsidian renders Mermaid only once the container is shown (attached with
+    // an offsetParent), so render offscreen at the reading-view width. Mermaid
+    // sizes its layout from the parent width.
+    full.setCssProps({ "--ocode-export-render-width": `${this.captureContentWidth(previewEl) || 700}px` });
+    activeDocument.body.appendChild(full);
 
     // Short-lived component owns the render's child lifecycles; unloaded below.
     const comp = new Component();
@@ -2597,6 +2602,7 @@ __ocode_emit_vars
     } finally {
       this._exportHtmlPanes = null;
       comp.unload();
+      full.detach();
     }
   }
 
