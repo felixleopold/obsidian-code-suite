@@ -96,6 +96,7 @@ Run code directly from a code block — no terminal, no switching apps.
 | R | `Rscript` | Automatic plot capture (base graphics, grid, ggplot2) |
 | PHP | `php` | Automatically prepends `<?php` for snippets that omit the opening tag |
 | Swift | `swift` | |
+| C# | `dotnet run` | Requires .NET 10+; `csharp`, `cs`, and `c#` fences |
 
 `matlab` fences share a base workspace within one note and stay isolated from every other note. Configure a Python interpreter whose `matlabengine` package matches your installed MATLAB release; see the [configuration reference](docs/configuration.md#matlab-engine).
 
@@ -337,7 +338,7 @@ Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**
 
 Track progress or vote on the linked GitHub issues.
 
-Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0. Quarto-style `{r}` / `{python}` cells, `#| eval`, R plot capture, and an Rscript path setting from [#70](https://github.com/felixleopold/obsidian-code-suite/issues/70) shipped in 1.21.0.
+Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0. Quarto-style `{r}` / `{python}` cells, `#| eval`, R plot capture, and an Rscript path setting from [#70](https://github.com/felixleopold/obsidian-code-suite/issues/70) shipped in 1.21.0. C# execution from [#77](https://github.com/felixleopold/obsidian-code-suite/issues/77) shipped in 1.22.0.
 
 **Recent releases**
 

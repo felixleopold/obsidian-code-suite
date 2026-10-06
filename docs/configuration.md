@@ -125,6 +125,9 @@ Absolute path used by `shell` and `sh` blocks. Defaults to `/bin/sh` (POSIX sh).
 ### Rscript path
 Absolute path to the Rscript executable used by `r` blocks. Leave empty to resolve `Rscript` via PATH. On Windows, R's installer does not add itself to PATH, so point this at e.g. `C:\Program Files\R\R-4.5.1\bin\Rscript.exe`.
 
+### Dotnet path
+Absolute path to the dotnet executable used by `csharp` blocks. Leave empty to resolve `dotnet` via PATH. C# blocks run as .NET 10 file-based apps (`dotnet run code.cs`), so .NET 10 or later is required. The first run after starting your computer takes a few seconds while the compiler starts.
+
 ### Auto-prepend PHP opening tag
 When enabled, CodeSuite adds `<?php` to the temporary execution file for PHP blocks that do not already start with a PHP opening tag. Your note content is not modified.
 

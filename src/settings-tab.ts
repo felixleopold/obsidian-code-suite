@@ -47,7 +47,7 @@ const TABS: TabDef[] = [
     desc: "Passthrough languages, interpreters, and shell startup.",
     searchAliases: [
       "Additional passthrough languages", "Python path", "MATLAB Python path", "Session idle timeout",
-      "Node.js path", "Bash path", "Zsh path", "Shell (sh) path", "WSL path translation",
+      "Node.js path", "Bash path", "Zsh path", "Shell (sh) path", "Rscript path", "Dotnet path", "WSL path translation",
       "Run bash/zsh as login shell", "Shell source files", "Auto-prepend php opening tag",
     ],
   },
@@ -839,6 +839,15 @@ export class CodeSettingTab extends PluginSettingTab {
         t.inputEl["placeholder"] = "Rscript";
         t.setValue(this.plugin.settings.rPath);
         t.onChange(async (v) => { this.plugin.settings.rPath = v.trim(); await this.plugin.saveSettings(); });
+      });
+
+    new Setting(containerEl)
+      .setName("Dotnet path")
+      .setDesc("Absolute path to the dotnet executable, used by `csharp` code blocks. Requires .NET 10 or later. Leave empty to resolve `dotnet` via PATH.")
+      .addText((t) => {
+        t.inputEl["placeholder"] = "dotnet";
+        t.setValue(this.plugin.settings.dotnetPath);
+        t.onChange(async (v) => { this.plugin.settings.dotnetPath = v.trim(); await this.plugin.saveSettings(); });
       });
 
     if (Platform.isWin) {

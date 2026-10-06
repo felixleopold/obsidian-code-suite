@@ -47,6 +47,7 @@ Any fenced code block in a supported language gets a **Run** button in Reading v
 | R | `r` | `Rscript` |
 | PHP | `php` | `php` |
 | Swift | `swift` | `swift` |
+| C# | `csharp` / `cs` / `c#` | `dotnet run` (.NET 10+) |
 
 Except for MATLAB, each run spawns a **fresh process** and reconstructs state through the replay session described below. MATLAB uses one isolated Engine per note and closes it after the configured idle timeout.
 
