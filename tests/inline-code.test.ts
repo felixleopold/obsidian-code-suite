@@ -88,6 +88,8 @@ test("still ignores indented code blocks outside lists", () => {
     "",
     "\tstill code `d`",
     "after `e`",
+    "## Heading `f`",
+    "    code after heading `g`",
   ].join("\n");
-  assert.deepEqual(scanInlineCodeSpans(source).map(({ text }) => text), ["a", "b", "e"]);
+  assert.deepEqual(scanInlineCodeSpans(source).map(({ text }) => text), ["a", "b", "e", "f"]);
 });

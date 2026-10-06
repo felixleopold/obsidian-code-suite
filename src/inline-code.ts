@@ -149,7 +149,8 @@ export function scanInlineCodeSpans(source: string): InlineCodeSpan[] {
       if (listItem) inList = true;
       else if (!blank && !indented) inList = false;
       inIndentedCode = indentedCode;
-      afterBlockBoundary = blank || indentedCode;
+      // Headings end their block, so indented code may follow them directly.
+      afterBlockBoundary = blank || indentedCode || /^ {0,3}#{1,6}(?:[ \t]|$)/.test(line);
       scanLine = !indentedCode;
     }
 
