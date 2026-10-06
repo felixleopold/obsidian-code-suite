@@ -60,3 +60,36 @@ test("does not join unmatched spans across paragraphs or fences", () => {
   const source = "`unclosed\n\n```js\n`inside`\n```\n\nend`";
   assert.deepEqual(scanInlineCodeSpans(source), []);
 });
+
+test("scans inline code in nested list items", () => {
+  const source = [
+    "- top `foo`",
+    "\t- tab nested `bar`",
+    "    - space nested `baz`",
+    "\t\t1. ordered `qux`",
+    "",
+    "\tcontinuation `quux`",
+  ].join("\n");
+  assert.deepEqual(scanInlineCodeSpans(source).map(({ text }) => text), [
+    "foo",
+    "bar",
+    "baz",
+    "qux",
+    "quux",
+  ]);
+});
+
+test("still ignores indented code blocks outside lists", () => {
+  const source = [
+    "Paragraph `a`",
+    "    lazy continuation `b`",
+    "",
+    "    indented code `c`",
+    "",
+    "\tstill code `d`",
+    "after `e`",
+    "## Heading `f`",
+    "    code after heading `g`",
+  ].join("\n");
+  assert.deepEqual(scanInlineCodeSpans(source).map(({ text }) => text), ["a", "b", "e", "f"]);
+});
