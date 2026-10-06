@@ -5079,6 +5079,8 @@ __ocode_emit_vars
         return /\breadLines\s*\(\s*["']stdin/.test(code) || /\bscan\s*\(/.test(code);
       case "swift":
         return /\breadLine\s*\(/.test(code);
+      case "csharp":
+        return /\bConsole\.(?:ReadLine|ReadKey|Read|In)\b/.test(code);
       default:
         return false;
     }

@@ -24,6 +24,7 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
   go:         { cmd: "go",       args: ["run"],      ext: ".go" },
   php:        { cmd: "php",      args: [],           ext: ".php" },
   swift:      { cmd: "swift",    args: [],           ext: ".swift" },
+  csharp:     { cmd: "dotnet",   args: ["run"],      ext: ".cs" },
 };
 
 /** Languages handled directly by this subprocess executor. */
@@ -243,6 +244,8 @@ export function startExecution(
     cmd = settings.shPath;
   } else if (lang === "r" && settings.rPath) {
     cmd = settings.rPath;
+  } else if (lang === "csharp" && settings.dotnetPath) {
+    cmd = settings.dotnetPath;
   }
 
   // Build env. Order of precedence (later overrides earlier):
@@ -275,6 +278,9 @@ export function startExecution(
       env["PATH"] = venvBin + path.delimiter + (env["PATH"] || "");
     }
   }
+
+  // Keep .NET's first-run welcome banner out of the output panel.
+  if (lang === "csharp") env["DOTNET_NOLOGO"] ??= "1";
 
   // npx and its /usr/bin/env node launcher must use the configured Node installation.
   if ((lang === "javascript" || lang === "typescript") && settings.nodePath) {
