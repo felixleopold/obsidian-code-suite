@@ -21,7 +21,7 @@ VS Code–quality syntax highlighting, live code execution with streaming output
 | | Feature | What it does |
 |---|---|---|
 | 🎨 | [**Syntax highlighting**](#-highlight) | Shiki (the VS Code engine) — 65+ themes, import any VS Code `.json` theme, in Reading view, Live Preview *and* Source mode |
-| ▶️ | [**Live code execution**](#run) | Run Python, JS/TS, Bash, Go, Ruby, PHP, and 8 more — output streams live, with interactive stdin and cancel |
+| ▶️ | [**Live code execution**](#run) | Run Python, JS/TS, C#, Bash, Go, Ruby, PHP, and 8 more — output streams live, with interactive stdin and cancel |
 | 📈 | [**Inline graphs**](#run) | `plt.show()` / `fig.show()` render below the block — Matplotlib as images, Plotly as interactive widgets |
 | 🔗 | [**Notebook variables**](#notebook-mode) | Shared state across blocks; declare note-wide `vars`; reference any value inline in prose with `` `$varname` `` |
 | 📎 | [**Embedded files**](#embed-render) | `![[script.py]]` becomes a collapsible, highlighted, runnable block; open vault code files in a lightweight editor |
@@ -40,6 +40,7 @@ Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses 
 - **36+ languages** with common aliases (`py`, `js`, `ts`, `rb`, …)
 - **Editor highlighting** — full token colors in Live Preview and Source mode via a CodeMirror 6 ViewPlugin, not just in Reading view
 - **Full chrome in Live Preview** — code blocks and `![[file.py]]` embeds render with the same header, Run/Copy buttons, live output, line numbers, and collapse as Reading view. The block your cursor is in reveals its raw source for editing; every other block shows the rendered chrome, with running output preserved as you move around
+- **Tab in code blocks** — Tab and Shift+Tab indent inside fenced code blocks using the block's detected style (tabs or 2/4/8 spaces) instead of moving the whole Markdown line. Press Escape, then Tab to leave the editor
 
 
 ### Per-block formatting
@@ -338,10 +339,11 @@ Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**
 
 Track progress or vote on the linked GitHub issues.
 
-Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0. Quarto-style `{r}` / `{python}` cells, `#| eval`, R plot capture, and an Rscript path setting from [#70](https://github.com/felixleopold/obsidian-code-suite/issues/70) shipped in 1.21.0. C# execution from [#77](https://github.com/felixleopold/obsidian-code-suite/issues/77) shipped in 1.22.0.
+Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0. Quarto-style `{r}` / `{python}` cells, `#| eval`, R plot capture, and an Rscript path setting from [#70](https://github.com/felixleopold/obsidian-code-suite/issues/70) shipped in 1.21.0. C# execution from [#77](https://github.com/felixleopold/obsidian-code-suite/issues/77) and Tab handling in code blocks from [#71](https://github.com/felixleopold/obsidian-code-suite/issues/71) shipped in 1.22.0.
 
 **Recent releases**
 
+- **1.22.0**: run C# blocks with `dotnet run` ([#80](https://github.com/felixleopold/obsidian-code-suite/pull/80)), indent with Tab inside code blocks ([#72](https://github.com/felixleopold/obsidian-code-suite/pull/72)), and make settings searchable on Obsidian 1.13+ ([#64](https://github.com/felixleopold/obsidian-code-suite/pull/64)). Style inline code in nested list items ([#75](https://github.com/felixleopold/obsidian-code-suite/pull/75)).
 - **1.21.1**: render Mermaid diagrams in HTML and PDF exports ([#78](https://github.com/felixleopold/obsidian-code-suite/pull/78)).
 - **1.21.0**: run Quarto-style `{r}` / `{python}` cells, honor `#| eval`, capture R plots automatically, and add an Rscript path setting ([#76](https://github.com/felixleopold/obsidian-code-suite/pull/76)). Fix non-ASCII text in MATLAB sessions on Windows ([#74](https://github.com/felixleopold/obsidian-code-suite/pull/74)).
 - **1.20.3**: fix scroll jumps while editing code blocks beside Reading view, restore missing content after collapsing large blocks, and keep duplicate blocks independent across editor panes ([#69](https://github.com/felixleopold/obsidian-code-suite/pull/69)).
