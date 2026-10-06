@@ -347,11 +347,7 @@ export class CodeSettingTab extends PluginSettingTab {
           .setDesc("Custom imported theme")
           .addButton((btn) => {
             btn.setButtonText("Remove");
-            if (typeof btn.setDestructive === "function") {
-              btn.setDestructive();
-            } else {
-              btn.buttonEl.addClass("mod-warning");
-            }
+            btn.buttonEl.addClass("mod-warning");
             btn.onClick(async () => {
               this.plugin.settings.customThemes = this.plugin.settings.customThemes.filter((t) => t.name !== ct.name);
               // If this was the active theme, switch to default

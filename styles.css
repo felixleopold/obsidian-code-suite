@@ -281,9 +281,10 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
    Output serialized into the note by the opt-in "Bake outputs" feature.
    Renders as a normal output panel, distinguished by small header badges:
    "baked" marks it as saved-to-note, "stale" warns the code above changed. */
-.ocode-baked-wrapper[hidden] {
+.ocode-baked-wrapper[hidden],
+.markdown-source-view.mod-cm6 .cm-content > .ocode-baked-wrapper[hidden] {
   /* Live Preview gives direct editor children a display rule. */
-  display: none !important;
+  display: none;
 }
 
 .ocode-baked-badge,
