@@ -68,10 +68,21 @@ test("C# runs the code file even when the working directory contains a project",
       ...DEFAULT_SETTINGS,
       executionCwd: "custom",
       executionCwdCustom: dir,
+      // Cold SDK compilation on hosted Windows runners can exceed 30 seconds.
+      executionTimeout: 120_000,
     }).promise;
-    assert.equal(result.exitCode, 0, result.stderr);
-    assert.match(result.stdout, /EXPECTED_BLOCK/);
-    assert.doesNotMatch(result.stdout, /WRONG_PROJECT/);
+    const diagnostics = JSON.stringify({
+      exitCode: result.exitCode,
+      killed: result.killed,
+      cancelled: result.cancelled,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+    assert.equal(result.killed, false, diagnostics);
+    assert.equal(result.cancelled, false, diagnostics);
+    assert.equal(result.exitCode, 0, diagnostics);
+    assert.match(result.stdout, /EXPECTED_BLOCK/, diagnostics);
+    assert.doesNotMatch(result.stdout, /WRONG_PROJECT/, diagnostics);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
