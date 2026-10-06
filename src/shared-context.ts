@@ -1,6 +1,6 @@
 import { parse } from "acorn";
 import type { Pattern } from "acorn";
-import { toJs, type VarValue } from "./vars";
+import { pythonSeedLine, shellSeedLine, toJs, type VarValue } from "./vars";
 
 function addPatternNames(pattern: Pattern, names: Set<string>): void {
   switch (pattern.type) {
@@ -70,6 +70,22 @@ ${captures}
 }`;
 }
 
+/** Replay each block with the cross-language inputs its successful run consumed. */
+export function buildHistoricalReplay(
+  lang: string,
+  blocks: string[],
+  inputs: ReadonlyMap<string, Record<string, VarValue>> = new Map(),
+): string {
+  return blocks.map((source) => {
+    const seeds = inputs.get(source) ?? {};
+    if (lang === "javascript") {
+      return `Object.assign(__ocode_ctx, ${JSON.stringify(seedObject(seeds))});\n${javascriptBlock(source)}`;
+    }
+    const seedLine = lang === "python" ? pythonSeedLine : shellSeedLine;
+    return [...Object.entries(seeds).map(([name, value]) => seedLine(name, value)), source].join("\n");
+  }).join("\n\n");
+}
+
 /**
  * Build one JavaScript process from replay blocks plus the visible current run.
  * Each block gets its own lexical scope, while declared values and closures are
@@ -80,12 +96,14 @@ export function buildJavascriptContextCode(
   currentBlock: string,
   preSeeds: Record<string, VarValue> = {},
   postSeeds: Record<string, VarValue> = {},
+  replayInputs?: ReadonlyMap<string, Record<string, VarValue>>,
 ): string {
-  const replay = previousBlocks.map(javascriptBlock).join("\n");
-  // Replay may itself consume a value published by another language. Seed the
-  // latest cross-language values before replay, then apply them again below so
-  // replayed JavaScript cannot overwrite last-writer-wins state.
-  const pre = JSON.stringify(seedObject({ ...preSeeds, ...postSeeds }));
+  const replay = replayInputs
+    ? buildHistoricalReplay("javascript", previousBlocks, replayInputs)
+    : previousBlocks.map(javascriptBlock).join("\n");
+  // Recorded inputs reconstruct each historical run. Apply current incoming
+  // values after replay so earlier assignments cannot overwrite the latest state.
+  const pre = JSON.stringify(seedObject(replayInputs ? preSeeds : { ...preSeeds, ...postSeeds }));
   const post = JSON.stringify(seedObject(postSeeds));
 
   return `const __ocode_ctx = ${pre};

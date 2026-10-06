@@ -40,7 +40,7 @@ Powered by [Shiki](https://shiki.style/) — the exact same engine VS Code uses 
 - **36+ languages** with common aliases (`py`, `js`, `ts`, `rb`, …)
 - **Editor highlighting** — full token colors in Live Preview and Source mode via a CodeMirror 6 ViewPlugin, not just in Reading view
 - **Full chrome in Live Preview** — code blocks and `![[file.py]]` embeds render with the same header, Run/Copy buttons, live output, line numbers, and collapse as Reading view. The block your cursor is in reveals its raw source for editing; every other block shows the rendered chrome, with running output preserved as you move around
-- **Tab in code blocks** — Tab and Shift+Tab indent inside fenced code blocks using the block's detected style (tabs or 2/4/8 spaces) instead of moving the whole Markdown line. Press Escape, then Tab to leave the editor
+- **Tab in code blocks** — Tab and Shift+Tab indent inside fenced code blocks using the block's detected style (tabs or 2/4/8 spaces), including fences inside lists, blockquotes, and callouts. Markdown container prefixes stay in place. Press Escape, then Tab to leave the editor
 
 
 ### Per-block formatting
@@ -68,7 +68,7 @@ Quarto-style cells work too: `{r}`, `{python}`, and `{r, echo=FALSE}` fences hig
 
 Titles and initial collapse apply in Reading View and Live Preview. Line backgrounds and numbering also appear while editing source. A `diff` block automatically colors `+` and `-` lines, excluding `+++` / `---` file headers. Explicit line ranges take precedence, with deletion over insertion over ordinary highlighting. Invalid range entries are ignored.
 
-Ordinary inline code receives stronger styling, configurable with **Enhanced inline code styling**. Add a language prefix for syntax colors, for example `` `{python} result = df.groupby("region").sum()` ``. Reading View hides a recognized prefix; the editor retains it for editing and highlights single-line spans. Unknown prefixes and existing `` `$variable` `` references retain their meaning. **Inline syntax highlighting** controls language-aware coloring separately.
+Ordinary inline code receives stronger styling, configurable with **Enhanced inline code styling**. Add a language prefix for syntax colors, for example `` `{python} result = df.groupby("region").sum()` ``. Reading View hides a recognized prefix; the editor retains it for editing and highlights single-line spans. Unknown prefixes and existing `` `$variable` `` references retain their meaning. **Inline syntax highlighting** controls language-aware coloring separately. Inline code in nested list paragraphs is supported; backticks inside fenced or indented Markdown code blocks remain literal code.
 
 Inspired by [mProjectsCode’s Shiki Highlighter](https://github.com/mProjectsCode/obsidian-shiki-plugin), [Expressive Code](https://expressive-code.com/) by Hippo, and [Codeblock Customizer](https://github.com/mugiwara85/CodeblockCustomizer).
 
@@ -97,11 +97,12 @@ Run code directly from a code block — no terminal, no switching apps.
 | R | `Rscript` | Automatic plot capture (base graphics, grid, ggplot2) |
 | PHP | `php` | Automatically prepends `<?php` for snippets that omit the opening tag |
 | Swift | `swift` | |
-| C# | `dotnet run` | Requires .NET 10+; `csharp`, `cs`, and `c#` fences |
+| C# | `dotnet run --file` | Requires .NET 10+; `csharp`, `cs`, and `c#` fences; runs the snippet even when the working directory contains a project |
 
 `matlab` fences share a base workspace within one note and stay isolated from every other note. Configure a Python interpreter whose `matlabengine` package matches your installed MATLAB release; see the [configuration reference](docs/configuration.md#matlab-engine).
 
 - **Live streaming** — stdout and stderr appear as the process runs, not after it finishes
+- **Stop and timeout**: terminate the execution process and its child processes, including the application launched by .NET
 - **Interactive stdin** — an input bar appears automatically when your code calls `input()` or reads from stdin
 - **Password masking** — `sudo` is detected automatically; the input bar masks characters for sensitive prompts
 - **Inline graphs** — `plt.show()` and `fig.show()` are intercepted without a display server. Matplotlib figures render as static images; Plotly figures render as interactive HTML widgets (zoom, pan, hover, legend toggles). Click a plot for full-screen view; hover an image for copy/download buttons. Toggle interactivity and offline Plotly.js embedding in settings. By default plots use Matplotlib's own look — to theme every plot (e.g. to match a dark vault), set **Settings → Python → Matplotlib style** to a built-in style name such as `dark_background` or `seaborn-v0_8-darkgrid`, or an absolute path to a `.mplstyle` file. R plots need no `plt.show()` equivalent: R's default graphics device writes PNGs that appear after the block's text output. Any other runtime can write `fig_N.png` into the directory named by the `CODESUITE_OUTPUT_DIR` environment variable to show a figure
@@ -292,7 +293,7 @@ Enable it under **Settings → CodeSuite → Sharing (baked outputs)**. Most use
 - **Bake code outputs into note (for sharing)** — for every code block you've run, serializes its current output into a hidden ` ```codesuite-output ` block placed right after it. Run your blocks first, then bake.
 - **Clear baked outputs from note** — removes every baked block and its figure files. Fully reversible.
 
-CodeSuite renders baked blocks as normal output panels (reading view **and** live preview); other markdown renderers fall back to a labelled code block. Two things are handled deliberately:
+CodeSuite renders baked blocks as normal output panels (reading view **and** live preview); other markdown renderers fall back to a labelled code block. Rerunning a block temporarily hides its baked output while live output is displayed, so you see one result. Clearing live output reveals the saved baked output again. Two things are handled deliberately:
 
 - **No note bloat** — figures (e.g. matplotlib plots) are written as image **files** in a configurable folder (default `CodeSuite/baked-outputs`) and referenced by name, not inlined as base64. A *Inline images instead of files* toggle is available if you'd rather keep the note self-contained at the cost of size. (Interactive Plotly widgets have no static image form, so they're always inlined.)
 - **No stale media** — figure filenames embed a hash of their source code, so re-baking after an edit writes fresh files and the old ones are swept automatically. The baked panel also shows a **`stale`** badge when the code above it has changed since the output was baked — re-run and re-bake to refresh.
@@ -315,7 +316,7 @@ CodeSuite renders baked blocks as normal output panels (reading view **and** liv
 
 ## Configuration
 
-Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**, **Languages**, **Files**, and **Advanced** tabs — to configure themes, code execution, environment variables, and embedded file behaviour.
+Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**, **Languages**, **Files**, and **Advanced** tabs — to configure themes, code execution, environment variables, and embedded file behaviour. On Obsidian 1.13 and later, use settings search to find CodeSuite controls, including **Tab key in code blocks** and **Code block indentation**.
 
 | | |
 |---|---|
@@ -339,11 +340,11 @@ Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**
 
 Track progress or vote on the linked GitHub issues.
 
-Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0. Quarto-style `{r}` / `{python}` cells, `#| eval`, R plot capture, and an Rscript path setting from [#70](https://github.com/felixleopold/obsidian-code-suite/issues/70) shipped in 1.21.0. C# execution from [#77](https://github.com/felixleopold/obsidian-code-suite/issues/77) and Tab handling in code blocks from [#71](https://github.com/felixleopold/obsidian-code-suite/issues/71) shipped in 1.22.0.
+Per-block formatting and inline highlighting from [#13](https://github.com/felixleopold/obsidian-code-suite/issues/13) shipped in 1.20.0. Quarto-style `{r}` / `{python}` cells, `#| eval`, R plot capture, and an Rscript path setting from [#70](https://github.com/felixleopold/obsidian-code-suite/issues/70) shipped in 1.21.0. C# execution from [#77](https://github.com/felixleopold/obsidian-code-suite/issues/77) and Tab handling in code blocks from [#71](https://github.com/felixleopold/obsidian-code-suite/issues/71) shipped in 1.22.1.
 
 **Recent releases**
 
-- **1.22.0**: run C# blocks with `dotnet run` ([#80](https://github.com/felixleopold/obsidian-code-suite/pull/80)), indent with Tab inside code blocks ([#72](https://github.com/felixleopold/obsidian-code-suite/pull/72)), and make settings searchable on Obsidian 1.13+ ([#64](https://github.com/felixleopold/obsidian-code-suite/pull/64)). Style inline code in nested list items ([#75](https://github.com/felixleopold/obsidian-code-suite/pull/75)).
+- **1.22.1**: run C# blocks with `dotnet run --file` ([#80](https://github.com/felixleopold/obsidian-code-suite/pull/80)), indent with Tab inside code blocks ([#72](https://github.com/felixleopold/obsidian-code-suite/pull/72)), and make settings searchable on Obsidian 1.13+ ([#64](https://github.com/felixleopold/obsidian-code-suite/pull/64)). Style inline code in nested list items ([#75](https://github.com/felixleopold/obsidian-code-suite/pull/75)). Fix child-process cancellation, indented-code recognition, Markdown container indentation, Escape followed by Tab, cross-language replay, and duplicate live/baked outputs.
 - **1.21.1**: render Mermaid diagrams in HTML and PDF exports ([#78](https://github.com/felixleopold/obsidian-code-suite/pull/78)).
 - **1.21.0**: run Quarto-style `{r}` / `{python}` cells, honor `#| eval`, capture R plots automatically, and add an Rscript path setting ([#76](https://github.com/felixleopold/obsidian-code-suite/pull/76)). Fix non-ASCII text in MATLAB sessions on Windows ([#74](https://github.com/felixleopold/obsidian-code-suite/pull/74)).
 - **1.20.3**: fix scroll jumps while editing code blocks beside Reading view, restore missing content after collapsing large blocks, and keep duplicate blocks independent across editor panes ([#69](https://github.com/felixleopold/obsidian-code-suite/pull/69)).

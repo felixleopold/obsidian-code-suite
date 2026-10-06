@@ -85,3 +85,41 @@ test("preserves structural indentation in nested fences", () => {
   const cursor = doc.indexOf("value");
   assert.equal(applyTab(doc, cursor, "2-spaces"), "  ```c\n    value\n  ```");
 });
+
+test("recognizes quote, callout and list fences while preserving container prefixes", () => {
+  const quote = "> [!note]\n> ```js\n> value\n> ```\nordinary";
+  const list = "- ```js\n  value\n  ```\nordinary";
+  for (const doc of [quote, list]) {
+    const from = doc.indexOf("value");
+    const indented = applyTab(doc, from, "2-spaces", from + 5)!;
+    assert.equal(indented, doc.replace("value", "  value"));
+    assert.equal(applyTab(indented, indented.indexOf("value"), "2-spaces", indented.indexOf("value") + 5, true), doc);
+    assert.equal(applyTab(doc, doc.indexOf("ordinary"), "2-spaces"), null);
+    assert.equal(applyTab(doc, from - 1, "2-spaces"), null);
+  }
+});
+
+test("ignores indented pseudo-fences and ends fences at their container boundary", () => {
+  for (const doc of [
+    "    ```js\n    body\n\nordinary prose",
+    "> ```js\n> body\nordinary prose",
+    "- ```js\n  body\nordinary prose",
+  ]) {
+    assert.equal(applyTab(doc, doc.indexOf("ordinary"), "2-spaces"), null);
+  }
+});
+
+test("preserves repeated and mixed Markdown container prefixes", () => {
+  for (const doc of [
+    "- - ```js\n    value\n    ```\nordinary",
+    "  -\t```js\n    value\n    ```\nordinary",
+    "- > ```js\n  > value\n  > ```\nordinary",
+    "> - > ```js\n>   > value\n>   > ```\nordinary",
+  ]) {
+    const from = doc.indexOf("value");
+    const indented = applyTab(doc, from, "2-spaces", from + 5)!;
+    assert.equal(indented, doc.replace("value", "  value"));
+    assert.equal(applyTab(indented, indented.indexOf("value"), "2-spaces", indented.indexOf("value") + 5, true), doc);
+    assert.equal(applyTab(doc, doc.indexOf("ordinary"), "2-spaces"), null);
+  }
+});
