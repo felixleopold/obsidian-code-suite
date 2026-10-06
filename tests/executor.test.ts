@@ -10,7 +10,9 @@ import { DEFAULT_SETTINGS } from "../src/settings";
 // Exclude the host's Homebrew paths to model a GUI session with no system Node.
 Object.assign(globalThis, {
   window: {
-    require: (id: string): unknown => id === "os" ? { ...os, platform: () => "linux" } : require(id),
+    require: (id: string): unknown => id === "os"
+      ? { ...os, platform: () => process.platform === "darwin" ? "linux" : process.platform }
+      : require(id),
     setTimeout,
     clearTimeout,
   },
@@ -54,6 +56,68 @@ test("process launch failures reach the output callback", async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("C# runs the code file even when the working directory contains a project", {
+  skip: !/^10\.|^[1-9]\d+\./.test(spawnSync("dotnet", ["--version"], { encoding: "utf8" }).stdout ?? ""),
+}, async () => {
+  const dir = mkdtempSync(join(os.tmpdir(), "code-suite-dotnet-"));
+  try {
+    writeFileSync(join(dir, "WrongProject.csproj"), '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>');
+    writeFileSync(join(dir, "Program.cs"), 'System.Console.WriteLine("WRONG_PROJECT");');
+    const result = await startExecution('System.Console.WriteLine("EXPECTED_BLOCK");', "csharp", {
+      ...DEFAULT_SETTINGS,
+      executionCwd: "custom",
+      executionCwdCustom: dir,
+      // Cold SDK compilation on hosted Windows runners can exceed 30 seconds.
+      executionTimeout: 120_000,
+    }).promise;
+    const diagnostics = JSON.stringify({
+      exitCode: result.exitCode,
+      killed: result.killed,
+      cancelled: result.cancelled,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    });
+    assert.equal(result.killed, false, diagnostics);
+    assert.equal(result.cancelled, false, diagnostics);
+    assert.equal(result.exitCode, 0, diagnostics);
+    assert.match(result.stdout, /EXPECTED_BLOCK/, diagnostics);
+    assert.doesNotMatch(result.stdout, /WRONG_PROJECT/, diagnostics);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+for (const reason of ["cancel", "timeout"] as const) {
+  test(`${reason} terminates a launcher's child before it can produce later output`, async () => {
+    const childCode = 'console.log("CHILD_READY"); setTimeout(() => { console.log("CHILD_SURVIVED"); }, 4000);';
+    const code = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(childCode)}], { stdio: ["ignore", "inherit", "inherit"] }); setInterval(() => {}, 1000);`;
+    let childReady = false;
+    const started = Date.now();
+    const running = startExecution(code, "javascript", {
+      ...DEFAULT_SETTINGS,
+      nodePath: process.execPath,
+      executionTimeout: reason === "timeout" ? 1500 : 10_000,
+    }, {
+      onStdout: (data) => {
+        if (data.includes("CHILD_READY")) {
+          childReady = true;
+          if (reason === "cancel") running.cancel();
+        }
+      },
+    });
+    try {
+      const result = await running.promise;
+      assert.equal(childReady, true, result.stderr);
+      assert.equal(result.cancelled, reason === "cancel");
+      assert.equal(result.killed, reason === "timeout");
+      assert.doesNotMatch(result.stdout, /CHILD_SURVIVED/);
+      assert.ok(Date.now() - started < 3000, "execution must settle before the child finishes naturally");
+    } finally {
+      running.cancel();
+    }
+  });
+}
 
 test("R plots are captured from the default graphics device", {
   skip: spawnSync("Rscript", ["--version"]).status !== 0,

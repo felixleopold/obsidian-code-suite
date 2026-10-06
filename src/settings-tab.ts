@@ -25,7 +25,7 @@ const TABS: TabDef[] = [
       "Import VS Code theme", "Follow Obsidian code size", "Custom code size", "Line numbers",
       "Language label", "Wide code blocks", "Soft-wrap long lines", "Collapse code blocks by default",
       "Enhanced inline code styling", "Inline syntax highlighting", "CodeSuite variables panel",
-      "Render HTML blocks", "PDF export for HTML blocks", "HTML block templating",
+      "Render HTML blocks", "PDF export for HTML blocks", "HTML block templating", "Tab key in code blocks", "Code block indentation",
     ],
   },
   {

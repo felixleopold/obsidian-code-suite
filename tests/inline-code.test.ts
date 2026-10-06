@@ -41,6 +41,7 @@ test("ignores top-level and nested fenced blocks", () => {
     "`before`",
     "```js",
     "`inside`",
+    "> `still literal`",
     "```",
     "> - ```python",
     ">   `nested`",
@@ -92,4 +93,35 @@ test("still ignores indented code blocks outside lists", () => {
     "    code after heading `g`",
   ].join("\n");
   assert.deepEqual(scanInlineCodeSpans(source).map(({ text }) => text), ["a", "b", "e", "f"]);
+});
+
+test("excludes indented code inside lists and after Markdown block boundaries", () => {
+  const source = [
+    "- item", "", "        `{python} list_code`", "",
+    "-     `{python} item_code`", "",
+    "Title", "=====", "    `{python} heading_code`", "",
+    "***", "    `{python} break_code`", "",
+    "> quoted paragraph `inline`", ">", ">     `quoted_code`",
+  ].join("\n");
+  assert.deepEqual(scanInlineCodeSpans(source).map(({ text }) => text), ["inline"]);
+});
+
+test("an indented pseudo-fence does not swallow later inline prose", () => {
+  const source = "    ```js\n    body\n\nordinary `inline` prose";
+  assert.deepEqual(scanInlineCodeSpans(source).map(({ text }) => text), ["inline"]);
+});
+
+test("ignores fences behind repeated and mixed Markdown containers", () => {
+  for (const source of [
+    "- - ```js\n    `literal`\n    ```\nordinary `inline`",
+    "  -\t```js\n    `literal`\n    ```\nordinary `inline`",
+    "- > ```js\n  > `literal`\n  > ```\nordinary `inline`",
+    "> - > ```js\n>   > `literal`\n>   > ```\nordinary `inline`",
+  ]) {
+    assert.deepEqual(scanInlineCodeSpans(source).map(({ text }) => text), ["inline"]);
+  }
+});
+
+test("keeps lazy quote paragraph continuation inline", () => {
+  assert.deepEqual(scanInlineCodeSpans("> paragraph\n    `{python} inline`").map(({ text }) => text), ["{python} inline"]);
 });

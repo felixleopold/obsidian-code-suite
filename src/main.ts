@@ -95,6 +95,7 @@ import {
 import {
   JAVASCRIPT_VAR_POSTAMBLE,
   buildJavascriptContextCode,
+  buildHistoricalReplay,
 } from "./shared-context";
 import {
   type TemplateContext,
@@ -401,6 +402,8 @@ export default class CodePlugin extends Plugin {
    * previously-executed code blocks. In-memory only; cleared on unload.
    */
   private noteContexts: Map<string, Map<string, string[]>> = new Map();
+  /** Cross-language inputs consumed by each successful block, for historical replay. */
+  private noteReplayInputs: Map<string, Map<string, Map<string, Record<string, VarValue>>>> = new Map();
   /**
    * Stdin entered during each block's run, so a suppressed replay can feed the
    * same input back to an `input()` / `read` instead of hitting EOF (which would
@@ -1231,13 +1234,14 @@ export default class CodePlugin extends Plugin {
         if (this.settings.bakedOutputs && rawLang === BAKED_OUTPUT_LANG) {
           const output = parseBakedOutput(block.code);
           if (output) {
-            const stale = prevCodeHash !== null && prevCodeHash !== output.hash;
-            const key = uniqueKey(block.openFrom, `baked\0${output.hash}\0${stale}\0${block.code}\0${sig}`);
+            const currentHash = prevCodeHash;
+            const stale = currentHash !== null && currentHash !== output.hash;
+            const key = uniqueKey(block.openFrom, `baked\0${output.hash}\0${currentHash}\0${stale}\0${block.code}\0${sig}`);
             liveKeys.add(key);
             if (!overlapsSelection(block.openFrom, block.closeTo)) {
               const resolve = (): HTMLElement | null =>
                 this.getCachedLpWrapper(cache, key, () =>
-                  this.buildBakedOutputWrapper(output, notePath, stale));
+                  this.buildBakedOutputWrapper(output, notePath, stale, currentHash));
               items.push({
                 from: block.openFrom,
                 to: block.closeTo,
@@ -1448,6 +1452,7 @@ export default class CodePlugin extends Plugin {
     void this.matlabSessions.clear(notePath);
     this.noteContexts.delete(notePath);
     this.noteStdin.delete(notePath);
+    this.noteReplayInputs.delete(notePath);
     this.noteVarStore.delete(notePath);
     // Drop runtime mutations so shared vars fall back to their declared seeds.
     this.noteLiveVars.delete(notePath);
@@ -1465,13 +1470,14 @@ export default class CodePlugin extends Plugin {
         !(view instanceof MarkdownView) ||
         view.file?.path !== notePath
       ) continue;
-      view.contentEl.querySelectorAll(".ocode-output").forEach((p) => p.remove());
+      view.contentEl.querySelectorAll(".ocode-output:not(.ocode-output-baked)").forEach((p) => p.remove());
       view.contentEl.querySelectorAll<HTMLButtonElement>(".ocode-run-pill.ocode-cancel-pill").forEach((btn) => {
         setSvgContent(btn.querySelector(".ocode-pill-icon")!, ICON.play);
         btn.querySelector(".ocode-pill-text")!.textContent = "Run";
         btn.classList.remove("ocode-cancel-pill");
       });
     }
+    this.refreshBakedOutputVisibility(notePath);
     // Reset only refs rendered from this note (including embeds in other views).
     const els = activeDocument.querySelectorAll<HTMLElement>("code.ocode-var-ref");
     for (const el of Array.from(els)) {
@@ -1911,6 +1917,8 @@ export default class CodePlugin extends Plugin {
    *                    (including this block's own earlier run, so later blocks
    *                    that depend on it still resolve), run with output
    *                    suppressed so they re-establish functions/imports/vars.
+   *                    Each block first receives the cross-language inputs it
+   *                    consumed on its successful run.
    *   3. `postSeeds` — values *changed by other languages*, injected after
    *                    replay so they win over this language's own earlier
    *                    assignments (last-writer-wins across languages).
@@ -1922,9 +1930,10 @@ export default class CodePlugin extends Plugin {
     currentBlock: string,
     preSeeds?: Record<string, VarValue>,
     postSeeds?: Record<string, VarValue>,
-    replayStdin = ""
+    replayStdin = "",
+    replayInputs?: ReadonlyMap<string, Record<string, VarValue>>,
   ): string {
-    const accum = prevBlocks.join("\n\n");
+    const accum = buildHistoricalReplay(lang, prevBlocks, replayInputs);
 
     // Build language-specific seed-var assignment lines. Each value is rendered
     // as a native literal for the target language (typed for Python; scalar/
@@ -1939,7 +1948,7 @@ export default class CodePlugin extends Plugin {
     const bashPost   = renderSh(postSeeds);
 
     if (lang === "javascript") {
-      return buildJavascriptContextCode(prevBlocks, currentBlock, preSeeds, postSeeds);
+      return buildJavascriptContextCode(prevBlocks, currentBlock, preSeeds, postSeeds, replayInputs);
     }
 
     if (lang === "python") {
@@ -3210,21 +3219,79 @@ __ocode_emit_vars
     const output = parseBakedOutput(body);
     if (!output) return; // malformed — leave the raw code block visible
     let stale = false;
+    let prevHash: string | null = null;
     try {
       const info = ctx.getSectionInfo(el);
       if (info) {
-        const prevHash = precedingCodeHash(info.text, info.lineStart);
+        prevHash = precedingCodeHash(info.text, info.lineStart);
         stale = prevHash !== null && prevHash !== output.hash;
       }
     } catch { /* staleness is best-effort */ }
-    originalPre.replaceWith(this.buildBakedOutputWrapper(output, ctx.sourcePath, stale));
+    originalPre.replaceWith(this.buildBakedOutputWrapper(output, ctx.sourcePath, stale, prevHash));
   }
 
   /** Build the `ocode-wrapper` holding a baked output panel (shared by reading view + LP). */
-  private buildBakedOutputWrapper(output: BakedOutput, notePath: string, stale: boolean): HTMLElement {
+  private buildBakedOutputWrapper(output: BakedOutput, notePath: string, stale: boolean, currentHash: string | null = null): HTMLElement {
     const wrapper = createDiv({ cls: "ocode-wrapper ocode-baked-wrapper" });
+    wrapper.dataset.ocodeBakedNote = notePath;
+    wrapper.dataset.ocodeBakedCodeHash = currentHash ?? output.hash;
+    wrapper.hidden = this.hasLiveOutput(notePath, currentHash ?? output.hash);
     wrapper.appendChild(this.buildBakedOutputPanel(output, notePath, stale));
     return wrapper;
+  }
+
+  private hasLiveOutput(notePath: string, hash: string): boolean {
+    for (const code of this.noteOutputs.get(notePath)?.keys() ?? []) {
+      if (codeHash(code.trim()) === hash) return true;
+    }
+    for (const wrapper of this.runningProcs.keys()) {
+      if (this.runNotePaths.get(wrapper) === notePath && wrapper.dataset.ocodeHash === hash
+          && wrapper.querySelector(".ocode-output:not(.ocode-output-baked)")) return true;
+    }
+    for (const wrapper of Array.from(activeDocument.querySelectorAll<HTMLElement>(".ocode-wrapper[data-ocode-source-path]"))) {
+      if (wrapper.dataset.ocodeSourcePath === notePath && wrapper.dataset.ocodeHash === hash
+          && wrapper.querySelector(".ocode-output:not(.ocode-output-baked)")) return true;
+    }
+    return false;
+  }
+
+  private refreshBakedOutputVisibility(notePath: string): void {
+    const wrappers = new Set(Array.from(activeDocument.querySelectorAll<HTMLElement>(".ocode-baked-wrapper")));
+    for (const cache of this.lpWrapperCache) {
+      if (cache.notePath === notePath) {
+        for (const wrapper of cache.wrappers.values()) {
+          if (wrapper.classList.contains("ocode-baked-wrapper")) wrappers.add(wrapper);
+        }
+      }
+    }
+    for (const wrapper of wrappers) {
+      if (wrapper.dataset.ocodeBakedNote === notePath) {
+        wrapper.hidden = this.hasLiveOutput(notePath, wrapper.dataset.ocodeBakedCodeHash!);
+      }
+    }
+  }
+
+  private clearBlockOutput(notePath: string | undefined, code: string, panel?: HTMLElement): void {
+    panel?.remove();
+    if (!notePath) return;
+    const hash = codeHash(code.trim());
+    for (const outputs of [this.noteOutputs.get(notePath), this.noteOutputData.get(notePath)]) {
+      for (const source of outputs?.keys() ?? []) {
+        if (codeHash(source.trim()) === hash) outputs?.delete(source);
+      }
+    }
+    const wrappers = new Set(Array.from(activeDocument.querySelectorAll<HTMLElement>(".ocode-wrapper[data-ocode-source-path]")));
+    for (const cache of this.lpWrapperCache) {
+      if (cache.notePath === notePath) {
+        for (const wrapper of cache.wrappers.values()) wrappers.add(wrapper);
+      }
+    }
+    for (const wrapper of wrappers) {
+      if (wrapper.dataset.ocodeSourcePath === notePath && wrapper.dataset.ocodeHash === hash) {
+        wrapper.querySelector(".ocode-output:not(.ocode-output-baked)")?.remove();
+      }
+    }
+    this.refreshBakedOutputVisibility(notePath);
   }
 
   /** Render a baked output as an `.ocode-output` panel (mirrors a live run's panel). */
@@ -4001,6 +4068,7 @@ __ocode_emit_vars
     if (!fileName && !staticBlock && isExecutable(lang)) {
       wrapper.setAttribute("data-ocode-fenced", "1");
       wrapper.setAttribute("data-ocode-hash", codeHash(code.trim()));
+      if (sourcePath) wrapper.dataset.ocodeSourcePath = sourcePath;
     }
 
     // Re-attach a previously-run output (this session) so it survives reading-
@@ -4434,6 +4502,7 @@ __ocode_emit_vars
     let byCode = this.noteOutputs.get(notePath);
     if (!byCode) { byCode = new Map(); this.noteOutputs.set(notePath, byCode); }
     byCode.set(code, panel.outerHTML);
+    this.refreshBakedOutputVisibility(notePath);
   }
 
   /** Store a finished output's structured data, keyed by note path + block source. */
@@ -4454,7 +4523,7 @@ __ocode_emit_vars
     const adopted = activeDocument.adoptNode(panel);
     // The outerHTML round-trip drops all event listeners — rewire the header
     // buttons so the restored panel behaves like a live one.
-    adopted.querySelector(".ocode-clear-pill")?.addEventListener("click", () => adopted.remove());
+    adopted.querySelector(".ocode-clear-pill")?.addEventListener("click", () => this.clearBlockOutput(notePath, code, adopted));
     const content = adopted.querySelector<HTMLElement>(".ocode-output-content");
     adopted.querySelector(".ocode-copy-out-pill")?.addEventListener("click", () => {
       void navigator.clipboard.writeText(content?.textContent ?? "");
@@ -4649,7 +4718,7 @@ __ocode_emit_vars
         const replayStdin = stdinMap
           ? prevBlocks.map((b) => stdinMap.get(b) ?? "").join("")
           : "";
-        execCode = this.buildSharedContextCode(lang, prevBlocks, code, preSeeds, postSeeds, replayStdin);
+        execCode = this.buildSharedContextCode(lang, prevBlocks, code, preSeeds, postSeeds, replayStdin, this.noteReplayInputs.get(sourcePath)?.get(lang) ?? new Map());
       }
       // Append the var-extraction postamble where we have a language-specific
       // snapshotter. Plain sh still gets shared replay, but reliable variable
@@ -4670,8 +4739,8 @@ __ocode_emit_vars
     runBtn.querySelector(".ocode-pill-text")!.textContent = "Stop";
     runBtn.classList.add("ocode-cancel-pill");
 
-    // Remove previous output
-    wrapper.querySelector(".ocode-output")?.remove();
+    // Clear the previous run before streaming, including snapshots from other views.
+    this.clearBlockOutput(sourcePath, code, wrapper.querySelector<HTMLElement>(".ocode-output") ?? undefined);
 
     // ─── Build live output panel immediately ───
     const outputPanel = createDiv();
@@ -4693,7 +4762,11 @@ __ocode_emit_vars
     clearBtnIcon.appendChild(parseSvg(ICON.close));
     clearBtn.appendChild(clearBtnIcon);
     clearBtn.setAttribute("aria-label", "Clear output");
-    clearBtn.addEventListener("click", () => outputPanel.remove());
+    let outputCleared = false;
+    clearBtn.addEventListener("click", () => {
+      outputCleared = true;
+      this.clearBlockOutput(sourcePath, code, outputPanel);
+    });
     outHeader.appendChild(clearBtn);
     outputPanel.appendChild(outHeader);
 
@@ -4725,6 +4798,7 @@ __ocode_emit_vars
     outputPanel.appendChild(inputBar);
 
     wrapper.appendChild(outputPanel);
+    if (sourcePath) this.refreshBakedOutputVisibility(sourcePath);
 
     // Auto-focus the input field if the stdin bar is visible from the start
     if (needsStdin) {
@@ -4984,7 +5058,7 @@ __ocode_emit_vars
 
       // Persist a static snapshot of the finished output so it survives reading-
       // view section eviction and is picked up by HTML/PDF export.
-      if (sourcePath) {
+      if (sourcePath && !outputCleared) {
         this.saveBlockOutput(sourcePath, code, outputPanel);
         this.saveBlockOutputData(sourcePath, code, {
           hash: codeHash(code.trim()),
@@ -5008,6 +5082,10 @@ __ocode_emit_vars
         // Store the original block (not the wrapped version). Dedupe identical
         // sources so re-running a block doesn't stack duplicate replays.
         if (!blocks.includes(code)) blocks.push(code);
+        if (!this.noteReplayInputs.has(notePath)) this.noteReplayInputs.set(notePath, new Map());
+        const replayByLanguage = this.noteReplayInputs.get(notePath)!;
+        if (!replayByLanguage.has(lang)) replayByLanguage.set(lang, new Map());
+        replayByLanguage.get(lang)!.set(code, { ...postSeeds });
         // Record this run's stdin against the block source so a later replay can
         // reproduce its input. Always overwrite — the most recent run's input is
         // what a replay should reproduce. Drop the entry when nothing was typed
@@ -5040,6 +5118,7 @@ __ocode_emit_vars
         runBtn.querySelector(".ocode-pill-text")!.textContent = "Run";
         runBtn.classList.remove("ocode-cancel-pill");
         this.queueReadingBlockSync();
+        if (sourcePath) this.refreshBakedOutputVisibility(sourcePath);
       }
     }
   }

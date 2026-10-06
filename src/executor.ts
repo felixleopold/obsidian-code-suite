@@ -24,7 +24,7 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
   go:         { cmd: "go",       args: ["run"],      ext: ".go" },
   php:        { cmd: "php",      args: [],           ext: ".php" },
   swift:      { cmd: "swift",    args: [],           ext: ".swift" },
-  csharp:     { cmd: "dotnet",   args: ["run"],      ext: ".cs" },
+  csharp:     { cmd: "dotnet",   args: ["run", "--file"], ext: ".cs" },
 };
 
 /** Languages handled directly by this subprocess executor. */
@@ -307,6 +307,7 @@ export function startExecution(
   let proc: NodeChildProcessHandle;
   let killed = false;
   let cancelled = false;
+  let finished = false;
   let stdout = "";
   let stderr = "";
 
@@ -315,12 +316,30 @@ export function startExecution(
     cwd,
     env,
     shell: false,
+    // A separate process group lets Stop terminate launcher descendants too.
+    detached: os.platform() !== "win32",
     stdio: ["pipe", "pipe", "pipe"],
   });
 
+  const killProcessTree = () => {
+    if (finished || !proc.pid) return;
+    if (os.platform() === "win32") {
+      const result = getChildProcess().spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], {
+        stdio: ["ignore", "ignore", "ignore"],
+      });
+      if (result.status === 0) return;
+    } else {
+      try {
+        getProcess().kill(-proc.pid, "SIGKILL");
+        return;
+      } catch { /* the process group may already have exited */ }
+    }
+    proc.kill("SIGKILL");
+  };
+
   const timer = window.setTimeout(() => {
     killed = true;
-    proc.kill("SIGKILL");
+    killProcessTree();
   }, settings.executionTimeout);
 
   proc.stdout?.on("data", (data: NodeBuffer) => {
@@ -330,7 +349,7 @@ export function startExecution(
     if (stdout.length > 200_000) {
       stdout = stdout.slice(0, 200_000) + "\n... (output truncated)";
       killed = true;
-      proc.kill("SIGKILL");
+      killProcessTree();
     }
   });
 
@@ -345,6 +364,7 @@ export function startExecution(
 
   const promise = new Promise<ExecutionResult>((resolve) => {
     proc.on("close", (exitCode: number | null) => {
+      finished = true;
       window.clearTimeout(timer);
 
       // Collect figures keyed by counter index so sentinels in stdout can be
@@ -377,6 +397,7 @@ export function startExecution(
     });
 
     proc.on("error", (err: Error) => {
+      finished = true;
       window.clearTimeout(timer);
       try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
       const message = `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`;
@@ -392,8 +413,9 @@ export function startExecution(
   return {
     promise,
     cancel: () => {
+      if (finished) return;
       cancelled = true;
-      proc.kill("SIGKILL");
+      killProcessTree();
     },
     writeStdin: (text: string) => {
       try { proc.stdin?.write(text); } catch { /* stdin may already be closed */ }
