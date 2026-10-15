@@ -1,4 +1,4 @@
-import { App, PluginSettingTab, Setting, Notice, setIcon, Platform, requireApiVersion } from "obsidian";
+import { App, PluginSettingTab, addIcon, Setting, Notice, setIcon, Platform, requireApiVersion } from "obsidian";
 import type CodePlugin from "./main";
 import {
   BUNDLED_THEMES,
@@ -47,6 +47,13 @@ export class CodeSettingTab extends PluginSettingTab {
   constructor(app: App, plugin: CodePlugin) {
     super(app, plugin);
     this.plugin = plugin;
+    // Line version of the logo for the settings sidebar (Obsidian 1.11+).
+    addIcon(
+      "code-suite",
+      '<g fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M50 8 92 50 50 92 8 50z"/><path d="M40 37 27 50l13 13M60 37l13 13-13 13"/></g>',
+    );
+    this.icon = "code-suite";
   }
 
   // Every tab's groups are always defined so Obsidian's settings search
