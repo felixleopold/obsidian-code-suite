@@ -218,3 +218,118 @@ test("an entry larger than the cap is still kept as the newest entry", async () 
   await store.put(record(KEY_A));
   assert.deepEqual(await store.get(KEY_A), record(KEY_A));
 });
+
+test("a failed replacement invalidates the old JSON and cleans up its images", async () => {
+  class FailingAdapter extends MemoryAdapter {
+    failJson = false;
+    override write(path: string, data: string) {
+      if (this.failJson && path === `${DIR}/${KEY_A}.json`) throw new Error("Injected JSON write failure");
+      return super.write(path, data);
+    }
+  }
+  const adapter = new FailingAdapter();
+  const { store } = await freshStore(adapter);
+  await store.put(record(KEY_A));
+  adapter.failJson = true;
+  await assert.rejects(store.put(record(KEY_A, {
+    items: [{ kind: "image", data: PNG.replace("AAAAC0", "AAAAD0") }],
+  })), /Injected JSON write failure/);
+  assert.equal(store.has(KEY_A), false);
+  assert.equal(await store.get(KEY_A), null);
+  assert.equal([...adapter.files.keys()].some((path) => path.includes(KEY_A)), false);
+
+  const { store: reopened } = await freshStore(adapter);
+  assert.equal(await reopened.get(KEY_A), null);
+  await store.put(record(KEY_B));
+  assert.deepEqual(await store.get(KEY_B), record(KEY_B));
+});
+
+test("unrelated JSON and PNG files survive load, pruning, clear and delete", async () => {
+  const adapter = new MemoryAdapter();
+  await adapter.mkdir(DIR);
+  await adapter.write(`${DIR}/README.json`, "unrelated documentation");
+  await adapter.writeBinary(`${DIR}/diagram-1.png`, new ArrayBuffer(4));
+  const assertUnrelatedFiles = async () => {
+    assert.equal(await adapter.read(`${DIR}/README.json`), "unrelated documentation");
+    assert.equal((await adapter.readBinary(`${DIR}/diagram-1.png`)).byteLength, 4);
+  };
+  const { store } = await freshStore(adapter, 10);
+  assert.equal(store.has("README"), false);
+  await assertUnrelatedFiles();
+  await store.put(record(KEY_A));
+  await store.put(record(KEY_B));
+  assert.equal(store.has(KEY_A), false);
+  await assertUnrelatedFiles();
+  await store.clear();
+  await assertUnrelatedFiles();
+  await store.delete("README");
+  await store.delete("diagram");
+  await assertUnrelatedFiles();
+});
+
+test("load removes orphan store PNGs without removing committed images", async () => {
+  const { adapter, store } = await freshStore();
+  await store.put(record(KEY_A));
+  await adapter.writeBinary(`${DIR}/${KEY_B}-1.png`, new ArrayBuffer(4));
+  const { store: reopened } = await freshStore(adapter);
+  assert.equal(await adapter.exists(`${DIR}/${KEY_B}-1.png`), false);
+  assert.equal(reopened.has(KEY_B), false);
+  assert.deepEqual(await reopened.get(KEY_A), record(KEY_A));
+});
+
+test("load stats each file once and batch removal reuses one listing", async () => {
+  class CountingAdapter extends MemoryAdapter {
+    listings = 0;
+    stats = new Map<string, number>();
+    override list(path: string) {
+      this.listings++;
+      return super.list(path);
+    }
+    override stat(path: string) {
+      this.stats.set(path, (this.stats.get(path) ?? 0) + 1);
+      return super.stat(path);
+    }
+  }
+  const adapter = new CountingAdapter();
+  const { store } = await freshStore(adapter);
+  for (const key of [KEY_A, KEY_B, KEY_C]) await store.put(record(key));
+  adapter.listings = 0;
+  adapter.stats.clear();
+  const { store: reopened } = await freshStore(adapter, 10);
+  assert.equal(adapter.listings, 1);
+  assert.equal(adapter.stats.size, adapter.files.size);
+  assert.equal([...adapter.stats.values()].every((count) => count === 1), true);
+
+  adapter.listings = 0;
+  await reopened.put(record("d".repeat(64)));
+  assert.equal(adapter.listings, 1);
+  for (const key of [KEY_A, KEY_B, KEY_C]) assert.equal(reopened.has(key), false);
+  adapter.listings = 0;
+  await reopened.clear();
+  assert.equal(adapter.listings, 1);
+  assert.equal(adapter.files.size, 0);
+});
+
+test("equal mtimes evict by write order including replacements", async () => {
+  class EqualMtimeAdapter extends MemoryAdapter {
+    override stat(path: string) {
+      const file = this.files.get(path);
+      if (file) file.mtime = 1;
+      return super.stat(path);
+    }
+  }
+  const adapter = new EqualMtimeAdapter();
+  const { store: probe } = await freshStore(adapter);
+  await probe.put(record(KEY_A));
+  let entryBytes = 0;
+  for (const path of adapter.files.keys()) entryBytes += (await adapter.stat(path))?.size ?? 0;
+  await probe.clear();
+  const { store } = await freshStore(adapter, Math.floor(entryBytes * 2.5));
+  await store.put(record(KEY_A));
+  await store.put(record(KEY_B));
+  await store.put(record(KEY_A));
+  await store.put(record(KEY_C));
+  assert.equal(store.has(KEY_B), false);
+  assert.deepEqual(await store.get(KEY_A), record(KEY_A));
+  assert.deepEqual(await store.get(KEY_C), record(KEY_C));
+});

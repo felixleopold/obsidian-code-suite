@@ -8,13 +8,20 @@
  *   <dir>/<key>-<n>.png  image n (1-based, in item order)
  *
  * The JSON file is written last and is the commit point: an entry exists iff
- * its JSON exists. Operations run one at a time in call order.
+ * its JSON exists. Replacement removes the old JSON before writing images.
+ * Only SHA-256 filenames in this layout belong to the store. Operations run
+ * one at a time in call order.
  */
 import { arrayBufferToBase64, base64ToArrayBuffer } from "obsidian";
 import type { OutputItem, OutputRecord } from "./output-record";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+interface EntryFiles {
+  json?: string;
+  images: string[];
 }
 
 /** The subset of Obsidian's `DataAdapter` the store uses. */
@@ -48,10 +55,9 @@ export class OutputStore {
     return this.enqueue(async () => {
       const files = await this.files();
       this.index.clear();
-      for (const file of files) {
-        if (file.endsWith(".json")) {
-          const key = file.slice(`${this.dir}/`.length, -5);
-          await this.indexEntry(key, files);
+      for (const [key, entry] of files) {
+        if (!await this.indexEntry(key, entry)) {
+          for (const image of entry.images) await this.remove(image);
         }
       }
     });
@@ -65,6 +71,7 @@ export class OutputStore {
   /** The stored record, or null when absent, unreadable, incomplete or of another version. */
   get(key: string): Promise<OutputRecord | null> {
     return this.enqueue(async () => {
+      if (!/^[0-9a-f]{64}$/.test(key)) return null;
       try {
         const value: unknown = JSON.parse(await this.adapter.read(`${this.dir}/${key}.json`));
         if (!isObject(value) || value.v !== 1 || value.key !== key
@@ -105,10 +112,16 @@ export class OutputStore {
    */
   put(record: OutputRecord): Promise<void> {
     return this.enqueue(async () => {
+      if (!/^[0-9a-f]{64}$/.test(record.key)) throw new Error("Invalid output cache key");
       if (!await this.adapter.exists(this.dir)) await this.adapter.mkdir(this.dir);
       const files = await this.files();
+      const json = `${this.dir}/${record.key}.json`;
+      const previous = files.get(record.key)?.images ?? [];
+      await this.remove(json);
+      this.index.delete(record.key);
       const images = new Set<string>();
       const items: (OutputItem | { kind: "image"; file: string })[] = [];
+      let committed = false;
       try {
         for (const item of record.items) {
           if (item.kind === "image") {
@@ -119,13 +132,28 @@ export class OutputStore {
             items.push({ kind: "image", file });
           } else items.push(item);
         }
-        await this.adapter.write(`${this.dir}/${record.key}.json`, JSON.stringify({ ...record, items }));
-        for (const file of files) {
-          if (this.isImage(file, record.key) && !images.has(file)) await this.remove(file);
+        await this.adapter.write(json, JSON.stringify({ ...record, items }));
+        committed = true;
+        for (const file of previous) {
+          if (!images.has(file)) await this.remove(file);
         }
+      } catch (error) {
+        if (!committed) {
+          for (const path of [json, ...new Set([...previous, ...images])]) {
+            try {
+              await this.remove(path);
+            } catch {
+              /* Best effort: load removes any remaining orphan images. */
+            }
+          }
+        }
+        throw error;
       } finally {
-        // A failed replacement may still have changed existing image sizes.
-        await this.indexEntry(record.key, await this.files());
+        if (committed) {
+          const entry = { json, images: [...new Set([...previous, ...images])] };
+          await this.indexEntry(record.key, entry);
+          files.set(record.key, entry);
+        }
       }
 
       let bytes = [...this.index.values()].reduce((total, entry) => total + entry.bytes, 0);
@@ -133,29 +161,26 @@ export class OutputStore {
       for (const [key, entry] of oldest) {
         if (bytes <= this.maxBytes) break;
         if (key === record.key) continue;
-        await this.deleteEntry(key);
+        await this.deleteEntry(key, files.get(key));
         bytes -= entry.bytes;
       }
     });
   }
 
   delete(key: string): Promise<void> {
-    return this.enqueue(() => this.deleteEntry(key));
+    return this.enqueue(async () => {
+      if (!/^[0-9a-f]{64}$/.test(key)) return;
+      const files = await this.files();
+      await this.deleteEntry(key, files.get(key));
+    });
   }
 
   /** Delete every entry. */
   clear(): Promise<void> {
     return this.enqueue(async () => {
       const files = await this.files();
-      const keys = new Set(this.index.keys());
-      for (const file of files) {
-        if (file.endsWith(".json")) keys.add(file.slice(`${this.dir}/`.length, -5));
-      }
-      for (const key of keys) await this.deleteEntry(key);
-      // Remove orphan images left by an interrupted first write as well.
-      for (const file of files) {
-        if (/-[1-9]\d*\.png$/.test(file)) await this.remove(file);
-      }
+      const keys = new Set([...this.index.keys(), ...files.keys()]);
+      for (const key of keys) await this.deleteEntry(key, files.get(key));
     });
   }
 
@@ -165,31 +190,41 @@ export class OutputStore {
     return result;
   }
 
-  private async files(): Promise<string[]> {
+  private async files(): Promise<Map<string, EntryFiles>> {
+    let paths: string[];
     try {
-      return (await this.adapter.list(this.dir)).files;
+      paths = (await this.adapter.list(this.dir)).files;
     } catch (error) {
-      if (!await this.adapter.exists(this.dir)) return [];
+      if (!await this.adapter.exists(this.dir)) return new Map();
       throw error;
     }
+    const files = new Map<string, EntryFiles>();
+    const prefix = `${this.dir}/`;
+    for (const path of paths) {
+      if (!path.startsWith(prefix)) continue;
+      const match = /^([0-9a-f]{64})(\.json|-[1-9]\d*\.png)$/.exec(path.slice(prefix.length));
+      if (!match) continue;
+      const key = match[1];
+      const entry = files.get(key) ?? { images: [] };
+      if (match[2] === ".json") entry.json = path;
+      else entry.images.push(path);
+      files.set(key, entry);
+    }
+    return files;
   }
 
-  private isImage(path: string, key: string): boolean {
-    const prefix = `${this.dir}/${key}-`;
-    return path.startsWith(prefix) && /^[1-9]\d*\.png$/.test(path.slice(prefix.length));
-  }
-
-  private async indexEntry(key: string, files: string[]): Promise<void> {
-    const json = await this.adapter.stat(`${this.dir}/${key}.json`);
+  private async indexEntry(key: string, files: EntryFiles): Promise<boolean> {
+    const json = files.json ? await this.adapter.stat(files.json) : null;
+    this.index.delete(key);
     if (!json) {
-      this.index.delete(key);
-      return;
+      return false;
     }
     let bytes = json.size;
-    for (const file of files) {
-      if (this.isImage(file, key)) bytes += (await this.adapter.stat(file))?.size ?? 0;
+    for (const file of files.images) {
+      bytes += (await this.adapter.stat(file))?.size ?? 0;
     }
     this.index.set(key, { bytes, mtime: json.mtime });
+    return true;
   }
 
   private async remove(path: string): Promise<void> {
@@ -200,11 +235,9 @@ export class OutputStore {
     }
   }
 
-  private async deleteEntry(key: string): Promise<void> {
+  private async deleteEntry(key: string, files: EntryFiles | undefined): Promise<void> {
     await this.remove(`${this.dir}/${key}.json`);
     this.index.delete(key);
-    for (const file of await this.files()) {
-      if (this.isImage(file, key)) await this.remove(file);
-    }
+    for (const file of files?.images ?? []) await this.remove(file);
   }
 }
