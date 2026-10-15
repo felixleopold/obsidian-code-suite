@@ -209,6 +209,11 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
 }
 
 /** Output panel label for a finished run. */
+/** stderr for copying and baking: the sudo password prompt isn't output. */
+function stripPasswordPrompt(stderr: string): string {
+  return stderr.replace(/^Password:\s*/m, "").trim();
+}
+
 function outputLabel(exit: number | null, killed: boolean, empty: boolean): string {
   if (killed) return "Output (timed out)";
   if (exit !== 0) return `Output (exit: ${exit})`;
@@ -459,6 +464,13 @@ export default class CodePlugin extends Plugin {
   private outputStore!: OutputStore;
   /** Settles once {@link outputStore} has indexed existing entries. */
   private outputStoreReady!: Promise<void>;
+  /**
+   * Deletion generations for saved outputs: overall, per note and per block.
+   * A restore or save that started before a deletion sees a different token
+   * when it resumes, so it can't bring a deleted output back.
+   */
+  private savedOutputEpoch = 0;
+  private savedOutputEpochs = new Map<string, number>();
   /** Tracks which MarkdownView instances have already had view-header actions added. */
   private viewActionsAdded = new WeakSet<MarkdownView>();
   /** All action buttons added to view headers — removed in onunload so plugin reloads don't duplicate them. */
@@ -519,6 +531,8 @@ export default class CodePlugin extends Plugin {
   private _exportHtmlPanes:
     | { pane: HTMLElement; wrapper: HTMLElement; code: string; htmlTemplate: boolean }[]
     | null = null;
+  /** Saved-output restores started by an export render, awaited before serializing. Null otherwise. */
+  private _exportRestores: Promise<void>[] | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -2604,8 +2618,10 @@ __ocode_emit_vars
     // Collect html-preview panes built during this render so their (otherwise
     // lazily-built, layout-gated) iframes can be materialized for the export (#33).
     this._exportHtmlPanes = [];
+    this._exportRestores = [];
     try {
       await MarkdownRenderer.render(this.app, markdown, full, file.path, comp);
+      await Promise.all(this._exportRestores);
 
       // finishRenderMath assumes MathJax has been loaded. Obsidian 1.13 loads it
       // lazily, and calling this for a note without math throws asynchronously
@@ -2649,6 +2665,7 @@ __ocode_emit_vars
       });
     } finally {
       this._exportHtmlPanes = null;
+      this._exportRestores = null;
       comp.unload();
       full.detach();
     }
@@ -3453,7 +3470,13 @@ __ocode_emit_vars
     await this.sweepOrphanBakedImages(file, collectBakedImageFiles(updated));
 
     // The output now lives in the baked block — drop the live rendered output so
-    // it isn't shown twice (live panel + baked panel).
+    // it isn't shown twice (live panel + baked panel). Its saved copy goes too,
+    // or the re-render below would restore it over the baked block.
+    for (const entry of this.parseRunAllPlan(original)) {
+      if (entry.lang && entry.code !== undefined && byHash.has(codeHash(entry.code.trim()))) {
+        await this.forgetSavedOutput(file.path, entry.lang, entry.code);
+      }
+    }
     this.clearLiveOutputs(file.path);
 
     new Notice(`Baked ${byHash.size} output${byHash.size === 1 ? "" : "s"} into the note.`);
@@ -4111,7 +4134,9 @@ __ocode_emit_vars
     if (!fileName && !staticBlock && isExecutable(lang) && sourcePath) {
       this.restoreBlockOutput(sourcePath, lang, code, wrapper);
       if (this.settings.persistOutputs && !wrapper.querySelector(".ocode-output")) {
-        void this.restoreSavedOutput(sourcePath, lang, code, wrapper);
+        const restored = this.restoreSavedOutput(sourcePath, lang, code, wrapper)
+          .catch((err) => console.error("CodeSuite: could not restore output", err));
+        this._exportRestores?.push(restored);
       }
     }
 
@@ -4578,12 +4603,15 @@ __ocode_emit_vars
 
   /** Show a block's output saved in an earlier session, if its code is unchanged. */
   private async restoreSavedOutput(notePath: string, lang: string, code: string, wrapper: HTMLElement): Promise<void> {
+    const token = this.savedOutputToken(notePath, code);
     const key = await outputKey({ lang, note: notePath, code });
     await this.outputStoreReady;
     if (!this.outputStore.has(key)) return;
     const record = await this.outputStore.get(key);
-    // The block may have run, or been restored by another view, while the record loaded.
-    if (!record || wrapper.querySelector(".ocode-output") || this.runningProcs.has(wrapper)) return;
+    // While the record loaded, the output may have been deleted, the setting
+    // turned off, or the block run or restored (in this or another view).
+    if (!record || token !== this.savedOutputToken(notePath, code) || !this.settings.persistOutputs
+        || wrapper.querySelector(".ocode-output") || this.isBlockRunning(notePath, code)) return;
     if (this.noteOutputs.get(notePath)?.has(code)) {
       this.restoreBlockOutput(notePath, lang, code, wrapper);
       return;
@@ -4601,7 +4629,7 @@ __ocode_emit_vars
       exit: record.exit,
       label: panel.querySelector(".ocode-output-label")?.textContent ?? "Output",
       stdout: text("stdout"),
-      stderr: text("stderr").trim(),
+      stderr: stripPasswordPrompt(text("stderr")),
       figures: record.items.flatMap((item, i): OutputFigure[] =>
         item.kind === "image" ? [{ kind: "image", data: item.data, figureIndex: i + 1 }]
         : item.kind === "widget" ? [{ kind: "widget", html: item.html, figureIndex: i + 1 }]
@@ -4639,7 +4667,7 @@ __ocode_emit_vars
       btn.title = title;
       header.appendChild(btn);
     };
-    const stderr = record.items.map((item) => item.kind === "stderr" ? item.text : "").join("").trim();
+    const stderr = stripPasswordPrompt(record.items.map((item) => item.kind === "stderr" ? item.text : "").join(""));
     if (record.items.some((item) => item.kind === "stdout" && item.text.trim())) {
       copyPill("ocode-copy-out-pill", "Copy output", () => content.textContent ?? "");
     }
@@ -4656,15 +4684,43 @@ __ocode_emit_vars
     return panel;
   }
 
+  /** Identifies the deletions a saved output has seen; see {@link savedOutputEpoch}. */
+  private savedOutputToken(notePath: string, code: string): string {
+    const epochs = this.savedOutputEpochs;
+    return `${this.savedOutputEpoch}:${epochs.get(notePath) ?? 0}:${epochs.get(`${notePath}\n${code.trim()}`) ?? 0}`;
+  }
+
+  /** Invalidate in-flight restores and saves: all of them, one note's, or one block's. */
+  private invalidateSavedOutputs(notePath?: string, code?: string): void {
+    if (notePath === undefined) { this.savedOutputEpoch++; return; }
+    const scope = code === undefined ? notePath : `${notePath}\n${code.trim()}`;
+    this.savedOutputEpochs.set(scope, (this.savedOutputEpochs.get(scope) ?? 0) + 1);
+  }
+
+  /** Whether a block with this source is running in the note, in any view. */
+  private isBlockRunning(notePath: string, code: string): boolean {
+    const hash = codeHash(code.trim());
+    for (const wrapper of this.runningProcs.keys()) {
+      if (this.runNotePaths.get(wrapper) === notePath && wrapper.dataset.ocodeHash === hash) return true;
+    }
+    return false;
+  }
+
   /** Delete one block's saved output, if any. */
   private async forgetSavedOutput(notePath: string, lang: string, code: string): Promise<void> {
-    const key = await outputKey({ lang, note: notePath, code });
-    await this.outputStoreReady;
-    await this.outputStore.delete(key);
+    this.invalidateSavedOutputs(notePath, code);
+    try {
+      const key = await outputKey({ lang, note: notePath, code });
+      await this.outputStoreReady;
+      await this.outputStore.delete(key);
+    } catch (err) {
+      console.error("CodeSuite: could not delete saved output", err);
+    }
   }
 
   /** Delete the saved outputs of every executable block in a note (Clear Session). */
   private async forgetSavedNoteOutputs(notePath: string): Promise<void> {
+    this.invalidateSavedOutputs(notePath);
     const file = this.app.vault.getAbstractFileByPath(notePath);
     if (!(file instanceof TFile)) return;
     for (const entry of this.parseRunAllPlan(await this.app.vault.cachedRead(file))) {
@@ -4674,9 +4730,15 @@ __ocode_emit_vars
 
   /** Delete every saved output (command and settings button). */
   async clearSavedOutputs(): Promise<void> {
-    await this.outputStoreReady;
-    await this.outputStore.clear();
-    new Notice("Saved outputs cleared.");
+    this.invalidateSavedOutputs();
+    try {
+      await this.outputStoreReady;
+      await this.outputStore.clear();
+      new Notice("Saved outputs cleared.");
+    } catch (err) {
+      console.error("CodeSuite: could not clear saved outputs", err);
+      new Notice("Could not clear all saved outputs. See the developer console for details.");
+    }
   }
 
   /**
@@ -5073,6 +5135,7 @@ __ocode_emit_vars
           const echo = createSpan();
           echo.className = "ocode-stdin-echo";
           echo.textContent = `> ${text}\n`;
+          recorder.stdout(echo.textContent);
           outContent.appendChild(echo);
           outContent.scrollTop = outContent.scrollHeight;
         }
@@ -5140,7 +5203,7 @@ __ocode_emit_vars
       // no marker between them), so we expose one button per stream and never
       // claim to separate stderr further.
       // Strip the sudo password prompt line from stderr — it's not output.
-      const errorText = stderrText.replace(/^Password:\s*/m, "").trim();
+      const errorText = stripPasswordPrompt(stderrText);
       const hasStdout = Array.from(outContent.querySelectorAll<HTMLElement>(".ocode-stdout"))
         .some((s) => (s.textContent ?? "").trim() !== "");
 
@@ -5217,12 +5280,16 @@ __ocode_emit_vars
         });
         // Save it across sessions. Cancelled runs returned above, so a stopped
         // run never replaces the last completed output.
-        if (this.settings.persistOutputs) {
+        // Embedded files aren't restored, so their output isn't saved.
+        if (this.settings.persistOutputs && wrapper.dataset.ocodeFenced) {
           const ranAt = Date.now();
+          const token = this.savedOutputToken(sourcePath, code);
           void outputKey({ lang, note: sourcePath, code }).then(async (key) => {
             const record = recorder.finish(result, { key, ranAt, durationMs: ranAt - startedAt });
             if (!record) return;
             await this.outputStoreReady;
+            // Cleared (or Clear all) since the run finished: don't save it again.
+            if (token !== this.savedOutputToken(sourcePath, code)) return;
             await this.outputStore.put(record);
           }).catch((err) => console.error("CodeSuite: could not save output", err));
         }
