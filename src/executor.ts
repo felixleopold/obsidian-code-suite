@@ -25,6 +25,8 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
   php:        { cmd: "php",      args: [],           ext: ".php" },
   swift:      { cmd: "swift",    args: [],           ext: ".swift" },
   csharp:     { cmd: "dotnet",   args: ["run", "--file"], ext: ".cs" },
+  c:          { cmd: "gcc",      args: [],           ext: ".c" },
+  cpp:        { cmd: "g++",      args: [],           ext: ".cpp" },
 };
 
 /** Languages handled directly by this subprocess executor. */
@@ -304,22 +306,22 @@ export function startExecution(
     args.unshift(lang === "zsh" ? "-l" : "--login");
   }
   args.push(scriptArg);
-  let proc: NodeChildProcessHandle;
+  // C and C++ compile first; a successful build then runs this executable.
+  const compiledProgram = lang === "c" || lang === "cpp"
+    ? path.join(tmpDir, os.platform() === "win32" ? "program.exe" : "program")
+    : null;
+  if (compiledProgram) args.push("-o", compiledProgram, ...(lang === "c" ? ["-lm"] : []));
+  let proc!: NodeChildProcessHandle;
   let killed = false;
   let cancelled = false;
   let finished = false;
   let stdout = "";
   let stderr = "";
+  // Input sent while C/C++ compiles is held for the compiled program.
+  let pendingStdin: string | null = compiledProgram ? "" : null;
+  let pendingStdinEnd = false;
 
   const cwd = resolveExecutionCwd(settings, vaultPath, os);
-  proc = spawn(cmd, args, {
-    cwd,
-    env,
-    shell: false,
-    // A separate process group lets Stop terminate launcher descendants too.
-    detached: os.platform() !== "win32",
-    stdio: ["pipe", "pipe", "pipe"],
-  });
 
   const killProcessTree = () => {
     if (finished || !proc.pid) return;
@@ -342,72 +344,99 @@ export function startExecution(
     killProcessTree();
   }, settings.executionTimeout);
 
-  proc.stdout?.on("data", (data: NodeBuffer) => {
-    const text = data.toString();
-    stdout += text;
-    callbacks?.onStdout?.(text);
-    if (stdout.length > 200_000) {
-      stdout = stdout.slice(0, 200_000) + "\n... (output truncated)";
-      killed = true;
-      killProcessTree();
-    }
-  });
-
-  proc.stderr?.on("data", (data: NodeBuffer) => {
-    const text = data.toString();
-    stderr += text;
-    callbacks?.onStderr?.(text);
-    if (stderr.length > 100_000) {
-      stderr = stderr.slice(0, 100_000) + "\n... (stderr truncated)";
-    }
-  });
-
   const promise = new Promise<ExecutionResult>((resolve) => {
-    proc.on("close", (exitCode: number | null) => {
-      finished = true;
-      window.clearTimeout(timer);
+    const launch = (command: string, commandArgs: string[]) => {
+      proc = spawn(command, commandArgs, {
+        cwd,
+        env,
+        shell: false,
+        // A separate process group lets Stop terminate launcher descendants too.
+        detached: os.platform() !== "win32",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      // A program may exit before reading its input; ignore the resulting EPIPE.
+      proc.stdin?.on("error", () => {});
 
-      // Collect figures keyed by counter index so sentinels in stdout can be
-      // matched to the right file even if some saves failed.
-      const figureMap = new Map<number, OutputFigure>();
-      try {
-        if (fs.existsSync(imgDir)) {
-          for (const f of fs.readdirSync(imgDir)) {
-            const m = /^fig_(\d+)\.(png|html)$/.exec(f);
-            if (!m) continue;
-            const figureIndex = parseInt(m[1], 10);
-            if (m[2] === "png") {
-              const data = fs.readFileSync(path.join(imgDir, f)).toString("base64");
-              figureMap.set(figureIndex, { kind: "image", data, figureIndex });
-            } else {
-              const html = fs.readFileSync(path.join(imgDir, f), "utf-8");
-              figureMap.set(figureIndex, { kind: "widget", html, figureIndex });
+      proc.stdout?.on("data", (data: NodeBuffer) => {
+        const text = data.toString();
+        stdout += text;
+        callbacks?.onStdout?.(text);
+        if (stdout.length > 200_000) {
+          stdout = stdout.slice(0, 200_000) + "\n... (output truncated)";
+          killed = true;
+          killProcessTree();
+        }
+      });
+
+      proc.stderr?.on("data", (data: NodeBuffer) => {
+        const text = data.toString();
+        stderr += text;
+        callbacks?.onStderr?.(text);
+        if (stderr.length > 100_000) {
+          stderr = stderr.slice(0, 100_000) + "\n... (stderr truncated)";
+        }
+      });
+
+      proc.on("close", (exitCode: number | null) => {
+        if (compiledProgram && command === cmd && exitCode === 0 && !killed && !cancelled) {
+          const queuedStdin = pendingStdin;
+          pendingStdin = null;
+          launch(compiledProgram, []);
+          try {
+            if (queuedStdin) proc.stdin?.write(queuedStdin);
+            if (pendingStdinEnd) proc.stdin?.end();
+          } catch { /* stdin may already be closed */ }
+          return;
+        }
+        finished = true;
+        window.clearTimeout(timer);
+
+        // Collect figures keyed by counter index so sentinels in stdout can be
+        // matched to the right file even if some saves failed.
+        const figureMap = new Map<number, OutputFigure>();
+        try {
+          if (fs.existsSync(imgDir)) {
+            for (const f of fs.readdirSync(imgDir)) {
+              const m = /^fig_(\d+)\.(png|html)$/.exec(f);
+              if (!m) continue;
+              const figureIndex = parseInt(m[1], 10);
+              if (m[2] === "png") {
+                const data = fs.readFileSync(path.join(imgDir, f)).toString("base64");
+                figureMap.set(figureIndex, { kind: "image", data, figureIndex });
+              } else {
+                const html = fs.readFileSync(path.join(imgDir, f), "utf-8");
+                figureMap.set(figureIndex, { kind: "widget", html, figureIndex });
+              }
             }
           }
-        }
-      } catch { /* figure collection is best-effort */ }
-      const figures = Array.from(figureMap.entries())
-        .sort(([a], [b]) => a - b)
-        .map(([, fig]) => fig);
+        } catch { /* figure collection is best-effort */ }
+        const figures = Array.from(figureMap.entries())
+          .sort(([a], [b]) => a - b)
+          .map(([, fig]) => fig);
 
-      // Cleanup
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
+        // Cleanup
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
 
-      resolve({ stdout, stderr, exitCode, killed, cancelled, figures });
-    });
-
-    proc.on("error", (err: Error) => {
-      finished = true;
-      window.clearTimeout(timer);
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
-      const message = `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`;
-      callbacks?.onStderr?.(message);
-      resolve({
-        stdout: "",
-        stderr: message,
-        exitCode: 1, killed: false, cancelled: false, figures: [],
+        resolve({ stdout, stderr, exitCode, killed, cancelled, figures });
       });
-    });
+
+      proc.on("error", (err: Error) => {
+        finished = true;
+        window.clearTimeout(timer);
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
+        const message = command === cmd
+          ? `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`
+          : `Failed to run the compiled program: ${err.message}`;
+        callbacks?.onStderr?.(message);
+        resolve({
+          stdout: "",
+          stderr: message,
+          exitCode: 1, killed: false, cancelled: false, figures: [],
+        });
+      });
+    };
+
+    launch(cmd, args);
   });
 
   return {
@@ -418,9 +447,17 @@ export function startExecution(
       killProcessTree();
     },
     writeStdin: (text: string) => {
+      if (pendingStdin !== null) {
+        pendingStdin += text;
+        return;
+      }
       try { proc.stdin?.write(text); } catch { /* stdin may already be closed */ }
     },
     closeStdin: () => {
+      if (pendingStdin !== null) {
+        pendingStdinEnd = true;
+        return;
+      }
       try { proc.stdin?.end(); } catch { /* stdin may already be closed */ }
     },
   };

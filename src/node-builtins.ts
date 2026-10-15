@@ -24,6 +24,7 @@ interface NodeReadableStream {
 interface NodeWritableStream {
   write(chunk: string): void;
   end(): void;
+  on(event: "error", listener: (err: Error) => void): void;
 }
 
 export interface NodeChildProcessHandle {
