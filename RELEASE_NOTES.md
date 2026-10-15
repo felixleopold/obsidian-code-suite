@@ -1,15 +1,17 @@
-This patch corrects the API compatibility and CSS issues reported by Obsidian's plugin review for 1.22.1.
+This release runs C and C++ code blocks and fixes MATLAB fences that define a function before calling it.
 
 ## What's New
 
-- No new features in this patch.
+- Run `c`, `cpp`, and `c++` code blocks: CodeSuite compiles them with `gcc` / `g++`, then runs the program with live output, interactive stdin, Stop, and the execution timeout (#86, thanks @AnYellowKing)
+  - Input typed while the program is still compiling is delivered when it starts.
 
 ## Bug Fixes
 
-- Custom-theme removal buttons use styling compatible with the declared minimum Obsidian version, 1.6.6.
-- Hidden baked outputs override Live Preview's display rule through selector specificity, preserving live-output replacement without `!important`.
+- MATLAB fences that define a function and then call it now run as scripts instead of being registered as a function file (#84, #85, thanks @RarityBrown)
+- Programs that exit before reading their input no longer raise an unhandled pipe error.
 
 ## Upgrade Notes
 
-- No manual migration is required. Existing settings and baked outputs are preserved.
-- The minimum supported Obsidian version remains 1.6.6; settings search requires Obsidian 1.13 or later.
+- No manual migration is required. Existing settings are preserved.
+- C and C++ blocks need `gcc` / `g++` on your PATH (on Windows, for example, MinGW-w64). Function-first MATLAB scripts require MATLAB R2024a or later.
+- The minimum supported Obsidian version remains 1.6.6.
