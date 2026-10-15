@@ -354,6 +354,8 @@ export function startExecution(
         detached: os.platform() !== "win32",
         stdio: ["pipe", "pipe", "pipe"],
       });
+      // A program may exit before reading its input; ignore the resulting EPIPE.
+      proc.stdin?.on("error", () => {});
 
       proc.stdout?.on("data", (data: NodeBuffer) => {
         const text = data.toString();
