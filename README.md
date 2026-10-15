@@ -1,4 +1,4 @@
-# [CodeSuite](https://community.obsidian.md/plugins/code-suite)
+# <img src="assets/logo.svg" width="32" height="32" alt="" align="top"> [CodeSuite](https://community.obsidian.md/plugins/code-suite)
 
 **Execute code inside your notes — a notebook that lives in plain Markdown.**
 VS Code–quality syntax highlighting, live code execution with streaming output, shared variables across blocks, inline graphs, and styled HTML/PDF export — all in a plain-text `.md` file you can version, diff, and edit anywhere. No kernel, no `.ipynb`, no server.

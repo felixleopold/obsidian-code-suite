@@ -53,6 +53,7 @@ export class CodeSettingTab extends PluginSettingTab {
   // indexes all of them; the inactive tabs are only hidden with CSS.
   getSettingDefinitions(): Group[] {
     return [
+      { type: "group", cls: "ocode-settings-header", items: [this.header()] },
       { type: "group", cls: "ocode-settings-nav", items: [this.tabBar()] },
       ...this.panel("appearance", this.appearance()),
       ...this.panel("execution", this.execution()),
@@ -94,6 +95,33 @@ export class CodeSettingTab extends PluginSettingTab {
     else this.renderFallback();
   }
 
+  /** Logo and support link above the tabs. */
+  private header(): Row {
+    return {
+      name: "",
+      searchable: false,
+      render: (setting) => {
+        setting.settingEl.addClass("ocode-settings-header-row");
+        const logo = setting.controlEl.createDiv({ cls: "ocode-settings-logo" });
+        const svg = logo.createSvg("svg", { attr: { viewBox: "0 0 32 32", "aria-hidden": "true" } });
+        svg.createSvg("rect", { cls: "ocode-settings-logo-tile", attr: { width: 32, height: 32, rx: 8 } });
+        svg.createSvg("path", {
+          cls: "ocode-settings-logo-brackets",
+          attr: { d: "M10 10.5 5.5 16 10 21.5M22 10.5 26.5 16 22 21.5" },
+        });
+        svg.createSvg("path", { cls: "ocode-settings-logo-play", attr: { d: "M13.5 11.5v9l7-4.5z" } });
+        logo.createSpan({ cls: "ocode-settings-wordmark", text: "Code" }).createSpan({ text: "Suite" });
+
+        const coffee = setting.controlEl.createEl("a", {
+          cls: "clickable-icon ocode-settings-coffee",
+          href: "https://buymeacoffee.com/felixleopold",
+          attr: { "aria-label": "Buy me a coffee" },
+        });
+        setIcon(coffee, "coffee");
+      },
+    };
+  }
+
   // ─── Tab navigation ──────────────────────────
   private panel(tab: TabId, groups: Group[]): Group[] {
     return groups.map((group) => ({ ...group, cls: `ocode-settings-panel ocode-settings-panel-${tab}` }));
@@ -108,7 +136,7 @@ export class CodeSettingTab extends PluginSettingTab {
         this.containerEl.dataset.ocodeTab = this.activeTab;
         setting.settingEl.addClass("ocode-settings-tabs-row");
         this.tabButtons.clear();
-        const nav = setting.settingEl.createDiv({
+        const nav = setting.controlEl.createDiv({
           cls: "ocode-settings-tabs",
           attr: { role: "tablist", "aria-label": "CodeSuite settings sections" },
         });

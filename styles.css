@@ -544,8 +544,63 @@ body:not(.is-mobile) .ocode-settings .ocode-settings-nav {
   display: block;
 }
 .ocode-settings-tabs-row > .setting-item-info,
-.ocode-settings-tabs-row > .setting-item-control {
+.ocode-settings-header-row > .setting-item-info {
   display: none;
+}
+.ocode-settings-tabs-row > .setting-item-control {
+  display: block;
+}
+
+/* Logo header. It sits above the sticky tab bar, whose negative top margin
+   overlaps the header's bottom spacing, so the header paints on top. */
+.ocode-settings-header {
+  position: relative;
+  z-index: 2;
+  margin-bottom: var(--size-4-6);
+}
+.ocode-settings-header .setting-items,
+.ocode-settings-header .setting-item.ocode-settings-header-row {
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+.ocode-settings-header-row > .setting-item-control {
+  flex: 1;
+  justify-content: space-between;
+}
+.ocode-settings-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+.ocode-settings-logo svg {
+  width: 28px;
+  height: 28px;
+}
+.ocode-settings-logo-tile { fill: var(--interactive-accent); }
+.ocode-settings-logo-brackets {
+  fill: none;
+  stroke: var(--text-on-accent);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ocode-settings-logo-play {
+  fill: var(--text-on-accent);
+  stroke: var(--text-on-accent);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+}
+.ocode-settings-wordmark {
+  font-size: var(--font-ui-large);
+  font-weight: var(--font-bold);
+  letter-spacing: -0.02em;
+  color: var(--text-normal);
+}
+.ocode-settings-wordmark > span {
+  font-weight: var(--font-medium);
+  color: var(--text-muted);
 }
 
 .ocode-settings-tabs {
