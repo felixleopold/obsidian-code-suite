@@ -43,6 +43,7 @@ from typing import Any, TextIO
 
 POLL_SECONDS = 0.05
 CAPTURE_FUNCTION = "codesuite_internal_capture_7d9b21"
+IS_SCRIPT_FUNCTION = "codesuite_internal_is_script_7d9b21"
 FUNCTION_HEADER_RE = re.compile(
     r"^\s*function\b\s*"
     r"(?:(?:\[[^\]\r\n]*\]|[A-Za-z][A-Za-z0-9_]*)\s*=\s*)?"
@@ -63,6 +64,18 @@ for figureIndex = 1:numel(figures)
     catch
         % Figure capture is best-effort; continue with the remaining figures.
     end
+end
+end
+"""
+
+IS_SCRIPT_SOURCE = f"""function isScript = {IS_SCRIPT_FUNCTION}(name)
+isScript = false;
+try
+    % builtin() keeps registered functions from shadowing the probe.
+    builtin('nargin', name);
+catch exception
+    % Leave syntax errors to the normal registration/execution path.
+    isScript = builtin('strcmp', exception.identifier, 'MATLAB:nargin:isScript');
 end
 end
 """
@@ -146,6 +159,7 @@ def primary_function_name(code: str, declaration_line: int) -> str | None:
 
 
 def classify_code(code: str) -> tuple[str, str | None]:
+    """Preclassify a fence; MATLAB disambiguates function-first scripts later."""
     lines = significant_lines(code)
     declarations: list[tuple[int, str]] = []
     for line_number, line in lines:
@@ -219,11 +233,35 @@ def prepare_image_dir(session_dir: Path, run_id: Any, requested: Any) -> Path:
     return image_dir
 
 
-def write_capture_helper(session_dir: Path) -> None:
+def write_helpers(session_dir: Path) -> None:
     atomic_write(
         session_dir / f"{CAPTURE_FUNCTION}.m",
         CAPTURE_SOURCE.encode("utf-8"),
     )
+    atomic_write(
+        session_dir / f"{IS_SCRIPT_FUNCTION}.m",
+        IS_SCRIPT_SOURCE.encode("utf-8"),
+    )
+
+
+def is_function_first_script(engine: Any, session_dir: Path, code: str) -> bool:
+    """Ask MATLAB's parser without executing code or replacing a saved function."""
+    probe = session_dir / f"codesuite_probe_{secrets.token_hex(12)}.m"
+    atomic_write(probe, code.encode("utf-8"))
+    try:
+        return bool(engine.feval(
+            IS_SCRIPT_FUNCTION,
+            probe.stem,
+            nargout=1,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        ))
+    finally:
+        try:
+            # nargin can cache a function under the temporary file name.
+            engine.eval(f"clear {probe.stem};", nargout=0)
+        finally:
+            probe.unlink()
 
 
 def restore_session_path(engine: Any, session_dir: Path) -> None:
@@ -367,12 +405,14 @@ def start_run(
             "Could not determine the primary MATLAB function name.",
         )
         return None, script_counter
-    if mode == "function" and function_name.casefold() == CAPTURE_FUNCTION.casefold():
+    if mode == "function" and function_name.casefold() in {
+        CAPTURE_FUNCTION.casefold(), IS_SCRIPT_FUNCTION.casefold(),
+    }:
         immediate_failure(
             engine,
             run_id,
             image_dir,
-            f"{CAPTURE_FUNCTION} is reserved by Code Suite.",
+            f"{function_name} is reserved by Code Suite.",
         )
         return None, script_counter
 
@@ -382,6 +422,10 @@ def start_run(
     function_update: FunctionUpdate | None = None
 
     try:
+        restore_session_path(engine, session_dir)
+        if mode == "function" and is_function_first_script(engine, session_dir, code):
+            mode = "script"
+
         if mode == "function":
             assert function_name is not None
             function_path = session_dir / f"{function_name}.m"
@@ -403,7 +447,6 @@ def start_run(
         else:
             eval_code = code
 
-        restore_session_path(engine, session_dir)
         future = engine.eval(
             eval_code,
             nargout=0,
@@ -520,7 +563,7 @@ def main() -> int:
         args = parse_args()
         session_dir = Path(args.session_dir).resolve()
         session_dir.mkdir(parents=True, exist_ok=True)
-        write_capture_helper(session_dir)
+        write_helpers(session_dir)
 
         commands: queue.Queue[dict[str, Any]] = queue.Queue()
         reader = threading.Thread(
