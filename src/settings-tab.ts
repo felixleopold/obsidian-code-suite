@@ -104,12 +104,11 @@ export class CodeSettingTab extends PluginSettingTab {
         setting.settingEl.addClass("ocode-settings-header-row");
         const logo = setting.controlEl.createDiv({ cls: "ocode-settings-logo" });
         const svg = logo.createSvg("svg", { attr: { viewBox: "0 0 32 32", "aria-hidden": "true" } });
-        svg.createSvg("rect", { cls: "ocode-settings-logo-tile", attr: { width: 32, height: 32, rx: 8 } });
+        svg.createSvg("path", { cls: "ocode-settings-logo-tile", attr: { d: "M16 2.5 29.5 16 16 29.5 2.5 16z" } });
         svg.createSvg("path", {
           cls: "ocode-settings-logo-brackets",
-          attr: { d: "M10 10.5 5.5 16 10 21.5M22 10.5 26.5 16 22 21.5" },
+          attr: { d: "M13 11.5 8.5 16l4.5 4.5M19 11.5l4.5 4.5-4.5 4.5" },
         });
-        svg.createSvg("path", { cls: "ocode-settings-logo-play", attr: { d: "M13.5 11.5v9l7-4.5z" } });
         logo.createSpan({ cls: "ocode-settings-wordmark", text: "Code" }).createSpan({ text: "Suite" });
 
         const coffee = setting.controlEl.createEl("a", {

@@ -586,12 +586,6 @@ body:not(.is-mobile) .ocode-settings .ocode-settings-nav {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.ocode-settings-logo-play {
-  fill: var(--text-on-accent);
-  stroke: var(--text-on-accent);
-  stroke-width: 1.2;
-  stroke-linejoin: round;
-}
 .ocode-settings-wordmark {
   font-size: var(--font-ui-large);
   font-weight: var(--font-bold);
