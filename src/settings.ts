@@ -165,6 +165,12 @@ export interface CodePluginSettings {
    */
   showClearSessionButton: boolean;
   executionTimeout: number;
+  /**
+   * Save each block's last output in the plugin folder and show it again when
+   * the note is reopened, as long as the block's code is unchanged. Nothing is
+   * written into the note. See output-store.ts.
+   */
+  persistOutputs: boolean;
   /** Working directory for code execution */
   executionCwd: ExecutionCwdMode;
   /** Custom working directory path (used when executionCwd is "custom") */
@@ -324,6 +330,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   wideCodeBlocks: false,
   showClearSessionButton: true,
   executionTimeout: 30000,
+  persistOutputs: true,
   executionCwd: "vault",
   executionCwdCustom: "",
   pythonPath: "",

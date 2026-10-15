@@ -580,6 +580,18 @@ export class CodeSettingTab extends PluginSettingTab {
               });
             },
           },
+          {
+            name: "Keep outputs after closing notes",
+            desc: "Save each block's last output in the plugin folder and show it again when you reopen the note, as long as the code is unchanged. Nothing is written into the note.",
+            render: this.toggle("persistOutputs"),
+          },
+          {
+            name: "Saved outputs",
+            desc: "Delete every saved output. Blocks show output again after you run them.",
+            render: (setting) => {
+              setting.addButton((btn) => btn.setButtonText("Clear all").onClick(() => void this.plugin.clearSavedOutputs()));
+            },
+          },
         ],
       },
       {

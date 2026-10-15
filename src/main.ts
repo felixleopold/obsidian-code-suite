@@ -17,6 +17,7 @@ import {
   normalizePath,
   editorInfoField,
   editorLivePreviewField,
+  moment,
 } from "obsidian";
 import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
@@ -38,6 +39,8 @@ import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code
 import { buildCodeBlockTabExtension } from "./code-block-tab";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
+import { createOutputRecorder, outputKey, type OutputRecord } from "./output-record";
+import { OutputStore } from "./output-store";
 import {
   MATLAB_RUN_ALL_EXTRA_MS,
   MatlabSessionManager,
@@ -205,6 +208,13 @@ function toRecord(value: unknown): Record<string, unknown> | undefined {
   return value as Record<string, unknown> | undefined;
 }
 
+/** Output panel label for a finished run. */
+function outputLabel(exit: number | null, killed: boolean, empty: boolean): string {
+  if (killed) return "Output (timed out)";
+  if (exit !== 0) return `Output (exit: ${exit})`;
+  return empty ? "Output (none)" : "Output";
+}
+
 /** Decode a base64 string to an ArrayBuffer (for writing baked image files). */
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
@@ -240,6 +250,9 @@ interface RunAllEntry {
   skip: boolean;
   /** Hash of the dedented code; matches the wrapper's data-ocode-hash. Fences only. */
   hash?: string;
+  /** Resolved language and dedented code, as the rendered block sees them. Fences only. */
+  lang?: string;
+  code?: string;
   /** Embedded file's basename — matches the wrapper's header label. Embeds only. */
   name?: string;
 }
@@ -442,6 +455,10 @@ export default class CodePlugin extends Plugin {
    * Maps note path → block source → captured output. In-memory only.
    */
   private noteOutputData: Map<string, Map<string, CapturedOutput>> = new Map();
+  /** Block outputs saved across sessions in the plugin folder (see output-store.ts). */
+  private outputStore!: OutputStore;
+  /** Settles once {@link outputStore} has indexed existing entries. */
+  private outputStoreReady!: Promise<void>;
   /** Tracks which MarkdownView instances have already had view-header actions added. */
   private viewActionsAdded = new WeakSet<MarkdownView>();
   /** All action buttons added to view headers — removed in onunload so plugin reloads don't duplicate them. */
@@ -524,6 +541,13 @@ export default class CodePlugin extends Plugin {
     }
 
     this.addSettingTab(new CodeSettingTab(this.app, this));
+
+    // Saved outputs live in the plugin's own folder, outside the notes, so
+    // reopening a note shows its last outputs without writing into it (#70).
+    const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+    this.outputStore = new OutputStore(this.app.vault.adapter, normalizePath(`${pluginDir}/outputs`));
+    this.outputStoreReady = this.outputStore.load()
+      .catch((err) => console.error("CodeSuite: could not read saved outputs", err));
 
     // ─── Code file view (#4 / #11) ──────────────
     // Register a custom view + bind code file extensions to it so .py, .js,
@@ -753,6 +777,12 @@ export default class CodePlugin extends Plugin {
           new Notice("Execution session cleared.");
         }
       },
+    });
+
+    this.addCommand({
+      id: "clear-saved-outputs",
+      name: "Clear all saved outputs",
+      callback: () => void this.clearSavedOutputs(),
     });
 
     // Commands: bake / clear baked outputs (opt-in — see CodePluginSettings.bakedOutputs).
@@ -1462,6 +1492,7 @@ export default class CodePlugin extends Plugin {
     // Drop persisted output snapshots so re-rendered blocks come back empty.
     this.noteOutputs.delete(notePath);
     this.noteOutputData.delete(notePath);
+    void this.forgetSavedNoteOutputs(notePath);
     // Remove already-rendered output panels still on screen (dropping the cache
     // and snapshots above doesn't touch the live DOM), and revert any block that
     // was mid-run back to its idle "Run" pill. Scoped to this note's views.
@@ -1675,6 +1706,8 @@ export default class CodePlugin extends Plugin {
         line: openLine,
         skip: forceSkip || blockHasSkipMarker(code),
         hash: codeHash(code.trim()),
+        lang: resolvedLang,
+        code,
       });
     }
     return entries;
@@ -4073,9 +4106,13 @@ __ocode_emit_vars
     }
 
     // Re-attach a previously-run output (this session) so it survives reading-
-    // view section eviction and is present for HTML/PDF export.
+    // view section eviction and is present for HTML/PDF export. Otherwise show
+    // the output saved by an earlier session, if the code is unchanged.
     if (!fileName && !staticBlock && isExecutable(lang) && sourcePath) {
-      this.restoreBlockOutput(sourcePath, code, wrapper);
+      this.restoreBlockOutput(sourcePath, lang, code, wrapper);
+      if (this.settings.persistOutputs && !wrapper.querySelector(".ocode-output")) {
+        void this.restoreSavedOutput(sourcePath, lang, code, wrapper);
+      }
     }
 
     // ─── HTML live preview ───
@@ -4514,7 +4551,7 @@ __ocode_emit_vars
   }
 
   /** Re-attach a saved output snapshot to a freshly rendered block, if one exists. */
-  private restoreBlockOutput(notePath: string, code: string, wrapper: HTMLElement): void {
+  private restoreBlockOutput(notePath: string, lang: string, code: string, wrapper: HTMLElement): void {
     if (wrapper.querySelector(".ocode-output")) return;
     const html = this.noteOutputs.get(notePath)?.get(code);
     if (!html) return;
@@ -4524,7 +4561,10 @@ __ocode_emit_vars
     const adopted = activeDocument.adoptNode(panel);
     // The outerHTML round-trip drops all event listeners — rewire the header
     // buttons so the restored panel behaves like a live one.
-    adopted.querySelector(".ocode-clear-pill")?.addEventListener("click", () => this.clearBlockOutput(notePath, code, adopted));
+    adopted.querySelector(".ocode-clear-pill")?.addEventListener("click", () => {
+      this.clearBlockOutput(notePath, code, adopted);
+      void this.forgetSavedOutput(notePath, lang, code);
+    });
     const content = adopted.querySelector<HTMLElement>(".ocode-output-content");
     adopted.querySelector(".ocode-copy-out-pill")?.addEventListener("click", () => {
       void navigator.clipboard.writeText(content?.textContent ?? "");
@@ -4534,6 +4574,109 @@ __ocode_emit_vars
       void navigator.clipboard.writeText(err.trim());
     });
     wrapper.appendChild(adopted);
+  }
+
+  /** Show a block's output saved in an earlier session, if its code is unchanged. */
+  private async restoreSavedOutput(notePath: string, lang: string, code: string, wrapper: HTMLElement): Promise<void> {
+    const key = await outputKey({ lang, note: notePath, code });
+    await this.outputStoreReady;
+    if (!this.outputStore.has(key)) return;
+    const record = await this.outputStore.get(key);
+    // The block may have run, or been restored by another view, while the record loaded.
+    if (!record || wrapper.querySelector(".ocode-output") || this.runningProcs.has(wrapper)) return;
+    if (this.noteOutputs.get(notePath)?.has(code)) {
+      this.restoreBlockOutput(notePath, lang, code, wrapper);
+      return;
+    }
+    const panel = this.buildSavedOutputPanel(record, notePath, lang, code);
+    wrapper.appendChild(panel);
+    this.queueReadingLayout(wrapper);
+    // Seed this session's snapshots so section eviction, export, baking and
+    // baked-output visibility treat it like a live output.
+    const text = (kind: "stdout" | "stderr") => record.items
+      .map((item) => item.kind === kind ? item.text : "").join("");
+    this.saveBlockOutput(notePath, code, panel);
+    this.saveBlockOutputData(notePath, code, {
+      hash: codeHash(code.trim()),
+      exit: record.exit,
+      label: panel.querySelector(".ocode-output-label")?.textContent ?? "Output",
+      stdout: text("stdout"),
+      stderr: text("stderr").trim(),
+      figures: record.items.flatMap((item, i): OutputFigure[] =>
+        item.kind === "image" ? [{ kind: "image", data: item.data, figureIndex: i + 1 }]
+        : item.kind === "widget" ? [{ kind: "widget", html: item.html, figureIndex: i + 1 }]
+        : []),
+    });
+  }
+
+  /** Render a saved output record as an `.ocode-output` panel (mirrors a live run's panel). */
+  private buildSavedOutputPanel(record: OutputRecord, notePath: string, lang: string, code: string): HTMLElement {
+    const panel = createDiv({ cls: "ocode-output ocode-output-saved" });
+    const header = panel.createDiv({ cls: "ocode-output-header" });
+    const label = header.createSpan({
+      cls: "ocode-output-label",
+      text: outputLabel(record.exit, record.killed, record.items.length === 0),
+    });
+    if (record.killed || (record.exit !== 0 && record.exit !== null)) label.addClass("ocode-output-failed");
+    const badge = header.createSpan({ cls: "ocode-saved-badge", text: `ran ${moment(record.ranAt).fromNow()}` });
+    badge.setAttr("aria-label", `Saved output from ${new Date(record.ranAt).toLocaleString()}. Run the block to refresh it.`);
+
+    const content = createDiv({ cls: "ocode-output-content" });
+    record.items.forEach((item, i) => {
+      if (item.kind === "stdout") content.createSpan({ cls: "ocode-stdout", text: item.text });
+      else if (item.kind === "stderr") content.createSpan({ cls: "ocode-stderr", text: item.text });
+      else if (item.kind === "image") content.appendChild(buildFigureEl({ kind: "image", data: item.data, figureIndex: i + 1 }, this.app));
+      else content.appendChild(buildFigureEl({ kind: "widget", html: item.html, figureIndex: i + 1 }, this.app));
+    });
+
+    const copyPill = (cls: string, title: string, text: () => string) => {
+      const btn = this.createPillButton("", ICON.copy, () => {
+        void navigator.clipboard.writeText(text()).then(() => {
+          setSvgContent(btn.querySelector(".ocode-pill-icon")!, ICON.check);
+          window.setTimeout(() => setSvgContent(btn.querySelector(".ocode-pill-icon")!, ICON.copy), 2000);
+        });
+      }, cls);
+      btn.title = title;
+      header.appendChild(btn);
+    };
+    const stderr = record.items.map((item) => item.kind === "stderr" ? item.text : "").join("").trim();
+    if (record.items.some((item) => item.kind === "stdout" && item.text.trim())) {
+      copyPill("ocode-copy-out-pill", "Copy output", () => content.textContent ?? "");
+    }
+    if (stderr) copyPill("ocode-copy-stderr-pill", "Copy stderr", () => stderr);
+    const clearBtn = this.createPillButton("", ICON.close, () => {
+      this.clearBlockOutput(notePath, code, panel);
+      void this.forgetSavedOutput(notePath, lang, code);
+    }, "ocode-clear-pill");
+    clearBtn.setAttribute("aria-label", "Clear output");
+    header.appendChild(clearBtn);
+
+    if (content.childNodes.length) panel.appendChild(content);
+    else panel.addClass("ocode-output-headeronly");
+    return panel;
+  }
+
+  /** Delete one block's saved output, if any. */
+  private async forgetSavedOutput(notePath: string, lang: string, code: string): Promise<void> {
+    const key = await outputKey({ lang, note: notePath, code });
+    await this.outputStoreReady;
+    await this.outputStore.delete(key);
+  }
+
+  /** Delete the saved outputs of every executable block in a note (Clear Session). */
+  private async forgetSavedNoteOutputs(notePath: string): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(notePath);
+    if (!(file instanceof TFile)) return;
+    for (const entry of this.parseRunAllPlan(await this.app.vault.cachedRead(file))) {
+      if (entry.lang && entry.code !== undefined) await this.forgetSavedOutput(notePath, entry.lang, entry.code);
+    }
+  }
+
+  /** Delete every saved output (command and settings button). */
+  async clearSavedOutputs(): Promise<void> {
+    await this.outputStoreReady;
+    await this.outputStore.clear();
+    new Notice("Saved outputs cleared.");
   }
 
   /**
@@ -4767,6 +4910,7 @@ __ocode_emit_vars
     clearBtn.addEventListener("click", () => {
       outputCleared = true;
       this.clearBlockOutput(sourcePath, code, outputPanel);
+      if (sourcePath) void this.forgetSavedOutput(sourcePath, lang, code);
     });
     outHeader.appendChild(clearBtn);
     outputPanel.appendChild(outHeader);
@@ -4821,7 +4965,11 @@ __ocode_emit_vars
     // context) and replace figure sentinels (OCODE_FIG_N) with
     // placeholder elements that are filled in after execution completes.
     let stdoutLineBuffer = "";
+    // Mirrors what the panel shows, in order, for the saved output (#70).
+    const recorder = createOutputRecorder();
+    const startedAt = Date.now();
     const appendStdout = (text: string) => {
+      recorder.stdout(text);
       const span = createSpan({ cls: "ocode-stdout", text });
       outContent.appendChild(span);
       outContent.scrollTop = outContent.scrollHeight;
@@ -4855,6 +5003,7 @@ __ocode_emit_vars
       const figureIndex = parseFigureSentinel(line);
       if (figureIndex !== null) {
         // Insert a placeholder; replaced with the real figure after execution.
+        recorder.figure(figureIndex);
         const placeholder = createDiv({ cls: "ocode-fig-placeholder" });
         placeholder.dataset.figIdx = String(figureIndex);
         outContent.appendChild(placeholder);
@@ -4886,6 +5035,7 @@ __ocode_emit_vars
         span.className = "ocode-stderr";
         // Ensure stderr chunks end with a newline so subsequent stdout starts on a new line
         span.textContent = data.endsWith("\n") ? data : data + "\n";
+        recorder.stderr(span.textContent);
         outContent.appendChild(span);
         outContent.scrollTop = outContent.scrollHeight;
       },
@@ -4974,11 +5124,7 @@ __ocode_emit_vars
 
       // Update label
       const failed = !result.killed && result.exitCode !== 0 && result.exitCode !== null;
-      outLabel.textContent = result.killed
-        ? "Output (timed out)"
-        : result.exitCode === 0
-        ? "Output"
-        : `Output (exit: ${result.exitCode})`;
+      outLabel.textContent = outputLabel(result.exitCode, result.killed, false);
 
       // stderr is coloured by stream, not by exit code. A failed run's stderr is
       // often a mix of intentional messages and the actual error, and the two
@@ -5052,7 +5198,7 @@ __ocode_emit_vars
       // If no output at all, collapse the panel to just the header so a clean
       // run still reads as "ran fine" without an empty content box.
       if (!outContent.childNodes.length) {
-        if (result.exitCode === 0 && !result.killed) outLabel.textContent = "Output (none)";
+        outLabel.textContent = outputLabel(result.exitCode, result.killed, true);
         outContent.remove();
         outputPanel.classList.add("ocode-output-headeronly");
       }
@@ -5069,6 +5215,17 @@ __ocode_emit_vars
           stderr: errorText,
           figures: result.figures,
         });
+        // Save it across sessions. Cancelled runs returned above, so a stopped
+        // run never replaces the last completed output.
+        if (this.settings.persistOutputs) {
+          const ranAt = Date.now();
+          void outputKey({ lang, note: sourcePath, code }).then(async (key) => {
+            const record = recorder.finish(result, { key, ranAt, durationMs: ranAt - startedAt });
+            if (!record) return;
+            await this.outputStoreReady;
+            await this.outputStore.put(record);
+          }).catch((err) => console.error("CodeSuite: could not save output", err));
+        }
       }
 
       // ─── Accumulate into session on clean exit ───
