@@ -309,6 +309,17 @@ export function collectBakedImageFiles(source: string): Set<string> {
   return files;
 }
 
+/** Collect the source hash of every baked block in the given text. */
+export function collectBakedHashes(source: string): Set<string> {
+  const hashes = new Set<string>();
+  for (const f of scanFences(source.split("\n"))) {
+    if (f.lang !== BAKED_OUTPUT_LANG) continue;
+    const parsed = parseBakedOutput(f.body.join("\n"));
+    if (parsed) hashes.add(parsed.hash);
+  }
+  return hashes;
+}
+
 /**
  * Hash of the source code block immediately preceding the baked block on
  * `bakedOpenLine`, computed from the full note text. Returns null when there is
