@@ -474,6 +474,7 @@ export default class CodePlugin extends Plugin {
     "gruvbox-dark-medium",
     "catppuccin-mocha",
     "dracula",
+    "tokyo-night",
     // light themes
     // "catppuccin-latte",
     // "rose-pine-dawn",

@@ -1,0 +1,12 @@
+# Transparent plot that sits on the code block background in the hero clip.
+figure.facecolor: none
+axes.facecolor: none
+savefig.transparent: True
+axes.edgecolor: 928374
+axes.labelcolor: ebdbb2
+text.color: ebdbb2
+xtick.color: a89984
+ytick.color: a89984
+axes.spines.top: False
+axes.spines.right: False
+axes.prop_cycle: cycler('color', ['fabd2f'])

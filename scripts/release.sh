@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
   cat <<'EOF'
-Usage: scripts/release.sh <version> [--push] [--notes-file <path>] [--publish-notes]
+Usage: scripts/release.sh <version> [--push] [--notes-file <path>] [--publish-notes] [--no-hero]
 
 Examples:
   npm run release -- 1.3.2
@@ -13,9 +13,10 @@ Examples:
 What it does:
   1. Updates package.json, package-lock.json, and manifest.json to <version>
   2. Runs lint and build
-  3. Commits the release and creates a matching git tag
-  4. Optionally pushes the commit/tag
-  5. Optionally applies RELEASE_NOTES.md to the GitHub release if it already exists
+  3. On macOS, re-records the README hero clip (assets/hero.gif) unless --no-hero
+  4. Commits the release and creates a matching git tag
+  5. Optionally pushes the commit/tag
+  6. Optionally applies RELEASE_NOTES.md to the GitHub release if it already exists
 EOF
 }
 
@@ -34,6 +35,7 @@ shift
 
 push_release=false
 publish_notes=false
+record_hero=$([[ "$(uname)" == Darwin ]] && echo true || echo false)
 notes_file="RELEASE_NOTES.md"
 
 while [[ $# -gt 0 ]]; do
@@ -43,6 +45,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --publish-notes)
       publish_notes=true
+      ;;
+    --no-hero)
+      record_hero=false
       ;;
     --notes-file)
       shift
@@ -105,6 +110,11 @@ echo "Running build"
 npm run build
 
 git add package.json package-lock.json manifest.json
+if [[ "$record_hero" == true ]]; then
+  echo "Recording README hero clip"
+  npm run record-hero
+  git add assets/hero.gif
+fi
 git add -f "$notes_file"
 git commit -m "Release $version"
 git tag -a "$version" -m "$version"
