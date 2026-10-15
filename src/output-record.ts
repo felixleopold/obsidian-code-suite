@@ -45,7 +45,38 @@ export interface OutputRecorder {
 }
 
 export function createOutputRecorder(): OutputRecorder {
-  throw new Error("not implemented");
+  const pending: (OutputItem | { kind: "figure"; index: number })[] = [];
+  const text = (kind: "stdout" | "stderr", value: string): void => {
+    if (!value) return;
+    const last = pending[pending.length - 1];
+    if (last?.kind === kind) last.text += value;
+    else pending.push({ kind, text: value });
+  };
+
+  return {
+    stdout: (value) => text("stdout", value),
+    stderr: (value) => text("stderr", value),
+    figure: (index) => { pending.push({ kind: "figure", index }); },
+    finish(result, meta) {
+      if (result.cancelled) return null;
+      const figures = new Map(result.figures.map((figure) => [figure.figureIndex, figure]));
+      const items: OutputItem[] = [];
+      const appendFigure = (index: number): void => {
+        const figure = figures.get(index);
+        if (!figure) return;
+        items.push(figure.kind === "image"
+          ? { kind: "image", data: figure.data }
+          : { kind: "widget", html: figure.html });
+        figures.delete(index);
+      };
+      for (const item of pending) {
+        if (item.kind === "figure") appendFigure(item.index);
+        else items.push({ ...item });
+      }
+      for (const index of [...figures.keys()].sort((a, b) => a - b)) appendFigure(index);
+      return { v: 1, ...meta, exit: result.exitCode, killed: result.killed, items };
+    },
+  };
 }
 
 /**
@@ -56,6 +87,7 @@ export function createOutputRecorder(): OutputRecorder {
  * option lines are part of the source, so they are covered too.
  */
 export function outputKey(input: { lang: string; note: string; code: string }): Promise<string> {
-  void input;
-  throw new Error("not implemented");
+  const data = new TextEncoder().encode(JSON.stringify([1, input.lang, input.note, input.code.trim()]));
+  return globalThis.crypto.subtle.digest("SHA-256", data).then((digest) =>
+    Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join(""));
 }
