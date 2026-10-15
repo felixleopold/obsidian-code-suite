@@ -513,30 +513,62 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
 }
 
 /* ─── Settings tabs ───────────────────────────── */
-/* Custom horizontal tab bar for the settings tab. Own classes themed with
-   Obsidian CSS variables so it matches every theme (light/dark/community). */
+/* Tab bar above the native setting groups. Every tab's groups stay rendered so
+   Obsidian's settings search indexes them; inactive panels are hidden here. */
+.ocode-settings[data-ocode-tab="appearance"] .ocode-settings-panel:not(.ocode-settings-panel-appearance),
+.ocode-settings[data-ocode-tab="execution"] .ocode-settings-panel:not(.ocode-settings-panel-execution),
+.ocode-settings[data-ocode-tab="languages"] .ocode-settings-panel:not(.ocode-settings-panel-languages),
+.ocode-settings[data-ocode-tab="files"] .ocode-settings-panel:not(.ocode-settings-panel-files),
+.ocode-settings[data-ocode-tab="advanced"] .ocode-settings-panel:not(.ocode-settings-panel-advanced) {
+  display: none;
+}
+
+/* Keep the tabs in view while scrolling. The bar extends over the settings
+   pane's desktop top padding so rows do not show through above it. */
+body:not(.is-mobile) .ocode-settings .ocode-settings-nav {
+  position: sticky;
+  top: calc(-1 * var(--size-4-12));
+  z-index: 1;
+  margin-top: calc(-1 * var(--size-4-12));
+  padding-top: var(--size-4-12);
+  background: var(--background-primary);
+}
+.ocode-settings-nav .setting-items,
+.ocode-settings-nav .setting-item.ocode-settings-tabs-row {
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+}
+.setting-item.ocode-settings-tabs-row {
+  display: block;
+}
+.ocode-settings-tabs-row > .setting-item-info,
+.ocode-settings-tabs-row > .setting-item-control {
+  display: none;
+}
+
 .ocode-settings-tabs {
   display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  margin: 0 0 1.5em;
+  gap: var(--size-4-1);
+  overflow-x: auto;
+  scrollbar-width: none;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 .ocode-settings-tab {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  margin-bottom: -1px; /* overlap the container's bottom border */
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  margin-bottom: -1px; /* overlap the bar's bottom border */
   color: var(--text-muted);
+  font-size: var(--font-ui-small);
   cursor: pointer;
   white-space: nowrap;
   border-bottom: 2px solid transparent;
-  border-radius: var(--radius-s) var(--radius-s) 0 0;
 }
 .ocode-settings-tab:hover {
   color: var(--text-normal);
-  background: var(--background-modifier-hover);
 }
 .ocode-settings-tab.is-active {
   color: var(--text-normal);
@@ -557,15 +589,9 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   height: var(--icon-s);
 }
 
-/* The declarative API supplies a Setting row around each custom settings page. */
-.setting-item.ocode-settings-page {
-  display: block;
-}
-
 /* ─── Utility classes ─────────────────────────── */
 .ocode-hidden { display: none; }
 .ocode-hidden-input { display: none; }
-.ocode-exec-desc { margin-bottom: 12px; }
 
 /* ─── Inline $varname substitution ───────────── */
 /* Dim + italic until a value is known */

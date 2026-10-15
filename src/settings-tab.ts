@@ -1,155 +1,154 @@
-import { App, PluginSettingTab, Setting, Notice, setIcon, Platform } from "obsidian";
-import type { SettingDefinitionItem } from "obsidian";
+import { App, PluginSettingTab, Setting, Notice, setIcon, Platform, requireApiVersion } from "obsidian";
 import type CodePlugin from "./main";
-import { BUNDLED_THEMES, parsePassthroughLanguages, type CustomTheme, type ExecutionCwdMode } from "./settings";
+import {
+  BUNDLED_THEMES,
+  parsePassthroughLanguages,
+  type CodePluginSettings,
+  type CustomTheme,
+  type ExecutionCwdMode,
+} from "./settings";
 
-type TabId = "appearance" | "execution" | "languages" | "files" | "advanced";
+const TABS = [
+  { id: "appearance", label: "Appearance", icon: "palette" },
+  { id: "execution", label: "Execution", icon: "play" },
+  { id: "languages", label: "Languages", icon: "code" },
+  { id: "files", label: "Files", icon: "folder" },
+  { id: "advanced", label: "Advanced", icon: "flask-conical" },
+] as const;
 
-interface TabDef {
-  id: TabId;
-  label: string;
-  /** Lucide icon id rendered via setIcon(). */
-  icon: string;
-  desc: string;
-  searchAliases: string[];
+type TabId = (typeof TABS)[number]["id"];
+
+type BooleanKey = { [K in keyof CodePluginSettings]-?: CodePluginSettings[K] extends boolean ? K : never }[keyof CodePluginSettings];
+type StringKey = { [K in keyof CodePluginSettings]-?: string extends CodePluginSettings[K] ? K : never }[keyof CodePluginSettings];
+
+/** A settings row; assignable to Obsidian's declarative `SettingDefinitionRender`. */
+interface Row {
+  name: string;
+  desc?: string | DocumentFragment;
+  visible?: () => boolean;
+  searchable?: boolean;
+  render: (setting: Setting) => void | (() => void);
 }
 
-const TABS: TabDef[] = [
-  {
-    id: "appearance",
-    label: "Appearance",
-    icon: "palette",
-    desc: "Syntax themes and code block display.",
-    searchAliases: [
-      "Theme", "Auto-switch theme", "Dark mode theme", "Light mode theme", "Syntax theme",
-      "Import VS Code theme", "Follow Obsidian code size", "Custom code size", "Line numbers",
-      "Language label", "Wide code blocks", "Soft-wrap long lines", "Collapse code blocks by default",
-      "Enhanced inline code styling", "Inline syntax highlighting", "CodeSuite variables panel",
-      "Render HTML blocks", "PDF export for HTML blocks", "HTML block templating", "Tab key in code blocks", "Code block indentation",
-    ],
-  },
-  {
-    id: "execution",
-    label: "Execution",
-    icon: "play",
-    desc: "Code execution, environment, and plots.",
-    searchAliases: [
-      "Enable code execution", "Static blocks by default", "Show clear-session button",
-      "Shared execution context", "Execution timeout", "Working directory", "Custom working directory",
-      "Extra environment variables", ".env file path", "Interactive plots", "Embed Plotly.js offline",
-      "Matplotlib style",
-    ],
-  },
-  {
-    id: "languages",
-    label: "Languages",
-    icon: "code",
-    desc: "Passthrough languages, interpreters, and shell startup.",
-    searchAliases: [
-      "Additional passthrough languages", "Python path", "MATLAB Python path", "Session idle timeout",
-      "Node.js path", "Bash path", "Zsh path", "Shell (sh) path", "Rscript path", "Dotnet path", "WSL path translation",
-      "Run bash/zsh as login shell", "Shell source files", "Auto-prepend php opening tag",
-    ],
-  },
-  {
-    id: "files",
-    label: "Files",
-    icon: "folder",
-    desc: "Embedded and vault code files.",
-    searchAliases: [
-      "Render embedded code files", "Collapse embedded files", "Show code files in the file explorer",
-      "Imports folder",
-    ],
-  },
-  {
-    id: "advanced",
-    label: "Advanced",
-    icon: "flask-conical",
-    desc: "Experimental features and baked outputs.",
-    searchAliases: [
-      "Data tables", "Enable baked outputs", "Baked figures folder", "Inline images instead of files",
-    ],
-  },
-];
+/** A headed card of rows; assignable to Obsidian's `SettingDefinitionGroup`. */
+interface Group {
+  type: "group";
+  heading?: string;
+  cls?: string;
+  items: Row[];
+}
 
 export class CodeSettingTab extends PluginSettingTab {
   plugin: CodePlugin;
   /** Active tab, kept in memory across opens within a session. */
   private activeTab: TabId = "appearance";
   private tabButtons = new Map<TabId, HTMLElement>();
-  private contentEl!: HTMLElement;
 
   constructor(app: App, plugin: CodePlugin) {
     super(app, plugin);
     this.plugin = plugin;
   }
 
-  getSettingDefinitions(): SettingDefinitionItem[] {
-    return TABS.map((tab): SettingDefinitionItem => ({
-      type: "page",
-      name: tab.label,
-      desc: tab.desc,
-      items: [{
-        name: `${tab.label} settings`,
-        aliases: tab.searchAliases,
-        render: (setting) => {
-          setting.settingEl.addClass("ocode-settings-page");
-          this.activeTab = tab.id;
-          this.contentEl = setting.settingEl;
-          this.renderActiveTab();
-        },
-      }],
-    }));
+  // Every tab's groups are always defined so Obsidian's settings search
+  // indexes all of them; the inactive tabs are only hidden with CSS.
+  getSettingDefinitions(): Group[] {
+    return [
+      { type: "group", cls: "ocode-settings-nav", items: [this.tabBar()] },
+      ...this.panel("appearance", this.appearance()),
+      ...this.panel("execution", this.execution()),
+      ...this.panel("languages", this.languages()),
+      ...this.panel("files", this.files()),
+      ...this.panel("advanced", this.advanced()),
+    ];
   }
 
   /** Fallback for Obsidian versions before the declarative settings API. */
   display(): void {
+    this.renderFallback();
+  }
+
+  private renderFallback(): void {
     const { containerEl } = this;
     containerEl.empty();
-    this.buildTabBar(containerEl);
-    this.contentEl = containerEl.createDiv({
-      cls: "ocode-settings-content",
-      attr: { role: "tabpanel", "aria-labelledby": `ocode-settings-tab-${this.activeTab}` },
-    });
-    this.renderActiveTab();
+    for (const group of this.getSettingDefinitions()) {
+      const groupEl = containerEl.createDiv({ cls: group.cls });
+      if (group.heading) new Setting(groupEl).setName(group.heading).setHeading();
+      for (const row of group.items) {
+        if (row.visible && !row.visible()) continue;
+        const setting = new Setting(groupEl).setName(row.name);
+        if (row.desc) setting.setDesc(row.desc);
+        row.render(setting);
+      }
+    }
+  }
 
-    new Setting(containerEl)
-      .setName("Support development")
-      .setDesc("If you like the plugin and want to support its development, you can buy me a coffee.")
-      .addButton((btn) =>
-        btn.setButtonText("Buy me a coffee").onClick(() => {
-          window.open("https://buymeacoffee.com/felixleopold");
-        })
-      );
+  /** Re-applies `visible` predicates after a setting they depend on changes. */
+  private refreshVisibility(): void {
+    if (requireApiVersion("1.13.0")) this.refreshDomState();
+    else this.renderFallback();
+  }
+
+  /** Rebuilds every row, e.g. after the custom theme list changes. */
+  private rerender(): void {
+    if (requireApiVersion("1.13.0")) this.update();
+    else this.renderFallback();
   }
 
   // ─── Tab navigation ──────────────────────────
-  private buildTabBar(containerEl: HTMLElement): void {
-    this.tabButtons.clear();
-    const nav = containerEl.createDiv({
-      cls: "ocode-settings-tabs",
-      attr: { role: "tablist", "aria-label": "Settings sections" },
-    });
-    for (const tab of TABS) {
-      const active = tab.id === this.activeTab;
-      const btn = nav.createDiv({
-        cls: "ocode-settings-tab",
-        attr: { id: `ocode-settings-tab-${tab.id}`, role: "tab", tabindex: active ? "0" : "-1", "aria-selected": String(active) },
-      });
-      setIcon(btn.createSpan({ cls: "ocode-settings-tab-icon" }), tab.icon);
-      btn.createSpan({ cls: "ocode-settings-tab-label", text: tab.label });
-      btn.toggleClass("is-active", active);
-      btn.addEventListener("click", () => this.selectTab(tab.id));
-      btn.addEventListener("keydown", (e) => this.onTabKeydown(e, tab.id));
-      this.tabButtons.set(tab.id, btn);
-    }
+  private panel(tab: TabId, groups: Group[]): Group[] {
+    return groups.map((group) => ({ ...group, cls: `ocode-settings-panel ocode-settings-panel-${tab}` }));
+  }
+
+  private tabBar(): Row {
+    return {
+      name: "",
+      searchable: false,
+      render: (setting) => {
+        this.containerEl.addClass("ocode-settings");
+        this.containerEl.dataset.ocodeTab = this.activeTab;
+        setting.settingEl.addClass("ocode-settings-tabs-row");
+        this.tabButtons.clear();
+        const nav = setting.settingEl.createDiv({
+          cls: "ocode-settings-tabs",
+          attr: { role: "tablist", "aria-label": "CodeSuite settings sections" },
+        });
+        for (const tab of TABS) {
+          const active = tab.id === this.activeTab;
+          const btn = nav.createDiv({
+            cls: "ocode-settings-tab",
+            attr: { role: "tab", tabindex: active ? "0" : "-1", "aria-selected": String(active) },
+          });
+          setIcon(btn.createSpan({ cls: "ocode-settings-tab-icon" }), tab.icon);
+          btn.createSpan({ text: tab.label });
+          btn.toggleClass("is-active", active);
+          btn.addEventListener("click", () => this.selectTab(tab.id));
+          btn.addEventListener("keydown", (e) => this.onTabKeydown(e, tab.id));
+          this.tabButtons.set(tab.id, btn);
+        }
+
+        // Settings search (1.13+) scrolls to and flashes a result's row; if the
+        // row sits in a hidden tab, switch to that tab so the result is visible.
+        if (!requireApiVersion("1.13.0")) return;
+        const observer = new MutationObserver((records) => {
+          for (const { target } of records) {
+            if (!target.instanceOf(HTMLElement) || !target.hasClass("is-flashing")) continue;
+            const tab = TABS.find((t) => target.closest(`.ocode-settings-panel-${t.id}`));
+            if (!tab || tab.id === this.activeTab) continue;
+            this.selectTab(tab.id);
+            target.scrollIntoView({ block: "center" });
+          }
+        });
+        observer.observe(this.containerEl, { subtree: true, attributes: true, attributeFilter: ["class"] });
+        return () => observer.disconnect();
+      },
+    };
   }
 
   private onTabKeydown(e: KeyboardEvent, id: TabId): void {
     const idx = TABS.findIndex((t) => t.id === id);
-    let next = -1;
-    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = (idx + 1) % TABS.length;
-    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = (idx - 1 + TABS.length) % TABS.length;
+    let next: number;
+    if (e.key === "ArrowRight") next = (idx + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") next = (idx - 1 + TABS.length) % TABS.length;
     else if (e.key === "Home") next = 0;
     else if (e.key === "End") next = TABS.length - 1;
     else return;
@@ -161,838 +160,666 @@ export class CodeSettingTab extends PluginSettingTab {
 
   private selectTab(id: TabId): void {
     this.activeTab = id;
+    this.containerEl.dataset.ocodeTab = id;
+    this.containerEl.scrollTop = 0;
     for (const [tabId, btn] of this.tabButtons) {
       const active = tabId === id;
       btn.toggleClass("is-active", active);
       btn.setAttribute("aria-selected", String(active));
       btn.setAttribute("tabindex", active ? "0" : "-1");
     }
-    this.contentEl.setAttribute("aria-labelledby", `ocode-settings-tab-${id}`);
-    this.renderActiveTab();
   }
 
-  private renderActiveTab(): void {
-    const el = this.contentEl;
-    el.empty();
-    switch (this.activeTab) {
-      case "appearance": this.renderAppearance(el); break;
-      case "execution": this.renderExecution(el); break;
-      case "languages": this.renderLanguages(el); break;
-      case "files": this.renderFiles(el); break;
-      case "advanced": this.renderAdvanced(el); break;
-    }
+  // ─── Row helpers ─────────────────────────────
+  private toggle(key: BooleanKey, afterChange?: (value: boolean) => void): Row["render"] {
+    return (setting) => {
+      setting.addToggle((t) => {
+        t.setValue(this.plugin.settings[key]);
+        t.onChange(async (v) => {
+          this.plugin.settings[key] = v;
+          await this.plugin.saveSettings();
+          afterChange?.(v);
+        });
+      });
+    };
+  }
+
+  private text(key: StringKey, placeholder = ""): Row["render"] {
+    return (setting) => {
+      setting.addText((t) => {
+        t.setPlaceholder(placeholder);
+        t.setValue(this.plugin.settings[key]);
+        t.onChange(async (v) => { this.plugin.settings[key] = v.trim(); await this.plugin.saveSettings(); });
+      });
+    };
+  }
+
+  private textArea(key: StringKey, placeholder: string, rows: number, parse: (value: string) => string = (v) => v, afterChange?: () => void): Row["render"] {
+    return (setting) => {
+      setting.addTextArea((t) => {
+        t.setPlaceholder(placeholder);
+        t.setValue(this.plugin.settings[key]);
+        t.inputEl.rows = rows;
+        t.inputEl.cols = 40;
+        t.onChange(async (v) => {
+          this.plugin.settings[key] = parse(v);
+          await this.plugin.saveSettings();
+          afterChange?.();
+        });
+      });
+    };
   }
 
   // ─── Appearance ──────────────────────────────
-  private renderAppearance(containerEl: HTMLElement): void {
-    const aboutDiv = containerEl.createDiv({ cls: "ocode-settings-about" });
-    aboutDiv.createEl("p").textContent = "Replaces the default code block rendering with VS Code-quality syntax highlighting. Works in both reading view and editor (live preview / source mode).";
-
-    // ─── Theme ───────────────────────────────────
-    new Setting(containerEl).setName("Theme").setHeading();
-
-    // Build theme options: bundled + custom
-    const themeOptions: Record<string, string> = {};
-
-    // Group by category
-    const darkThemes: [string, string][] = [];
-    const lightThemes: [string, string][] = [];
+  private themeOptions(): Record<string, string> {
+    const dark: [string, string][] = [];
+    const light: [string, string][] = [];
     for (const [id, name] of Object.entries(BUNDLED_THEMES)) {
       if (name.toLowerCase().includes("light") || ["catppuccin-latte", "slack-ochin", "snazzy-light"].includes(id)) {
-        lightThemes.push([id, name]);
+        light.push([id, name]);
       } else {
-        darkThemes.push([id, name]);
+        dark.push([id, name]);
       }
     }
+    const options: Record<string, string> = {};
+    for (const [id, name] of dark.sort((a, b) => a[1].localeCompare(b[1]))) options[id] = `${name} ☾`;
+    for (const [id, name] of light.sort((a, b) => a[1].localeCompare(b[1]))) options[id] = `${name} ☀`;
+    for (const ct of this.plugin.settings.customThemes) options[themeId(ct)] = `${ct.name} (custom)`;
+    return options;
+  }
 
-    // Dark themes first (☾), then light themes (☀)
-    for (const [id, name] of darkThemes.sort((a, b) => a[1].localeCompare(b[1]))) {
-      themeOptions[id] = `${name} ☾`;
-    }
-    for (const [id, name] of lightThemes.sort((a, b) => a[1].localeCompare(b[1]))) {
-      themeOptions[id] = `${name} ☀`;
-    }
-    // Then custom themes
-    for (const ct of this.plugin.settings.customThemes) {
-      const id = ct.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-      themeOptions[id] = `${ct.name} (custom)`;
-    }
-
-    // ─── Auto-theme toggle (always first) ────────
-    new Setting(containerEl)
-      .setName("Auto-switch theme")
-      .setDesc("Automatically switch between a dark and a light theme when Obsidian's appearance changes.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.autoTheme);
-        t.onChange(async (v) => {
-          this.plugin.settings.autoTheme = v;
+  /** Dark or light auto-theme picker; applies immediately only in its own mode. */
+  private autoThemePicker(key: "darkAutoTheme" | "lightAutoTheme", dark: boolean): Row["render"] {
+    return (setting) => {
+      setting.addDropdown((dropdown) => {
+        dropdown.addOptions(this.themeOptions());
+        dropdown.setValue(this.plugin.settings[key]);
+        dropdown.onChange(async (value) => {
+          this.plugin.settings[key] = value;
+          // Applying the other mode's theme would show the wrong colors until
+          // the mode switches.
+          const active = activeDocument.body.classList.contains("theme-dark") === dark;
+          if (active) this.plugin.settings.theme = value;
           await this.plugin.saveSettings();
-          if (v) this.plugin.applyAutoTheme();
-          this.renderActiveTab();
+          if (active) {
+            this.plugin.applyThemeColors();
+            await this.plugin.refreshHighlighter();
+          }
         });
       });
+    };
+  }
 
-    if (this.plugin.settings.autoTheme) {
-      // When auto-switching is on, show dark + light pickers (hide the single theme picker)
-      new Setting(containerEl)
-        .setName("Dark mode theme")
-        .setDesc("Used when Obsidian is in dark mode.")
-        .addDropdown((dropdown) => {
-          for (const [value, name] of Object.entries(themeOptions)) {
-            dropdown.addOption(value, name);
+  private importTheme(): void {
+    const input = createEl("input");
+    input.type = "file";
+    input.accept = ".json";
+    input.addEventListener("change", () => {
+      void (async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        try {
+          const text = await file.text();
+          const json = JSON.parse(text) as { name?: string };
+          const name: string = (typeof json.name === "string" && json.name) || file.name.replace(/\.json$/, "");
+          const customTheme: CustomTheme = { name, json: text };
+          const id = this.plugin.highlighter.loadCustomTheme(customTheme);
+          if (!id) {
+            new Notice("Failed to load theme: invalid format.");
+            return;
           }
-          dropdown.setValue(this.plugin.settings.darkAutoTheme);
-          dropdown.onChange(async (value) => {
-            this.plugin.settings.darkAutoTheme = value;
-            // Only apply immediately when currently in dark mode — applying the
-            // wrong-mode theme produces incorrect colors until mode switches.
-            const isDark = activeDocument.body.classList.contains("theme-dark");
-            if (isDark) {
-              this.plugin.settings.theme = value;
-            }
-            await this.plugin.saveSettings();
-            if (isDark) {
-              this.plugin.applyThemeColors();
-              await this.plugin.refreshHighlighter();
-            }
-          });
-        });
+          this.plugin.settings.customThemes.push(customTheme);
+          this.plugin.settings.theme = id;
+          await this.plugin.saveSettings();
+          this.plugin.applyThemeColors();
+          new Notice(`Theme "${name}" imported and activated.`);
+          this.rerender();
+        } catch {
+          new Notice("Failed to parse theme file. Make sure it's a valid VS Code theme JSON.");
+        }
+      })();
+    });
+    input.click();
+  }
 
-      new Setting(containerEl)
-        .setName("Light mode theme")
-        .setDesc("Used when Obsidian is in light mode.")
-        .addDropdown((dropdown) => {
-          for (const [value, name] of Object.entries(themeOptions)) {
-            dropdown.addOption(value, name);
-          }
-          dropdown.setValue(this.plugin.settings.lightAutoTheme);
-          dropdown.onChange(async (value) => {
-            this.plugin.settings.lightAutoTheme = value;
-            const isDark = activeDocument.body.classList.contains("theme-dark");
-            if (!isDark) {
-              this.plugin.settings.theme = value;
-            }
-            await this.plugin.saveSettings();
-            if (!isDark) {
-              this.plugin.applyThemeColors();
-              await this.plugin.refreshHighlighter();
-            }
-          });
-        });
-    } else {
-      // When auto-switching is off, show the single theme picker
-      const themeSetting = new Setting(containerEl)
-        .setName("Syntax theme")
-        .addDropdown((dropdown) => {
-          for (const [value, name] of Object.entries(themeOptions)) {
-            dropdown.addOption(value, name);
-          }
-          dropdown.setValue(this.plugin.settings.theme);
-          dropdown.onChange(async (value) => {
-            this.plugin.settings.theme = value;
+  private customThemeRow(ct: CustomTheme): Row {
+    return {
+      name: ct.name,
+      desc: "Imported VS Code theme.",
+      render: (setting) => {
+        setting.addButton((btn) => {
+          btn.setButtonText("Remove");
+          btn.buttonEl.addClass("mod-warning");
+          btn.onClick(async () => {
+            this.plugin.settings.customThemes = this.plugin.settings.customThemes.filter((t) => t.name !== ct.name);
+            if (this.plugin.settings.theme === themeId(ct)) this.plugin.settings.theme = "gruvbox-dark-hard";
             await this.plugin.saveSettings();
             this.plugin.applyThemeColors();
             await this.plugin.refreshHighlighter();
+            this.rerender();
           });
         });
-      themeSetting.descEl["textContent"] = "Color scheme for code blocks. Applies to both reading view and editor. 65 built-in themes from VS Code / Shiki, plus any custom themes you import below.";
-    }
+      },
+    };
+  }
 
-    // ─── Custom Theme Import ─────────────────────
-    new Setting(containerEl)
-      .setName("Import VS Code theme")
-      .setDesc("Import a VS Code / TextMate color theme (.json). Find themes at https://vscodethemes.com or export from VS Code (Ctrl+Shift+P → \"Generate Color Theme From Current Settings\").")
-      .addButton((btn) => {
-        btn.buttonEl.textContent = "Import JSON file";
-        btn.onClick(() => {
-          const input = createEl("input");
-          input.type = "file";
-          input.accept = ".json";
-          input.addEventListener("change", () => {
-            void (async () => {
-              const file = input.files?.[0];
-              if (!file) return;
-              try {
-                const text = await file.text();
-                const json = JSON.parse(text) as { name?: string };
-                const name: string = (typeof json.name === "string" && json.name) || file.name.replace(/\.json$/, "");
-                const customTheme: CustomTheme = { name, json: text };
-                // Load into highlighter
-                const id = this.plugin.highlighter.loadCustomTheme(customTheme);
-                if (!id) {
-                  new Notice("Failed to load theme: invalid format.");
-                  return;
-                }
-                // Save and select
-                this.plugin.settings.customThemes.push(customTheme);
-                this.plugin.settings.theme = id;
-                await this.plugin.saveSettings();
-                this.plugin.applyThemeColors();
-                new Notice(`Theme "${name}" imported and activated.`);
-                this.renderActiveTab(); // Refresh the settings UI
-              } catch {
-                new Notice("Failed to parse theme file. Make sure it's a valid VS Code theme JSON.");
-              }
-            })();
-          });
-          input.click();
-        });
-      });
-
-    // List existing custom themes with delete buttons
-    if (this.plugin.settings.customThemes.length > 0) {
-      for (const ct of this.plugin.settings.customThemes) {
-        new Setting(containerEl)
-          .setName(ct.name)
-          .setDesc("Custom imported theme")
-          .addButton((btn) => {
-            btn.setButtonText("Remove");
-            btn.buttonEl.addClass("mod-warning");
-            btn.onClick(async () => {
-              this.plugin.settings.customThemes = this.plugin.settings.customThemes.filter((t) => t.name !== ct.name);
-              // If this was the active theme, switch to default
-              const id = ct.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-              if (this.plugin.settings.theme === id) {
-                this.plugin.settings.theme = "gruvbox-dark-hard";
-              }
-              await this.plugin.saveSettings();
-              this.plugin.applyThemeColors();
-              await this.plugin.refreshHighlighter();
-              this.renderActiveTab();
-            });
-          });
-      }
-    }
-
-    // ─── Code block display ──────────────────────
-    new Setting(containerEl).setName("Code block display").setHeading();
-
-    new Setting(containerEl)
-      .setName("Follow Obsidian code size")
-      .setDesc("Use Obsidian's code font size and respond automatically to Appearance and theme changes.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.codeFontSize === null);
-        t.onChange(async (v) => {
-          this.plugin.settings.codeFontSize = v ? null : 13.5;
-          this.plugin.applyCodeFontSize();
-          await this.plugin.saveSettings();
-          this.renderActiveTab();
-        });
-      });
-
-    if (this.plugin.settings.codeFontSize !== null) {
-      new Setting(containerEl)
-        .setName("Custom code size")
-        .setDesc("Code font size in pixels.")
-        .addSlider((s) => {
-          s.setLimits(8, 24, 0.5);
-          s.setValue(this.plugin.settings.codeFontSize ?? 13.5);
-          s.onChange(async (v) => {
-            this.plugin.settings.codeFontSize = v;
-            this.plugin.applyCodeFontSize();
-            await this.plugin.saveSettings();
-          });
-        });
-    }
-
-    new Setting(containerEl)
-      .setName("Line numbers")
-      .setDesc("Show line numbers in code blocks. Per-block line-number fence options override this default.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.showLineNumbers);
-        t.onChange(async (v) => {
-          this.plugin.settings.showLineNumbers = v;
-          await this.plugin.saveSettings();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Language label")
-      .setDesc("Show the language name in the code block header bar.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.showLanguageLabel);
-        t.onChange(async (v) => { this.plugin.settings.showLanguageLabel = v; await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Wide code blocks")
-      .setDesc("Allow code blocks to extend beyond the normal content width for more horizontal space.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.wideCodeBlocks);
-        t.onChange(async (v) => {
-          this.plugin.settings.wideCodeBlocks = v;
-          await this.plugin.saveSettings();
-          activeDocument.body.toggleClass("ocode-wide-blocks", v);
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Soft-wrap long lines")
-      .setDesc("Wrap long lines in reading view instead of showing a horizontal scrollbar, matching the editor's behavior.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.wrapCodeInReadingView);
-        t.onChange(async (v) => {
-          this.plugin.settings.wrapCodeInReadingView = v;
-          await this.plugin.saveSettings();
-          activeDocument.body.toggleClass("ocode-wrap-code", v);
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Tab key in code blocks")
-      .setDesc("Use Tab and Shift+Tab for indentation inside fenced code blocks. Press Escape, then Tab to move focus out of the editor.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.enableCodeBlockTab);
-        t.onChange(async (v) => {
-          this.plugin.settings.enableCodeBlockTab = v;
-          await this.plugin.saveSettings();
-          this.renderActiveTab();
-        });
-      });
-
-    if (this.plugin.settings.enableCodeBlockTab) {
-      new Setting(containerEl)
-        .setName("Code block indentation")
-        .setDesc("Detect indentation from the current block and matching language blocks, or always insert a specific style. Automatic mode falls back to tabs.")
-        .addDropdown((d) => {
-          d.addOption("auto", "Detect automatically");
-          d.addOption("tabs", "Tabs");
-          d.addOption("2-spaces", "2 spaces");
-          d.addOption("4-spaces", "4 spaces");
-          d.addOption("8-spaces", "8 spaces");
-          d.setValue(this.plugin.settings.codeBlockIndentation);
-          d.onChange(async (v) => {
-            switch (v) {
-              case "auto":
-              case "tabs":
-              case "2-spaces":
-              case "4-spaces":
-              case "8-spaces":
-                this.plugin.settings.codeBlockIndentation = v;
-                break;
-              default:
-                return;
-            }
-            await this.plugin.saveSettings();
-          });
-        });
-    }
-
-    new Setting(containerEl)
-      .setName("Collapse code blocks by default")
-      .setDesc("Start every code block collapsed in reading view and live preview. Click the header to expand or collapse it. Per-block collapse/collapsed/expanded flags and fold=true/fold=false aliases override this default.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.inlineCollapsedByDefault);
-        t.onChange(async (v) => {
-          this.plugin.settings.inlineCollapsedByDefault = v;
-          await this.plugin.saveSettings();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
-
-    // ─── Inline code ─────────────────────────────
-    new Setting(containerEl).setName("Inline code").setHeading();
-
-    new Setting(containerEl)
-      .setName("Enhanced inline code styling")
-      .setDesc("Give ordinary Markdown inline code a stronger background, border, and spacing so it stands out in prose.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.styleInlineCode);
-        t.onChange(async (v) => {
-          this.plugin.settings.styleInlineCode = v;
-          await this.plugin.saveSettings();
-          this.app.workspace.updateOptions();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Inline syntax highlighting")
-      .setDesc("Highlight inline code that starts with a language prefix, for example `{python} result = values.sum()`.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.highlightInlineCode);
-        t.onChange(async (v) => {
-          this.plugin.settings.highlightInlineCode = v;
-          await this.plugin.saveSettings();
-          this.app.workspace.updateOptions();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("CodeSuite variables panel")
-      .setDesc(
-        "Show code_vars / template_context frontmatter as a read-only list below the Properties widget in reading view. " +
-        "Either way CodeSuite hides Obsidian's \"unsupported property type\" warning for these nested fields; this only controls whether the list is also rendered."
-      )
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.showFrontmatterVarsPanel);
-        t.onChange(async (v) => {
-          this.plugin.settings.showFrontmatterVarsPanel = v;
-          await this.plugin.saveSettings();
-          this.plugin.refreshFrontmatterPanels();
-        });
-      });
-
-    // ─── HTML blocks ─────────────────────────────
-    new Setting(containerEl).setName("HTML blocks").setHeading();
-
-    new Setting(containerEl)
-      .setName("Render HTML blocks")
-      .setDesc(
-        "Show html code blocks as a live preview by default instead of their source. " +
-        "Override per block with a `preview` or `source` flag on the fence (e.g. ```html preview). " +
-        "Either way the block gets a Preview/Code toggle."
-      )
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.renderHtmlBlocks);
-        t.onChange(async (v) => {
-          this.plugin.settings.renderHtmlBlocks = v;
-          await this.plugin.saveSettings();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("PDF export for HTML blocks")
-      .setDesc(
-        "Add a PDF pill to rendered html blocks to save or print just that block on an A4 page — handy for invoices or other documents. " +
-        "Override per block with a `pdf` or `nopdf` flag on the fence (e.g. ```html pdf); `pdf` alone also renders the block. Desktop only."
-      )
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.htmlBlockPdfExport);
-        t.onChange(async (v) => {
-          this.plugin.settings.htmlBlockPdfExport = v;
-          await this.plugin.saveSettings();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("HTML block templating")
-      .setDesc(
-        "Render html blocks that contain {{ … }} as templates — interpolate frontmatter and vars, include shared partials from your imports folder, and loop over lists. " +
-        "Off by default so framework demos that use {{ }} render literally; opt a single block in with a `template` flag on the fence (e.g. ```html template), which always works regardless of this toggle."
-      )
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.htmlTemplating);
-        t.onChange(async (v) => {
-          this.plugin.settings.htmlTemplating = v;
-          await this.plugin.saveSettings();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
+  private appearance(): Group[] {
+    const s = this.plugin.settings;
+    return [
+      {
+        type: "group",
+        heading: "Theme",
+        items: [
+          {
+            name: "Match Obsidian's light and dark mode",
+            desc: "Use separate themes for light and dark mode and switch automatically.",
+            render: this.toggle("autoTheme", (v) => {
+              if (v) this.plugin.applyAutoTheme();
+              this.refreshVisibility();
+            }),
+          },
+          {
+            name: "Syntax theme",
+            desc: "Color scheme for code blocks in reading view and the editor.",
+            visible: () => !s.autoTheme,
+            render: (setting) => {
+              setting.addDropdown((dropdown) => {
+                dropdown.addOptions(this.themeOptions());
+                dropdown.setValue(s.theme);
+                dropdown.onChange(async (value) => {
+                  s.theme = value;
+                  await this.plugin.saveSettings();
+                  this.plugin.applyThemeColors();
+                  await this.plugin.refreshHighlighter();
+                });
+              });
+            },
+          },
+          { name: "Dark mode theme", visible: () => s.autoTheme, render: this.autoThemePicker("darkAutoTheme", true) },
+          { name: "Light mode theme", visible: () => s.autoTheme, render: this.autoThemePicker("lightAutoTheme", false) },
+          {
+            name: "Import VS Code theme",
+            desc: "Add a VS Code or TextMate color theme from a .json file, e.g. from vscodethemes.com.",
+            render: (setting) => {
+              setting.addButton((btn) => btn.setButtonText("Import JSON file").onClick(() => this.importTheme()));
+            },
+          },
+          ...s.customThemes.map((ct) => this.customThemeRow(ct)),
+        ],
+      },
+      {
+        type: "group",
+        heading: "Code blocks",
+        items: [
+          {
+            name: "Follow Obsidian code size",
+            desc: "Use the font size from Obsidian's Appearance settings.",
+            render: (setting) => {
+              setting.addToggle((t) => {
+                t.setValue(s.codeFontSize === null);
+                t.onChange(async (v) => {
+                  s.codeFontSize = v ? null : 13.5;
+                  this.plugin.applyCodeFontSize();
+                  await this.plugin.saveSettings();
+                  this.refreshVisibility();
+                });
+              });
+            },
+          },
+          {
+            name: "Custom code size",
+            desc: "Code font size in pixels.",
+            visible: () => s.codeFontSize !== null,
+            render: (setting) => {
+              setting.addSlider((slider) => {
+                slider.setLimits(8, 24, 0.5);
+                slider.setValue(s.codeFontSize ?? 13.5);
+                slider.onChange(async (v) => {
+                  s.codeFontSize = v;
+                  this.plugin.applyCodeFontSize();
+                  await this.plugin.saveSettings();
+                });
+              });
+            },
+          },
+          {
+            name: "Line numbers",
+            desc: "Per-block line-number options override this.",
+            render: this.toggle("showLineNumbers", () => this.plugin.refreshRenderedBlocks()),
+          },
+          {
+            name: "Language label",
+            desc: "Show the language name in the block header.",
+            render: this.toggle("showLanguageLabel"),
+          },
+          {
+            name: "Wide code blocks",
+            desc: "Let code blocks extend beyond the normal content width.",
+            render: this.toggle("wideCodeBlocks", (v) => activeDocument.body.toggleClass("ocode-wide-blocks", v)),
+          },
+          {
+            name: "Soft-wrap long lines",
+            desc: "Wrap long lines in reading view instead of scrolling horizontally.",
+            render: this.toggle("wrapCodeInReadingView", (v) => activeDocument.body.toggleClass("ocode-wrap-code", v)),
+          },
+          {
+            name: "Collapse code blocks by default",
+            desc: "Start blocks collapsed; click the header to expand. Per-block collapse, expanded, and fold flags override this.",
+            render: this.toggle("inlineCollapsedByDefault", () => this.plugin.refreshRenderedBlocks()),
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Editing",
+        items: [
+          {
+            name: "Tab key in code blocks",
+            desc: "Indent with Tab and Shift+Tab inside fenced code blocks. Press Escape, then Tab, to leave the editor.",
+            render: this.toggle("enableCodeBlockTab", () => this.refreshVisibility()),
+          },
+          {
+            name: "Code block indentation",
+            desc: "Detect from the block and matching language blocks, or always insert one style. Detection falls back to tabs.",
+            visible: () => s.enableCodeBlockTab,
+            render: (setting) => {
+              setting.addDropdown((d) => {
+                d.addOptions({
+                  auto: "Detect automatically",
+                  tabs: "Tabs",
+                  "2-spaces": "2 spaces",
+                  "4-spaces": "4 spaces",
+                  "8-spaces": "8 spaces",
+                });
+                d.setValue(s.codeBlockIndentation);
+                d.onChange(async (v) => {
+                  switch (v) {
+                    case "auto":
+                    case "tabs":
+                    case "2-spaces":
+                    case "4-spaces":
+                    case "8-spaces":
+                      s.codeBlockIndentation = v;
+                      break;
+                    default:
+                      return;
+                  }
+                  await this.plugin.saveSettings();
+                });
+              });
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Inline code",
+        items: [
+          {
+            name: "Enhanced inline code styling",
+            desc: "Give inline code a stronger background, border, and spacing.",
+            render: this.toggle("styleInlineCode", () => {
+              this.app.workspace.updateOptions();
+              this.plugin.refreshRenderedBlocks();
+            }),
+          },
+          {
+            name: "Inline syntax highlighting",
+            desc: "Highlight inline code with a language prefix, e.g. `{python} values.sum()`.",
+            render: this.toggle("highlightInlineCode", () => {
+              this.app.workspace.updateOptions();
+              this.plugin.refreshRenderedBlocks();
+            }),
+          },
+          {
+            name: "CodeSuite variables panel",
+            desc: "List code_vars and template_context frontmatter below Properties in reading view. Obsidian's unsupported-type warning for these fields is hidden either way.",
+            render: this.toggle("showFrontmatterVarsPanel", () => this.plugin.refreshFrontmatterPanels()),
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "HTML blocks",
+        items: [
+          {
+            name: "Render HTML blocks",
+            desc: "Show html blocks as a live preview instead of source. Override per block with a preview or source flag.",
+            render: this.toggle("renderHtmlBlocks", () => this.plugin.refreshRenderedBlocks()),
+          },
+          {
+            name: "PDF export for HTML blocks",
+            desc: "Add a PDF button to rendered html blocks to save or print just that block on A4. Override per block with pdf or nopdf. Desktop only.",
+            render: this.toggle("htmlBlockPdfExport", () => this.plugin.refreshRenderedBlocks()),
+          },
+          {
+            name: "HTML block templating",
+            desc: "Render html blocks containing {{ … }} as templates with frontmatter, vars, partials, and loops. A template flag on the fence opts in a single block.",
+            render: this.toggle("htmlTemplating", () => this.plugin.refreshRenderedBlocks()),
+          },
+        ],
+      },
+    ];
   }
 
   // ─── Execution ───────────────────────────────
-  private renderExecution(containerEl: HTMLElement): void {
-    const execDesc = containerEl.createDiv({ cls: "setting-item-description ocode-exec-desc" });
-    execDesc.appendText("Code runs ");
-    execDesc.createEl("b").appendChild(activeDocument.createTextNode("locally on your machine"));
-    execDesc.appendText(" using your installed language runtimes. Supported: Python (");
-    execDesc.createEl("code").appendChild(activeDocument.createTextNode("python3"));
-    execDesc.appendText("), JavaScript (");
-    execDesc.createEl("code").appendChild(activeDocument.createTextNode("node"));
-    execDesc.appendText("), TypeScript (");
-    execDesc.createEl("code").appendChild(activeDocument.createTextNode("npx tsx"));
-    execDesc.appendText("), PowerShell (");
-    execDesc.createEl("code").appendChild(activeDocument.createTextNode("pwsh"));
-    execDesc.appendText("), Bash/Shell, and MATLAB through the Engine API. Output (stdout/stderr) appears in the same output panel. Compatible subprocess runtimes also support interactive stdin.");
-
-    new Setting(containerEl)
-      .setName("Enable code execution")
-      .setDesc("Show a run button on code blocks for supported languages. Desktop only.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.enableExecution);
-        t.onChange(async (v) => { this.plugin.settings.enableExecution = v; await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Static blocks by default")
-      .setDesc("Keep fenced code blocks highlighted but non-executable by default. Add static=false to a fence to make an individual block executable.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.staticBlocksByDefault);
-        t.onChange(async (v) => {
-          this.plugin.settings.staticBlocksByDefault = v;
-          await this.plugin.saveSettings();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Show clear-session button")
-      .setDesc("Show the 'Clear execution session' button in the note header bar. Disable to declutter the tab bar — the 'Clear execution session for this note' command still works. Desktop only; never shown on mobile.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.showClearSessionButton);
-        t.onChange(async (v) => {
-          this.plugin.settings.showClearSessionButton = v;
-          await this.plugin.saveSettings();
-          this.plugin.refreshViewActions();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Shared execution context")
-      .setDesc("When enabled, each code block you run accumulates into a per-note session. Later blocks can reference variables defined in earlier blocks (Python, Bash, and Zsh). The session is note-specific, lives in memory only, and resets when Obsidian is closed. Use the 'Clear execution session' command to reset manually. Run blocks top-to-bottom — order matters.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.sharedContext);
-        t.onChange(async (v) => { this.plugin.settings.sharedContext = v; await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Execution timeout")
-      .setDesc("Maximum seconds before a running process is automatically killed.")
-      .addSlider((s) => {
-        s.setLimits(5, 300, 5);
-        s.setValue(this.plugin.settings.executionTimeout / 1000);
-        s.onChange(async (v) => { this.plugin.settings.executionTimeout = v * 1000; await this.plugin.saveSettings(); });
-      });
-
-    // ─── Environment ─────────────────────────────
-    new Setting(containerEl).setName("Environment").setHeading();
-
+  private execution(): Group[] {
+    const s = this.plugin.settings;
     const cwdOptions: Record<ExecutionCwdMode, string> = {
       vault: "Vault root",
       home: "Home directory",
       custom: "Custom path",
     };
-
-    new Setting(containerEl)
-      .setName("Working directory")
-      .setDesc("Directory code executes in. The vault root is recommended so scripts can access vault files with relative paths.")
-      .addDropdown((dropdown) => {
-        for (const [value, label] of Object.entries(cwdOptions)) {
-          dropdown.addOption(value, label);
-        }
-        dropdown.setValue(this.plugin.settings.executionCwd);
-        dropdown.onChange(async (value) => {
-          this.plugin.settings.executionCwd = value as ExecutionCwdMode;
-          await this.plugin.saveSettings();
-          this.renderActiveTab();
-        });
-      });
-
-    if (this.plugin.settings.executionCwd === "custom") {
-      new Setting(containerEl)
-        .setName("Custom working directory")
-        .setDesc("Absolute path to use as the working directory for code execution.")
-        .addText((t) => {
-          t.inputEl["placeholder"] = "/path/to/directory";
-          t.setValue(this.plugin.settings.executionCwdCustom);
-          t.onChange(async (v) => { this.plugin.settings.executionCwdCustom = v.trim(); await this.plugin.saveSettings(); });
-        });
-    }
-
-    const envSetting = new Setting(containerEl)
-      .setName("Extra environment variables")
-      .addTextArea((t) => {
-        t.inputEl["placeholder"] = "PYTHONPATH=/path/to/libs\nMY_VAR=value";
-        t.setValue(this.plugin.settings.extraEnv);
-        t.inputEl.rows = 4;
-        t.inputEl.cols = 40;
-        t.onChange(async (v) => { this.plugin.settings.extraEnv = v; await this.plugin.saveSettings(); });
-      });
-    envSetting.descEl["textContent"] = "Additional environment variables passed to executed code (one KEY=VALUE per line). Useful for PYTHONPATH, API keys, etc.";
-
-    new Setting(containerEl)
-      .setName(".env file path")
-      .setDesc("Absolute path to a .env file. Variables are loaded into the process environment at execution time. Values from \"Extra environment variables\" (and frontmatter) override anything declared here, so a shared project .env can be mixed with per-note overrides.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "/path/to/project/.env";
-        t.setValue(this.plugin.settings.envFilePath);
-        t.onChange(async (v) => { this.plugin.settings.envFilePath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    // ─── Plots ───────────────────────────────────
-    new Setting(containerEl).setName("Plots").setHeading();
-
-    new Setting(containerEl)
-      .setName("Interactive plots")
-      .setDesc("Render Plotly figures as interactive HTML widgets (zoom, pan, hover, legend toggles) instead of static images. The static fallback needs the 'kaleido' package; the interactive path does not. Matplotlib figures are always static images.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.interactivePlots);
-        t.onChange(async (v) => {
-          this.plugin.settings.interactivePlots = v;
-          await this.plugin.saveSettings();
-          this.renderActiveTab();
-        });
-      });
-
-    if (this.plugin.settings.interactivePlots) {
-      new Setting(containerEl)
-        .setName("Embed Plotly.js offline")
-        .setDesc("Bundle the Plotly.js library inline with each interactive plot so it renders without internet. Produces larger output; when off, the library is loaded from a CDN.")
-        .addToggle((t) => {
-          t.setValue(this.plugin.settings.embedPlotlyJs);
-          t.onChange(async (v) => { this.plugin.settings.embedPlotlyJs = v; await this.plugin.saveSettings(); });
-        });
-    }
-
-    new Setting(containerEl)
-      .setName("Matplotlib style")
-      .setDesc("Style applied to all Matplotlib plots. Use a built-in name (e.g. dark_background, seaborn-v0_8-darkgrid) or an absolute path to a .mplstyle file. Leave blank for Matplotlib defaults.")
-      .addText((t) => {
-        t.setValue(this.plugin.settings.matplotlibStyle);
-        t.onChange(async (v) => { this.plugin.settings.matplotlibStyle = v.trim(); await this.plugin.saveSettings(); });
-      });
+    return [
+      {
+        type: "group",
+        heading: "Running code",
+        items: [
+          {
+            name: "Enable code execution",
+            desc: "Show a run button on supported code blocks. Code runs locally with your installed runtimes. Desktop only.",
+            render: this.toggle("enableExecution"),
+          },
+          {
+            name: "Static blocks by default",
+            desc: "Keep blocks highlighted but not runnable. Add static=false to a fence to make one block runnable.",
+            render: this.toggle("staticBlocksByDefault", () => this.plugin.refreshRenderedBlocks()),
+          },
+          {
+            name: "Shared execution context",
+            desc: "Blocks in a note share one in-memory session, so later blocks can use earlier variables (Python, Bash, Zsh). Run blocks top to bottom.",
+            render: this.toggle("sharedContext"),
+          },
+          {
+            name: "Show clear-session button",
+            desc: "Show the clear-session button in the note header. The command works either way. Desktop only.",
+            render: this.toggle("showClearSessionButton", () => this.plugin.refreshViewActions()),
+          },
+          {
+            name: "Execution timeout",
+            desc: "Seconds before a running process is stopped.",
+            render: (setting) => {
+              setting.addSlider((slider) => {
+                slider.setLimits(5, 300, 5);
+                slider.setValue(s.executionTimeout / 1000);
+                slider.onChange(async (v) => { s.executionTimeout = v * 1000; await this.plugin.saveSettings(); });
+              });
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Environment",
+        items: [
+          {
+            name: "Working directory",
+            desc: "Where code runs. The vault root lets scripts use vault-relative paths.",
+            render: (setting) => {
+              setting.addDropdown((dropdown) => {
+                dropdown.addOptions(cwdOptions);
+                dropdown.setValue(s.executionCwd);
+                dropdown.onChange(async (value) => {
+                  s.executionCwd = value as ExecutionCwdMode;
+                  await this.plugin.saveSettings();
+                  this.refreshVisibility();
+                });
+              });
+            },
+          },
+          {
+            name: "Custom working directory",
+            desc: "Absolute path code runs in.",
+            visible: () => s.executionCwd === "custom",
+            render: this.text("executionCwdCustom", "/path/to/directory"),
+          },
+          {
+            name: "Extra environment variables",
+            desc: "One KEY=VALUE per line, e.g. PYTHONPATH or API keys.",
+            render: this.textArea("extraEnv", "PYTHONPATH=/path/to/libs\nMY_VAR=value", 4),
+          },
+          {
+            name: ".env file path",
+            desc: "Absolute path to a .env file loaded before each run. Extra variables and frontmatter override it.",
+            render: this.text("envFilePath", "/path/to/project/.env"),
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Plots",
+        items: [
+          {
+            name: "Interactive plots",
+            desc: "Render Plotly figures as interactive widgets instead of static images, which need kaleido. Matplotlib is always static.",
+            render: this.toggle("interactivePlots", () => this.refreshVisibility()),
+          },
+          {
+            name: "Embed Plotly.js offline",
+            desc: "Bundle Plotly.js with each plot so it renders without internet. Larger output; otherwise it loads from a CDN.",
+            visible: () => s.interactivePlots,
+            render: this.toggle("embedPlotlyJs"),
+          },
+          {
+            name: "Matplotlib style",
+            desc: "Built-in style name or absolute path to a .mplstyle file. Leave blank for defaults.",
+            render: this.text("matplotlibStyle", "dark_background"),
+          },
+        ],
+      },
+    ];
   }
 
   // ─── Languages ───────────────────────────────
-  private renderLanguages(containerEl: HTMLElement): void {
-    const aboutDiv = containerEl.createDiv({ cls: "ocode-settings-about" });
-    aboutDiv.createEl("p").textContent = "Interpreter paths and per-language options. Leave a path blank to use the system default.";
-
-    new Setting(containerEl).setName("Code block passthrough").setHeading();
-
-    const passthroughSetting = new Setting(containerEl)
-      .setName("Additional passthrough languages")
-      .addTextArea((t) => {
-        t.inputEl["placeholder"] = "base\nd2\nvid";
-        t.setValue(this.plugin.settings.additionalPassthroughLanguages);
-        t.inputEl.rows = 4;
-        t.inputEl.cols = 40;
-        t.onChange(async (v) => {
-          this.plugin.settings.additionalPassthroughLanguages = parsePassthroughLanguages(v).join("\n");
-          await this.plugin.saveSettings();
-          this.plugin.refreshRenderedBlocks();
-        });
-      });
-    passthroughSetting.descEl["textContent"] = "Fenced-code languages CodeSuite leaves untouched for Obsidian or another plugin to render, one per line. Entries are trimmed and lowercased. Defaults: base, d2, and vid. Built-in passthrough: mermaid, dataview, dataviewjs, and query.";
-
-    new Setting(containerEl).setName("Interpreters").setHeading();
-
-    new Setting(containerEl)
-      .setName("Python path")
-      .setDesc("Absolute path to Python binary or virtualenv (e.g. /path/to/venv/bin/python3). When pointing to a venv, its tools (pip, playwright, etc.) are available to all languages including bash.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "python3";
-        t.setValue(this.plugin.settings.pythonPath);
-        t.onChange(async (v) => { this.plugin.settings.pythonPath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("MATLAB Python path")
-      .setDesc("Absolute path to a Python interpreter with a MATLAB Engine package compatible with your MATLAB release. Clear the note session after changing this path.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "/path/to/matlab-venv/bin/python3";
-        t.setValue(this.plugin.settings.matlabPythonPath);
-        t.onChange(async (v) => { this.plugin.settings.matlabPythonPath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Session idle timeout")
-      .setDesc("Shut down an inactive MATLAB Engine after this many minutes to release memory; the next run starts a fresh session. Set to 0 for Never.")
-      .addSlider((s) => {
-        s.setLimits(0, 60, 1);
-        s.setValue(Math.max(0, Math.round(this.plugin.settings.matlabSessionIdleTimeout / 60_000)));
-        s.onChange(async (minutes) => {
-          this.plugin.settings.matlabSessionIdleTimeout = minutes * 60_000;
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Node.js path")
-      .setDesc("Absolute path to Node.js binary. Leave empty to use the system default.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "node";
-        t.setValue(this.plugin.settings.nodePath);
-        t.onChange(async (v) => { this.plugin.settings.nodePath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Bash path")
-      .setDesc("Absolute path to the bash executable, used by `bash` code blocks. Leave empty to resolve `bash` via PATH (e.g. /opt/homebrew/bin/bash on Apple Silicon).")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "bash";
-        t.setValue(this.plugin.settings.bashPath);
-        t.onChange(async (v) => { this.plugin.settings.bashPath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Zsh path")
-      .setDesc("Absolute path to the zsh executable. Leave empty to resolve `zsh` via PATH (typically /bin/zsh on macOS). Must point at a zsh-compatible binary — variable tracking emits zsh syntax, so pointing this at bash will fail.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "zsh";
-        t.setValue(this.plugin.settings.zshPath);
-        t.onChange(async (v) => { this.plugin.settings.zshPath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Shell (sh) path")
-      .setDesc("Absolute path used by `shell` and `sh` code blocks. Defaults to /bin/sh (POSIX sh). Point at /opt/homebrew/bin/bash if you want these blocks to run under modern bash.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "sh";
-        t.setValue(this.plugin.settings.shPath);
-        t.onChange(async (v) => { this.plugin.settings.shPath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Rscript path")
-      .setDesc("Absolute path to Rscript, used by `r` code blocks. Leave empty to resolve `Rscript` via PATH. On Windows, R's installer does not add itself to PATH (e.g. C:\\Program Files\\R\\R-4.5.1\\bin\\Rscript.exe).")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "Rscript";
-        t.setValue(this.plugin.settings.rPath);
-        t.onChange(async (v) => { this.plugin.settings.rPath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Dotnet path")
-      .setDesc("Absolute path to the dotnet executable, used by `csharp` code blocks. Requires .NET 10 or later. Leave empty to resolve `dotnet` via PATH.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "dotnet";
-        t.setValue(this.plugin.settings.dotnetPath);
-        t.onChange(async (v) => { this.plugin.settings.dotnetPath = v.trim(); await this.plugin.saveSettings(); });
-      });
-
-    if (Platform.isWin) {
-      new Setting(containerEl)
-        .setName("WSL path translation")
-        .setDesc("Windows only. WSL shells need temp script paths as /mnt/c/… rather than C:\\…. Auto detects WSL from the shell interpreter; force On for a custom WSL setup, or Off if your bash/zsh/sh is Git Bash, Cygwin, or MSYS.")
-        .addDropdown((d) => {
-          d.addOption("auto", "Auto-detect");
-          d.addOption("on", "On (always translate)");
-          d.addOption("off", "Off (never translate)");
-          d.setValue(this.plugin.settings.wslMode);
-          d.onChange(async (v) => {
-            this.plugin.settings.wslMode = v as "auto" | "on" | "off";
-            await this.plugin.saveSettings();
-          });
-        });
-    }
-
-    // ─── Shell startup ───────────────────────────
-    new Setting(containerEl).setName("Shell startup").setHeading();
-
-    new Setting(containerEl)
-      .setName("Run bash/zsh as login shell")
-      .setDesc("Run Bash and Zsh executions in login mode so startup files can initialize PATH, aliases, and functions.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.shellLogin);
-        t.onChange(async (v) => { this.plugin.settings.shellLogin = v; await this.plugin.saveSettings(); });
-      });
-
-    const sourceSetting = new Setting(containerEl)
-      .setName("Shell source files")
-      .addTextArea((t) => {
-        t.inputEl["placeholder"] = "/Users/you/.bashrc\n/Users/you/.config/codesuite/env.sh";
-        t.setValue(this.plugin.settings.shellSourceFiles);
-        t.inputEl.rows = 3;
-        t.inputEl.cols = 40;
-        t.onChange(async (v) => { this.plugin.settings.shellSourceFiles = v; await this.plugin.saveSettings(); });
-      });
-    sourceSetting.descEl["textContent"] = "Absolute paths to files sourced before Bash, Zsh, and Shell blocks run, one per line. Lines starting with # are ignored.";
-
-    // ─── PHP ─────────────────────────────────────
-    new Setting(containerEl).setName("PHP").setHeading();
-
-    new Setting(containerEl)
-      .setName("Auto-prepend php opening tag")
-      .setDesc("Run php snippets that omit an opening <?php tag by adding one at execution time. The note text is not changed.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.autoPrependPhpOpenTag);
-        t.onChange(async (v) => { this.plugin.settings.autoPrependPhpOpenTag = v; await this.plugin.saveSettings(); });
-      });
+  private languages(): Group[] {
+    const s = this.plugin.settings;
+    return [
+      {
+        type: "group",
+        heading: "Interpreters",
+        items: [
+          {
+            name: "Python path",
+            desc: "Python binary or virtualenv interpreter; a venv's tools are also available to other languages. Leave any interpreter path blank to find it on PATH.",
+            render: this.text("pythonPath", "python3"),
+          },
+          { name: "Node.js path", render: this.text("nodePath", "node") },
+          {
+            name: "Bash path",
+            desc: "Used by bash blocks, e.g. /opt/homebrew/bin/bash.",
+            render: this.text("bashPath", "bash"),
+          },
+          {
+            name: "Zsh path",
+            desc: "Must be zsh-compatible; variable tracking emits zsh syntax.",
+            render: this.text("zshPath", "zsh"),
+          },
+          {
+            name: "Shell (sh) path",
+            desc: "Used by shell and sh blocks.",
+            render: this.text("shPath", "sh"),
+          },
+          {
+            name: "Rscript path",
+            desc: "Used by r blocks. On Windows, R is not on PATH by default.",
+            render: this.text("rPath", "Rscript"),
+          },
+          {
+            name: "Dotnet path",
+            desc: "Used by csharp blocks. Requires .NET 10 or later.",
+            render: this.text("dotnetPath", "dotnet"),
+          },
+          {
+            name: "WSL path translation",
+            desc: "Pass script paths to WSL shells as /mnt/c/…. Choose Off for Git Bash, Cygwin, or MSYS.",
+            visible: () => Platform.isWin,
+            render: (setting) => {
+              setting.addDropdown((d) => {
+                d.addOptions({ auto: "Auto-detect", on: "On (always translate)", off: "Off (never translate)" });
+                d.setValue(s.wslMode);
+                d.onChange(async (v) => {
+                  s.wslMode = v as "auto" | "on" | "off";
+                  await this.plugin.saveSettings();
+                });
+              });
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "MATLAB",
+        items: [
+          {
+            name: "MATLAB Python path",
+            desc: "Python interpreter with a MATLAB Engine package for your MATLAB release. Clear the note session after changing it.",
+            render: this.text("matlabPythonPath", "/path/to/matlab-venv/bin/python3"),
+          },
+          {
+            name: "Session idle timeout",
+            desc: "Minutes before an idle MATLAB Engine shuts down to free memory. 0 means never.",
+            render: (setting) => {
+              setting.addSlider((slider) => {
+                slider.setLimits(0, 60, 1);
+                slider.setValue(Math.max(0, Math.round(s.matlabSessionIdleTimeout / 60_000)));
+                slider.onChange(async (minutes) => {
+                  s.matlabSessionIdleTimeout = minutes * 60_000;
+                  await this.plugin.saveSettings();
+                });
+              });
+            },
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Shell startup",
+        items: [
+          {
+            name: "Run bash/zsh as login shell",
+            desc: "Let startup files set up PATH, aliases, and functions.",
+            render: this.toggle("shellLogin"),
+          },
+          {
+            name: "Shell source files",
+            desc: "Files sourced before Bash, Zsh, and Shell blocks, one absolute path per line. Lines starting with # are ignored.",
+            render: this.textArea("shellSourceFiles", "/Users/you/.bashrc\n/Users/you/.config/codesuite/env.sh", 3),
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Code block passthrough",
+        items: [
+          {
+            name: "Additional passthrough languages",
+            desc: "Fence languages CodeSuite leaves for Obsidian or other plugins to render, one per line. Mermaid, dataview, dataviewjs, and query always pass through.",
+            render: this.textArea(
+              "additionalPassthroughLanguages",
+              "base\nd2\nvid",
+              4,
+              (v) => parsePassthroughLanguages(v).join("\n"),
+              () => this.plugin.refreshRenderedBlocks(),
+            ),
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "PHP",
+        items: [
+          {
+            name: "Auto-prepend php opening tag",
+            desc: "Add <?php when running snippets without one. The note is not changed.",
+            render: this.toggle("autoPrependPhpOpenTag"),
+          },
+        ],
+      },
+    ];
   }
 
   // ─── Files ───────────────────────────────────
-  private renderFiles(containerEl: HTMLElement): void {
-    // ─── Embedded code files ─────────────────────
-    new Setting(containerEl).setName("Embedded code files").setHeading();
-
-    new Setting(containerEl)
-      .setName("Render embedded code files")
-      .setDesc("Render ![[file.py]] embeds as fully syntax-highlighted code blocks with the same theme, instead of Obsidian's default plain text rendering.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.renderEmbeddedFiles);
-        t.onChange(async (v) => { this.plugin.settings.renderEmbeddedFiles = v; await this.plugin.saveSettings(); });
-      });
-
-    new Setting(containerEl)
-      .setName("Collapse embedded files")
-      .setDesc("Show embedded code files collapsed by default. Click the header bar to expand/collapse.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.collapseEmbeds);
-        t.onChange(async (v) => { this.plugin.settings.collapseEmbeds = v; await this.plugin.saveSettings(); });
-      });
-
-    // ─── Vault code files ────────────────────────
-    new Setting(containerEl).setName("Vault code files").setHeading();
-
-    new Setting(containerEl)
-      .setName("Show code files in the file explorer")
-      .setDesc("Register code file extensions (.py, .js, .sh, etc.) with Obsidian so they appear in the file explorer sidebar and open in CodeSuite's lightweight editor. Requires Obsidian restart to take effect when toggled.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.enableCodeFileView);
-        t.onChange(async (v) => { this.plugin.settings.enableCodeFileView = v; await this.plugin.saveSettings(); new Notice("Restart Obsidian for this change to take effect."); });
-      });
-
-    new Setting(containerEl)
-      .setName("Imports folder")
-      .setDesc("Vault-relative folder used by \"Import code file as alias\". The folder is created on demand. Defaults to CodeSuiteImports.")
-      .addText((t) => {
-        t.inputEl["placeholder"] = "CodeSuiteImports";
-        t.setValue(this.plugin.settings.codeImportsFolder);
-        t.onChange(async (v) => { this.plugin.settings.codeImportsFolder = v.trim(); await this.plugin.saveSettings(); });
-      });
+  private files(): Group[] {
+    return [
+      {
+        type: "group",
+        heading: "Embedded code files",
+        items: [
+          {
+            name: "Render embedded code files",
+            desc: "Highlight ![[file.py]] embeds with your syntax theme.",
+            render: this.toggle("renderEmbeddedFiles"),
+          },
+          {
+            name: "Collapse embedded files",
+            desc: "Start embeds collapsed; click the header to expand.",
+            render: this.toggle("collapseEmbeds"),
+          },
+        ],
+      },
+      {
+        type: "group",
+        heading: "Vault code files",
+        items: [
+          {
+            name: "Show code files in the file explorer",
+            desc: "List .py, .js, .sh, and other code files in the file explorer and open them in CodeSuite's editor. Requires a restart.",
+            render: this.toggle("enableCodeFileView", () => new Notice("Restart Obsidian for this change to take effect.")),
+          },
+          {
+            name: "Imports folder",
+            desc: "Vault folder used by \"Import code file as alias\". Created on demand.",
+            render: this.text("codeImportsFolder", "CodeSuiteImports"),
+          },
+        ],
+      },
+    ];
   }
 
   // ─── Advanced ────────────────────────────────
-  private renderAdvanced(containerEl: HTMLElement): void {
-    // ─── Experimental ────────────────────────────
-    new Setting(containerEl).setName("Experimental").setHeading();
-
-    new Setting(containerEl)
-      .setName("Data tables")
-      .setDesc("Expose markdown tables to code as variables. Put a %% codesuite: <name> as <shape> %% directive (shapes: records, dict, columns, matrix, vars) on the line directly above a table, or use a 'var | value' header for a vars table. Off by default — behaviour may change in future releases.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.experimentalTables);
-        t.onChange(async (v) => { this.plugin.settings.experimentalTables = v; await this.plugin.saveSettings(); });
-      });
-
-    // ─── Sharing: baked outputs ──────────────────────
-    // Advanced, off by default — most users never need this. Baking writes a
-    // code block's captured output into the note markdown so it shows up in
-    // contexts that only read the raw .md (e.g. notes shared via NoteColab,
-    // whose web viewer has no CodeSuite to re-run the code).
-    new Setting(containerEl).setName("Sharing (baked outputs)").setHeading();
-
-    const bakedDesc = containerEl.createDiv({ cls: "ocode-settings-about" });
-    bakedDesc.createEl("p").textContent =
-      "Normally execution output lives only in memory and never touches your note. The bake command serializes the current output of each code block into a hidden codesuite-output block right after it, so the output survives anywhere the note is read as plain Markdown — most importantly in shared notes, where the recipient can't run your code.";
-    bakedDesc.createEl("p").textContent =
-      "When enabled, two commands appear: \"Bake code outputs into note\" and \"Clear baked outputs from note\". Run your code blocks first, then bake.";
-
-    new Setting(containerEl)
-      .setName("Enable baked outputs")
-      .setDesc("Adds the bake/clear commands and renders baked codesuite-output blocks as output panels. Leave off if you don't share notes with code output.")
-      .addToggle((t) => {
-        t.setValue(this.plugin.settings.bakedOutputs);
-        t.onChange(async (v) => {
-          this.plugin.settings.bakedOutputs = v;
-          await this.plugin.saveSettings();
-          this.renderActiveTab(); // reveal/hide the dependent settings below
-        });
-      });
-
-    if (this.plugin.settings.bakedOutputs) {
-      new Setting(containerEl)
-        .setName("Baked figures folder")
-        .setDesc("Vault-relative folder where baked figures (e.g. matplotlib PNGs) are written. Keeping figures as files instead of inlining them keeps notes small. Created on demand.")
-        .addText((t) => {
-          t.inputEl["placeholder"] = "CodeSuite/baked-outputs";
-          t.setValue(this.plugin.settings.bakedOutputsFolder);
-          t.onChange(async (v) => { this.plugin.settings.bakedOutputsFolder = v.trim(); await this.plugin.saveSettings(); });
-        });
-
-      new Setting(containerEl)
-        .setName("Inline images instead of files")
-        .setDesc("Embed baked figures as base64 directly in the note (self-contained, no extra files) instead of writing image files. Off by default — this makes notes much larger. Interactive Plotly widgets are always inlined regardless.")
-        .addToggle((t) => {
-          t.setValue(this.plugin.settings.bakedOutputsInlineImages);
-          t.onChange(async (v) => { this.plugin.settings.bakedOutputsInlineImages = v; await this.plugin.saveSettings(); });
-        });
-    }
+  private advanced(): Group[] {
+    const s = this.plugin.settings;
+    return [
+      {
+        type: "group",
+        heading: "Experimental",
+        items: [
+          {
+            name: "Data tables",
+            desc: "Expose Markdown tables to code. Put %% codesuite: <name> as <shape> %% above a table (records, dict, columns, matrix, or vars). May change in future releases.",
+            render: this.toggle("experimentalTables"),
+          },
+        ],
+      },
+      {
+        // Baking writes captured output into the note so it survives where
+        // only the raw .md is read, e.g. notes shared via NoteColab.
+        type: "group",
+        heading: "Baked outputs",
+        items: [
+          {
+            name: "Enable baked outputs",
+            desc: "Add commands that save block output into the note as hidden codesuite-output blocks, so readers who cannot run your code still see results.",
+            render: this.toggle("bakedOutputs", () => this.refreshVisibility()),
+          },
+          {
+            name: "Baked figures folder",
+            desc: "Vault folder for baked figures such as Matplotlib PNGs. Created on demand.",
+            visible: () => s.bakedOutputs,
+            render: this.text("bakedOutputsFolder", "CodeSuite/baked-outputs"),
+          },
+          {
+            name: "Inline images instead of files",
+            desc: "Embed baked figures as base64 in the note. Makes notes much larger. Plotly widgets are always inlined.",
+            visible: () => s.bakedOutputs,
+            render: this.toggle("bakedOutputsInlineImages"),
+          },
+        ],
+      },
+    ];
   }
+}
+
+function themeId(theme: CustomTheme): string {
+  return theme.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 }
