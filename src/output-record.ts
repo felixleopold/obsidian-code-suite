@@ -50,10 +50,12 @@ export function createOutputRecorder(): OutputRecorder {
 
 /**
  * Cache key for a block: SHA-256 (lowercase hex) over the canonical language,
- * the note's folder (the run's working directory) and the trimmed source.
- * Quarto `#|` option lines are part of the source, so they are covered too.
+ * the note's vault path and the trimmed source. The note is part of the key
+ * because a block's output can depend on its note (shared variables, earlier
+ * blocks), so identical code in two notes must not share output. Quarto `#|`
+ * option lines are part of the source, so they are covered too.
  */
-export function outputKey(input: { lang: string; folder: string; code: string }): Promise<string> {
+export function outputKey(input: { lang: string; note: string; code: string }): Promise<string> {
   void input;
   throw new Error("not implemented");
 }

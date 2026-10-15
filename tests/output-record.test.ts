@@ -94,18 +94,18 @@ test("a run with no output records an empty item list", () => {
   assert.deepEqual(createOutputRecorder().finish(result(), meta)?.items, []);
 });
 
-test("outputKey is a stable SHA-256 over language, folder and trimmed code", async () => {
-  const base = { lang: "python", folder: "notes", code: "print(1)" };
+test("outputKey is a stable SHA-256 over language, note and trimmed code", async () => {
+  const base = { lang: "python", note: "notes/a.md", code: "print(1)" };
   const key = await outputKey(base);
   assert.match(key, /^[0-9a-f]{64}$/);
   assert.equal(await outputKey({ ...base, code: "\n  print(1)\n\n" }), key);
   assert.notEqual(await outputKey({ ...base, code: "print(2)" }), key);
   assert.notEqual(await outputKey({ ...base, code: "#| fig-width: 4\nprint(1)" }), key);
   assert.notEqual(await outputKey({ ...base, lang: "r" }), key);
-  assert.notEqual(await outputKey({ ...base, folder: "" }), key);
+  assert.notEqual(await outputKey({ ...base, note: "notes/b.md" }), key);
   // Field boundaries are unambiguous: moving text between fields changes the key.
   assert.notEqual(
-    await outputKey({ lang: "python", folder: "a", code: "b" }),
-    await outputKey({ lang: "python", folder: "", code: "a\nb" }),
+    await outputKey({ lang: "python", note: "a", code: "b" }),
+    await outputKey({ lang: "python", note: "", code: "a\nb" }),
   );
 });
