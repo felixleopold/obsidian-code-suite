@@ -345,6 +345,7 @@ Per-block formatting and inline highlighting from [#13](https://github.com/felix
 
 **Recent releases**
 
+- **1.24.1**: the README demo is recorded from the real plugin with live download numbers and re-recorded on every release ([#91](https://github.com/felixleopold/obsidian-code-suite/pull/91)).
 - **1.24.0**: redesigned settings with tabs, a CodeSuite logo header, and per-setting search that jumps to the right tab ([#89](https://github.com/felixleopold/obsidian-code-suite/pull/89)).
 - **1.23.0**: run C and C++ blocks with `gcc` / `g++`, including interactive stdin and Stop ([#86](https://github.com/felixleopold/obsidian-code-suite/pull/86)). Run MATLAB fences that define a function before calling it as scripts ([#85](https://github.com/felixleopold/obsidian-code-suite/pull/85), fixes [#84](https://github.com/felixleopold/obsidian-code-suite/issues/84)).
 - **1.22.2**: preserve Obsidian 1.6.6 compatibility for custom-theme removal buttons and keep saved outputs hidden beneath live results in Live Preview using CSS selector specificity.
