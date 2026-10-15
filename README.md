@@ -98,6 +98,7 @@ Run code directly from a code block — no terminal, no switching apps.
 | PHP | `php` | Automatically prepends `<?php` for snippets that omit the opening tag |
 | Swift | `swift` | |
 | C# | `dotnet run --file` | Requires .NET 10+; `csharp`, `cs`, and `c#` fences; runs the snippet even when the working directory contains a project |
+| C / C++ | `gcc` / `g++` | `c`, `cpp`, and `c++` fences; compiles to a temporary executable, then runs it |
 
 `matlab` fences share a base workspace within one note and stay isolated from every other note. Configure a Python interpreter whose `matlabengine` package matches your installed MATLAB release; see the [configuration reference](docs/configuration.md#matlab-engine).
 

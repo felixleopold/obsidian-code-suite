@@ -5160,6 +5160,9 @@ __ocode_emit_vars
         return /\breadLine\s*\(/.test(code);
       case "csharp":
         return /\bConsole\.(?:ReadLine|ReadKey|Read|In)\b/.test(code);
+      case "c":
+      case "cpp":
+        return /\b(?:scanf|getchar|getline|fgets)\s*\(/.test(code) || /\bstdin\b/.test(code) || /\bcin\b/.test(code);
       default:
         return false;
     }

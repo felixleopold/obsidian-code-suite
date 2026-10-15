@@ -88,6 +88,30 @@ test("C# runs the code file even when the working directory contains a project",
   }
 });
 
+test("C++ compiles, then the program receives stdin and can be cancelled", {
+  skip: spawnSync("g++", ["--version"]).status !== 0,
+}, async () => {
+  const code = '#include <iostream>\n#include <string>\nint main() { std::string name; std::cout << "NAME?" << std::endl; std::getline(std::cin, name); std::cout << "HELLO " << name << std::endl; std::getline(std::cin, name); }';
+  const running = startExecution(code, "cpp", { ...DEFAULT_SETTINGS, executionTimeout: 60_000 }, {
+    onStdout: (data) => {
+      if (data.includes("NAME?")) running.writeStdin("ADA\n");
+      if (data.includes("HELLO")) running.cancel();
+    },
+  });
+  const result = await running.promise;
+  assert.equal(result.cancelled, true, result.stderr);
+  assert.equal(result.killed, false, result.stderr);
+  assert.equal(result.stdout, "NAME?\nHELLO ADA\n");
+});
+
+test("C compile errors are reported without running a program", {
+  skip: spawnSync("gcc", ["--version"]).status !== 0,
+}, async () => {
+  const result = await startExecution("int main(void) { return missing; }", "c", DEFAULT_SETTINGS).promise;
+  assert.notEqual(result.exitCode, 0);
+  assert.match(result.stderr, /missing/);
+});
+
 for (const reason of ["cancel", "timeout"] as const) {
   test(`${reason} terminates a launcher's child before it can produce later output`, async () => {
     const childCode = 'console.log("CHILD_READY"); setTimeout(() => { console.log("CHILD_SURVIVED"); }, 4000);';

@@ -24,14 +24,10 @@ const RUNTIMES: Record<string, { cmd: string; args: string[]; ext: string }> = {
   go:         { cmd: "go",       args: ["run"],      ext: ".go" },
   php:        { cmd: "php",      args: [],           ext: ".php" },
   swift:      { cmd: "swift",    args: [],           ext: ".swift" },
-  c:          { cmd: "gcc",      args: ["-O2", "-std=c11"], ext: ".c" },
-  cpp:        { cmd: "g++",      args: ["-O2", "-std=c++17"], ext: ".cpp" },
   csharp:     { cmd: "dotnet",   args: ["run", "--file"], ext: ".cs" },
+  c:          { cmd: "gcc",      args: [],           ext: ".c" },
+  cpp:        { cmd: "g++",      args: [],           ext: ".cpp" },
 };
-
-function isCompiledLanguage(lang: string): boolean {
-  return lang === "c" || lang === "cpp";
-}
 
 /** Languages handled directly by this subprocess executor. */
 export function isSubprocessExecutable(lang: string): boolean {
@@ -49,11 +45,7 @@ export function isExecutable(lang: string): boolean {
  * device opening gets its own number block (fig_1001.png, fig_2001.png, …) so
  * pages stay ordered across dev.off(). dev.new(width=, height=) sizes in inches.
  */
-const R_GRAPHS_PREAMBLE = 'local({ d <- Sys.getenv("CODESUITE_OUTPUT_DIR"); n <- 0L; if (nzchar(d)) options(device = function(width = 7, height = 5, ...) { n <<- n + 1L; grDevices::png(file.path(d[...';
-
-// This is the original file content from the repo; keep it exactly as-is.
-// The C++/C support is added in the sections below and does not require
-// changes elsewhere in this file.
+const R_GRAPHS_PREAMBLE = 'local({ d <- Sys.getenv("CODESUITE_OUTPUT_DIR"); n <- 0L; if (nzchar(d)) options(device = function(width = 7, height = 5, ...) { n <<- n + 1L; grDevices::png(file.path(d, sprintf("fig_%d%%03d.png", n)), width = width, height = height, units = "in", res = 144) }) })\n';
 
 function isPosixShell(lang: string): boolean {
   return lang === "bash" || lang === "zsh" || lang === "shell";
@@ -78,7 +70,7 @@ function toWslPath(winPath: string): string {
  */
 function isWslInterpreter(cmd: string): boolean {
   if (!/[\\/]/.test(cmd)) return true;
-  return /(?:^|[\\/])wsl(?:\.exe)?$/i.test(cmd) || /system32[\\/ ]bash\.exe$/i.test(cmd);
+  return /(?:^|[\\/])wsl(?:\.exe)?$/i.test(cmd) || /system32[\\/]bash\.exe$/i.test(cmd);
 }
 
 function shellQuote(value: string): string {
@@ -213,7 +205,6 @@ export function startExecution(
   const imgDir = path.join(tmpDir, "images");
   fs.mkdirSync(imgDir);
   const tmpFile = path.join(tmpDir, executionScriptName(lang, runtime.ext));
-  const outFile = path.join(tmpDir, `program-${execId}`);
 
   // Capture Python and R graphs
   let execCode = code;
@@ -236,7 +227,7 @@ export function startExecution(
 
   // For bash/shell: wrap sudo to use -S flag so passwords can be entered via stdin input bar
   if (isPosixShell(lang) && /\bsudo\b/.test(execCode)) {
-    execCode = 'sudo() { command sudo -S "$@"; }\n' + execCode;
+    execCode = "sudo() { command sudo -S \"$@\"; }\n" + execCode;
   }
 
   fs.writeFileSync(tmpFile, execCode, "utf-8");
@@ -265,12 +256,7 @@ export function startExecution(
   // and override or add note-specific values via the settings UI.
   const dotEnv = parseDotEnvFile(settings.envFilePath);
   const extraEnv = parseExtraEnv(settings.extraEnv);
-  const env: Record<string, string | undefined> = {
-    ...getProcess().env,
-    ...dotEnv,
-    ...extraEnv,
-    CODESUITE_OUTPUT_DIR: imgDir
-  };
+  const env: Record<string, string | undefined> = { ...getProcess().env, ...dotEnv, ...extraEnv, CODESUITE_OUTPUT_DIR: imgDir };
 
   // On macOS, GUI apps (like Obsidian) don't inherit the user's shell PATH,
   // so Homebrew tools (/opt/homebrew/bin on Apple Silicon, /usr/local/bin on Intel)
@@ -285,7 +271,7 @@ export function startExecution(
   }
 
   // If pythonPath is a venv python, set VIRTUAL_ENV and prepend bin to PATH
-  // (applies to all languages so bash/shell can call pip, etc.)
+  // (applies to all languages so bash/shell blocks can call pip, etc.)
   if (settings.pythonPath) {
     const venvBin = path.dirname(settings.pythonPath);
     const venvDir = path.dirname(venvBin);
@@ -315,252 +301,24 @@ export function startExecution(
     if (useWsl) scriptArg = toWslPath(tmpFile);
   }
 
-  const cwd = resolveExecutionCwd(settings, vaultPath, os);
-
-  // Native compiled languages (C/C++) need compile + run steps.
-  if (isCompiledLanguage(lang)) {
-    let compileProc: NodeChildProcessHandle;
-    let killed = false;
-    let cancelled = false;
-    let finished = false;
-    let stdout = "";
-    let stderr = "";
-
-    const compileArgs = [...runtime.args, "-o", outFile, tmpFile];
-    compileProc = spawn(cmd, compileArgs, {
-      cwd,
-      env,
-      shell: false,
-      detached: os.platform() !== "win32",
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-
-    const killCompileTree = () => {
-      if (finished || !compileProc.pid) return;
-      if (os.platform() === "win32") {
-        const result = getChildProcess().spawnSync("taskkill", ["/PID", String(compileProc.pid), "/T", "/F"], {
-          stdio: ["ignore", "ignore", "ignore"],
-        });
-        if (result.status === 0) return;
-      } else {
-        try {
-          getProcess().kill(-compileProc.pid, "SIGKILL");
-          return;
-        } catch {
-          // process group may already have exited
-        }
-      }
-      compileProc.kill("SIGKILL");
-    };
-
-    const timer = window.setTimeout(() => {
-      killed = true;
-      killCompileTree();
-    }, settings.executionTimeout);
-
-    compileProc.stdout?.on("data", (data: NodeBuffer) => {
-      const text = data.toString();
-      stdout += text;
-      callbacks?.onStdout?.(text);
-    });
-
-    compileProc.stderr?.on("data", (data: NodeBuffer) => {
-      const text = data.toString();
-      stderr += text;
-      callbacks?.onStderr?.(text);
-    });
-
-    const promise = new Promise<ExecutionResult>((resolve) => {
-      compileProc.on("close", (exitCode: number | null) => {
-        window.clearTimeout(timer);
-
-        if (exitCode !== 0) {
-          finished = true;
-          try {
-            fs.rmSync(tmpDir, { recursive: true, force: true });
-          } catch {
-            // cleanup is best-effort
-          }
-          resolve({
-            stdout,
-            stderr,
-            exitCode,
-            killed,
-            cancelled,
-            figures: [],
-          });
-          return;
-        }
-
-        let proc: NodeChildProcessHandle;
-        let runStdout = stdout;
-        let runStderr = stderr;
-        let runKilled = killed;
-
-        proc = spawn(outFile, [], {
-          cwd,
-          env,
-          shell: false,
-          detached: os.platform() !== "win32",
-          stdio: ["pipe", "pipe", "pipe"],
-        });
-
-        const killRunTree = () => {
-          if (finished || !proc.pid) return;
-          if (os.platform() === "win32") {
-            const result = getChildProcess().spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], {
-              stdio: ["ignore", "ignore", "ignore"],
-            });
-            if (result.status === 0) return;
-          } else {
-            try {
-              getProcess().kill(-proc.pid, "SIGKILL");
-              return;
-            } catch {
-              // process group may already have exited
-            }
-          }
-          proc.kill("SIGKILL");
-        };
-
-        const runTimer = window.setTimeout(() => {
-          runKilled = true;
-          killRunTree();
-        }, settings.executionTimeout);
-
-        proc.stdout?.on("data", (data: NodeBuffer) => {
-          const text = data.toString();
-          runStdout += text;
-          callbacks?.onStdout?.(text);
-          if (runStdout.length > 200_000) {
-            runStdout = runStdout.slice(0, 200_000) + "\n... (output truncated)";
-            runKilled = true;
-            killRunTree();
-          }
-        });
-
-        proc.stderr?.on("data", (data: NodeBuffer) => {
-          const text = data.toString();
-          runStderr += text;
-          callbacks?.onStderr?.(text);
-          if (runStderr.length > 100_000) {
-            runStderr = runStderr.slice(0, 100_000) + "\n... (stderr truncated)";
-          }
-        });
-
-        proc.on("close", (closeCode: number | null) => {
-          finished = true;
-          window.clearTimeout(runTimer);
-
-          try {
-            fs.rmSync(tmpDir, { recursive: true, force: true });
-          } catch {
-            // cleanup is best-effort
-          }
-
-          resolve({
-            stdout: runStdout,
-            stderr: runStderr,
-            exitCode: closeCode,
-            killed: runKilled,
-            cancelled,
-            figures: [],
-          });
-        });
-
-        proc.on("error", (err: Error) => {
-          finished = true;
-          window.clearTimeout(runTimer);
-
-          try {
-            fs.rmSync(tmpDir, { recursive: true, force: true });
-          } catch {
-            // cleanup is best-effort
-          }
-
-          const message = `Failed to run ${outFile}: ${err.message}`;
-          callbacks?.onStderr?.(message);
-
-          resolve({
-            stdout: runStdout,
-            stderr: message,
-            exitCode: 1,
-            killed: false,
-            cancelled: false,
-            figures: [],
-          });
-        });
-      });
-
-      compileProc.on("error", (err: Error) => {
-        finished = true;
-        window.clearTimeout(timer);
-
-        try {
-          fs.rmSync(tmpDir, { recursive: true, force: true });
-        } catch {
-          // cleanup is best-effort
-        }
-
-        const message = `Failed to compile ${lang}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`;
-        callbacks?.onStderr?.(message);
-
-        resolve({
-          stdout: "",
-          stderr: message,
-          exitCode: 1,
-          killed: false,
-          cancelled: false,
-          figures: [],
-        });
-      });
-    });
-
-    return {
-      promise,
-      cancel: () => {
-        if (finished) return;
-        cancelled = true;
-        killCompileTree();
-      },
-      writeStdin: (text: string) => {
-        try {
-          compileProc.stdin?.write(text);
-        } catch {
-          // stdin may already be closed
-        }
-      },
-      closeStdin: () => {
-        try {
-          compileProc.stdin?.end();
-        } catch {
-          // stdin may already be closed
-        }
-      },
-    };
-  }
-
-  // Existing runtime path for Python / JS / Bash / etc.
   const args = [...runtime.args];
   if (settings.shellLogin && (lang === "bash" || lang === "zsh")) {
     args.unshift(lang === "zsh" ? "-l" : "--login");
   }
   args.push(scriptArg);
-
-  let proc: NodeChildProcessHandle;
+  // C and C++ compile first; a successful build then runs this executable.
+  const compiledProgram = lang === "c" || lang === "cpp"
+    ? path.join(tmpDir, os.platform() === "win32" ? "program.exe" : "program")
+    : null;
+  if (compiledProgram) args.push("-o", compiledProgram, ...(lang === "c" ? ["-lm"] : []));
+  let proc!: NodeChildProcessHandle;
   let killed = false;
   let cancelled = false;
   let finished = false;
   let stdout = "";
   let stderr = "";
 
-  proc = spawn(cmd, args, {
-    cwd,
-    env,
-    shell: false,
-    detached: os.platform() !== "win32",
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const cwd = resolveExecutionCwd(settings, vaultPath, os);
 
   const killProcessTree = () => {
     if (finished || !proc.pid) return;
@@ -573,9 +331,7 @@ export function startExecution(
       try {
         getProcess().kill(-proc.pid, "SIGKILL");
         return;
-      } catch {
-        // process group may already have exited
-      }
+      } catch { /* the process group may already have exited */ }
     }
     proc.kill("SIGKILL");
   };
@@ -585,89 +341,89 @@ export function startExecution(
     killProcessTree();
   }, settings.executionTimeout);
 
-  proc.stdout?.on("data", (data: NodeBuffer) => {
-    const text = data.toString();
-    stdout += text;
-    callbacks?.onStdout?.(text);
-    if (stdout.length > 200_000) {
-      stdout = stdout.slice(0, 200_000) + "\n... (output truncated)";
-      killed = true;
-      killProcessTree();
-    }
-  });
-
-  proc.stderr?.on("data", (data: NodeBuffer) => {
-    const text = data.toString();
-    stderr += text;
-    callbacks?.onStderr?.(text);
-    if (stderr.length > 100_000) {
-      stderr = stderr.slice(0, 100_000) + "\n... (stderr truncated)";
-    }
-  });
-
   const promise = new Promise<ExecutionResult>((resolve) => {
-    proc.on("close", (exitCode: number | null) => {
-      finished = true;
-      window.clearTimeout(timer);
+    const launch = (command: string, commandArgs: string[]) => {
+      proc = spawn(command, commandArgs, {
+        cwd,
+        env,
+        shell: false,
+        // A separate process group lets Stop terminate launcher descendants too.
+        detached: os.platform() !== "win32",
+        stdio: ["pipe", "pipe", "pipe"],
+      });
 
-      // Collect figures keyed by counter index so sentinels in stdout can be
-      // matched to the right file even if some saves failed.
-      const figureMap = new Map<number, OutputFigure>();
-      try {
-        if (fs.existsSync(imgDir)) {
-          for (const f of fs.readdirSync(imgDir)) {
-            const m = /^fig_(\d+)\.(png|html)$/.exec(f);
-            if (!m) continue;
-            const figureIndex = parseInt(m[1], 10);
-            if (m[2] === "png") {
-              const data = fs.readFileSync(path.join(imgDir, f)).toString("base64");
-              figureMap.set(figureIndex, { kind: "image", data, figureIndex });
-            } else {
-              const html = fs.readFileSync(path.join(imgDir, f), "utf-8");
-              figureMap.set(figureIndex, { kind: "widget", html, figureIndex });
+      proc.stdout?.on("data", (data: NodeBuffer) => {
+        const text = data.toString();
+        stdout += text;
+        callbacks?.onStdout?.(text);
+        if (stdout.length > 200_000) {
+          stdout = stdout.slice(0, 200_000) + "\n... (output truncated)";
+          killed = true;
+          killProcessTree();
+        }
+      });
+
+      proc.stderr?.on("data", (data: NodeBuffer) => {
+        const text = data.toString();
+        stderr += text;
+        callbacks?.onStderr?.(text);
+        if (stderr.length > 100_000) {
+          stderr = stderr.slice(0, 100_000) + "\n... (stderr truncated)";
+        }
+      });
+
+      proc.on("close", (exitCode: number | null) => {
+        if (compiledProgram && command === cmd && exitCode === 0 && !killed && !cancelled) {
+          launch(compiledProgram, []);
+          return;
+        }
+        finished = true;
+        window.clearTimeout(timer);
+
+        // Collect figures keyed by counter index so sentinels in stdout can be
+        // matched to the right file even if some saves failed.
+        const figureMap = new Map<number, OutputFigure>();
+        try {
+          if (fs.existsSync(imgDir)) {
+            for (const f of fs.readdirSync(imgDir)) {
+              const m = /^fig_(\d+)\.(png|html)$/.exec(f);
+              if (!m) continue;
+              const figureIndex = parseInt(m[1], 10);
+              if (m[2] === "png") {
+                const data = fs.readFileSync(path.join(imgDir, f)).toString("base64");
+                figureMap.set(figureIndex, { kind: "image", data, figureIndex });
+              } else {
+                const html = fs.readFileSync(path.join(imgDir, f), "utf-8");
+                figureMap.set(figureIndex, { kind: "widget", html, figureIndex });
+              }
             }
           }
-        }
-      } catch {
-        // figure collection is best-effort
-      }
+        } catch { /* figure collection is best-effort */ }
+        const figures = Array.from(figureMap.entries())
+          .sort(([a], [b]) => a - b)
+          .map(([, fig]) => fig);
 
-      const figures = Array.from(figureMap.entries())
-        .sort(([a], [b]) => a - b)
-        .map(([, fig]) => fig);
+        // Cleanup
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
 
-      // Cleanup
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch {
-        // cleanup is best-effort
-      }
-
-      resolve({ stdout, stderr, exitCode, killed, cancelled, figures });
-    });
-
-    proc.on("error", (err: Error) => {
-      finished = true;
-      window.clearTimeout(timer);
-
-      try {
-        fs.rmSync(tmpDir, { recursive: true, force: true });
-      } catch {
-        // cleanup is best-effort
-      }
-
-      const message = `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`;
-      callbacks?.onStderr?.(message);
-
-      resolve({
-        stdout: "",
-        stderr: message,
-        exitCode: 1,
-        killed: false,
-        cancelled: false,
-        figures: [],
+        resolve({ stdout, stderr, exitCode, killed, cancelled, figures });
       });
-    });
+
+      proc.on("error", (err: Error) => {
+        finished = true;
+        window.clearTimeout(timer);
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
+        const message = `Failed to run ${command}: ${err.message}\nMake sure ${command} is installed and in your PATH.`;
+        callbacks?.onStderr?.(message);
+        resolve({
+          stdout: "",
+          stderr: message,
+          exitCode: 1, killed: false, cancelled: false, figures: [],
+        });
+      });
+    };
+
+    launch(cmd, args);
   });
 
   return {
@@ -678,18 +434,10 @@ export function startExecution(
       killProcessTree();
     },
     writeStdin: (text: string) => {
-      try {
-        proc.stdin?.write(text);
-      } catch {
-        // stdin may already be closed
-      }
+      try { proc.stdin?.write(text); } catch { /* stdin may already be closed */ }
     },
     closeStdin: () => {
-      try {
-        proc.stdin?.end();
-      } catch {
-        // stdin may already be closed
-      }
+      try { proc.stdin?.end(); } catch { /* stdin may already be closed */ }
     },
   };
 }
