@@ -1,17 +1,15 @@
-This release runs C and C++ code blocks and fixes MATLAB fences that define a function before calling it.
+This release redesigns the CodeSuite settings: tabs instead of drill-down pages, and a new logo.
 
 ## What's New
 
-- Run `c`, `cpp`, and `c++` code blocks: CodeSuite compiles them with `gcc` / `g++`, then runs the program with live output, interactive stdin, Stop, and the execution timeout (#86, thanks @AnYellowKing)
-  - Input typed while the program is still compiling is delivered when it starts.
-
-## Bug Fixes
-
-- MATLAB fences that define a function and then call it now run as scripts instead of being registered as a function file (#84, #85, thanks @RarityBrown)
-- Programs that exit before reading their input no longer raise an unhandled pipe error.
+- Settings open as five tabs (Appearance, Execution, Languages, Files, Advanced) with compact groups that match Obsidian's own settings (#89)
+  - The tab bar stays pinned while you scroll.
+  - Settings search finds every individual setting and jumps to the tab that contains it.
+  - Dependent settings only appear when they apply, for example the light and dark theme pickers when "Match Obsidian's light and dark mode" is on.
+- A new CodeSuite logo in the settings header and, on Obsidian 1.11 and later, in the settings sidebar and search results
+- Shorter setting descriptions and a dedicated MATLAB group
 
 ## Upgrade Notes
 
 - No manual migration is required. Existing settings are preserved.
-- C and C++ blocks need `gcc` / `g++` on your PATH (on Windows, for example, MinGW-w64). Function-first MATLAB scripts require MATLAB R2024a or later.
-- The minimum supported Obsidian version remains 1.6.6.
+- The minimum supported Obsidian version remains 1.6.6; versions before 1.13 show the same groups without settings search.
