@@ -17,6 +17,7 @@ const testBundles = [
   join(testDir, "code-block-tab.test.cjs"),
   join(testDir, "output-record.test.cjs"),
   join(testDir, "output-store.test.cjs"),
+  join(testDir, "baked-output.test.cjs"),
 ];
 let exitCode = 1;
 
@@ -34,6 +35,7 @@ try {
       "tests/code-block-tab.test.ts",
       "tests/output-record.test.ts",
       "tests/output-store.test.ts",
+      "tests/baked-output.test.ts",
     ],
     bundle: true,
     platform: "node",

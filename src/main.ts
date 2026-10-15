@@ -65,7 +65,7 @@ import {
   parseBakedOutput,
   applyBakedOutputs,
   clearBakedOutputs,
-  collectBakedHashes,
+  bakedSourceHashes,
   collectBakedImageFiles,
   precedingCodeHash,
   bakedImageName,
@@ -536,6 +536,8 @@ export default class CodePlugin extends Plugin {
     | null = null;
   /** Saved-output restores started by an export render, awaited before serializing. Null otherwise. */
   private _exportRestores: Promise<void>[] | null = null;
+  /** Settles when the current export render finishes; see buildNoteHtml. */
+  private exportQueue: Promise<void> = Promise.resolve();
 
   async onload() {
     await this.loadSettings();
@@ -2598,7 +2600,14 @@ __ocode_emit_vars
   }
 
   /** Build a self-contained, themed HTML document from a rendered preview clone. */
-  private async buildNoteHtml(previewEl: HTMLElement, file: TFile, format: "html" | "pdf", options: ExportOptions): Promise<string> {
+  private buildNoteHtml(previewEl: HTMLElement, file: TFile, format: "html" | "pdf", options: ExportOptions): Promise<string> {
+    // Renders share _exportHtmlPanes and _exportRestores, so run one at a time.
+    const html = this.exportQueue.then(() => this.renderNoteHtml(previewEl, file, format, options));
+    this.exportQueue = html.then(() => undefined, () => undefined);
+    return html;
+  }
+
+  private async renderNoteHtml(previewEl: HTMLElement, file: TFile, format: "html" | "pdf", options: ExportOptions): Promise<string> {
     const fs = getFs();
     const path = getPath();
 
@@ -2621,11 +2630,10 @@ __ocode_emit_vars
     // Collect html-preview panes built during this render so their (otherwise
     // lazily-built, layout-gated) iframes can be materialized for the export (#33).
     this._exportHtmlPanes = [];
-    const restores: Promise<void>[] = [];
-    this._exportRestores = restores;
+    this._exportRestores = [];
     try {
       await MarkdownRenderer.render(this.app, markdown, full, file.path, comp);
-      await Promise.all(restores);
+      await Promise.all(this._exportRestores);
 
       // finishRenderMath assumes MathJax has been loaded. Obsidian 1.13 loads it
       // lazily, and calling this for a note without math throws asynchronously
@@ -2669,7 +2677,7 @@ __ocode_emit_vars
       });
     } finally {
       this._exportHtmlPanes = null;
-      if (this._exportRestores === restores) this._exportRestores = null;
+      this._exportRestores = null;
       comp.unload();
       full.detach();
     }
@@ -3476,11 +3484,11 @@ __ocode_emit_vars
     // The output now lives in the baked block — drop the live rendered output so
     // it isn't shown twice (live panel + baked panel). Its saved copy goes too,
     // or the re-render below would restore it over the baked block.
-    const baked = collectBakedHashes(updated);
+    const baked = bakedSourceHashes(original, byHash);
     for (const { lang, code } of this.parseRunAllPlan(original)) {
       if (!lang || code === undefined) continue;
       const hash = codeHash(code.trim());
-      if (byHash.has(hash) && baked.has(hash)) await this.forgetSavedOutput(file.path, lang, code);
+      if (baked.has(hash)) await this.forgetSavedOutput(file.path, lang, code);
     }
     this.clearLiveOutputs(file.path);
 
