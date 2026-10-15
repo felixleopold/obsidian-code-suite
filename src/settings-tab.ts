@@ -315,7 +315,7 @@ export class CodeSettingTab extends PluginSettingTab {
             desc: "Use separate themes for light and dark mode and switch automatically.",
             render: this.toggle("autoTheme", (v) => {
               if (v) this.plugin.applyAutoTheme();
-              this.refreshVisibility();
+              this.rerender(); // the theme pickers' values may have changed
             }),
           },
           {
@@ -361,7 +361,7 @@ export class CodeSettingTab extends PluginSettingTab {
                   s.codeFontSize = v ? null : 13.5;
                   this.plugin.applyCodeFontSize();
                   await this.plugin.saveSettings();
-                  this.refreshVisibility();
+                  this.rerender(); // reset the slider to the new size
                 });
               });
             },
