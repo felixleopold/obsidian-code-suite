@@ -317,7 +317,7 @@ CodeSuite renders baked blocks as normal output panels (reading view **and** liv
 
 ## Configuration
 
-Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**, **Languages**, **Files**, and **Advanced** tabs — to configure themes, code execution, environment variables, and embedded file behaviour. On Obsidian 1.13 and later, use settings search to find CodeSuite controls, including **Tab key in code blocks** and **Code block indentation**.
+Open **Settings → CodeSuite** — organized into **Appearance**, **Execution**, **Languages**, **Files**, and **Advanced** tabs — to configure themes, code execution, environment variables, and embedded file behaviour. On Obsidian 1.13 and later, settings search finds every CodeSuite control and opens the tab that contains it.
 
 | | |
 |---|---|
@@ -345,6 +345,7 @@ Per-block formatting and inline highlighting from [#13](https://github.com/felix
 
 **Recent releases**
 
+- **1.24.0**: redesigned settings with tabs, a CodeSuite logo header, and per-setting search that jumps to the right tab ([#89](https://github.com/felixleopold/obsidian-code-suite/pull/89)).
 - **1.23.0**: run C and C++ blocks with `gcc` / `g++`, including interactive stdin and Stop ([#86](https://github.com/felixleopold/obsidian-code-suite/pull/86)). Run MATLAB fences that define a function before calling it as scripts ([#85](https://github.com/felixleopold/obsidian-code-suite/pull/85), fixes [#84](https://github.com/felixleopold/obsidian-code-suite/issues/84)).
 - **1.22.2**: preserve Obsidian 1.6.6 compatibility for custom-theme removal buttons and keep saved outputs hidden beneath live results in Live Preview using CSS selector specificity.
 - **1.22.1**: run C# blocks with `dotnet run --file` ([#80](https://github.com/felixleopold/obsidian-code-suite/pull/80)), indent with Tab inside code blocks ([#72](https://github.com/felixleopold/obsidian-code-suite/pull/72)), and make settings searchable on Obsidian 1.13+ ([#64](https://github.com/felixleopold/obsidian-code-suite/pull/64)). Style inline code in nested list items ([#75](https://github.com/felixleopold/obsidian-code-suite/pull/75)). Fix child-process cancellation, indented-code recognition, Markdown container indentation, Escape followed by Tab, cross-language replay, and duplicate live/baked outputs.
