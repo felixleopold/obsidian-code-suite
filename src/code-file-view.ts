@@ -343,7 +343,7 @@ export class CodeFileView extends TextFileView {
       }
 
       if (!outContent.childNodes.length) {
-        outContent.textContent = "(No output)";
+        outContent.textContent = "No output";
         outContent.classList.add("ocode-no-output");
       }
     } finally {
