@@ -5162,7 +5162,7 @@ __ocode_emit_vars
         return /\bConsole\.(?:ReadLine|ReadKey|Read|In)\b/.test(code);
       case "c":
       case "cpp":
-        return /\b(?:scanf|getchar|getline|fgets)\s*\(/.test(code) || /\bstdin\b/.test(code) || /\bcin\b/.test(code);
+        return /\b(?:w?scanf(?:_s)?|getw?char|getline|fgetws?)\s*\(/.test(code) || /\bstdin\b/.test(code) || /\bw?cin\b/.test(code);
       default:
         return false;
     }

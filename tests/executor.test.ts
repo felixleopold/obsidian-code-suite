@@ -88,20 +88,22 @@ test("C# runs the code file even when the working directory contains a project",
   }
 });
 
-test("C++ compiles, then the program receives stdin and can be cancelled", {
+test("C++ input sent during compilation reaches the program, which can be cancelled", {
   skip: spawnSync("g++", ["--version"]).status !== 0,
 }, async () => {
   const code = '#include <iostream>\n#include <string>\nint main() { std::string name; std::cout << "NAME?" << std::endl; std::getline(std::cin, name); std::cout << "HELLO " << name << std::endl; std::getline(std::cin, name); }';
+  let output = "";
   const running = startExecution(code, "cpp", { ...DEFAULT_SETTINGS, executionTimeout: 60_000 }, {
     onStdout: (data) => {
-      if (data.includes("NAME?")) running.writeStdin("ADA\n");
-      if (data.includes("HELLO")) running.cancel();
+      output += data;
+      if (output.includes("HELLO ADA")) running.cancel();
     },
   });
+  running.writeStdin("ADA\n");
   const result = await running.promise;
   assert.equal(result.cancelled, true, result.stderr);
   assert.equal(result.killed, false, result.stderr);
-  assert.equal(result.stdout, "NAME?\nHELLO ADA\n");
+  assert.equal(result.stdout.replace(/\r\n/g, "\n"), "NAME?\nHELLO ADA\n");
 });
 
 test("C compile errors are reported without running a program", {

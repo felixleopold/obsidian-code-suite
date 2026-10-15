@@ -317,6 +317,9 @@ export function startExecution(
   let finished = false;
   let stdout = "";
   let stderr = "";
+  // Input sent while C/C++ compiles is held for the compiled program.
+  let pendingStdin: string | null = compiledProgram ? "" : null;
+  let pendingStdinEnd = false;
 
   const cwd = resolveExecutionCwd(settings, vaultPath, os);
 
@@ -374,7 +377,13 @@ export function startExecution(
 
       proc.on("close", (exitCode: number | null) => {
         if (compiledProgram && command === cmd && exitCode === 0 && !killed && !cancelled) {
+          const queuedStdin = pendingStdin;
+          pendingStdin = null;
           launch(compiledProgram, []);
+          try {
+            if (queuedStdin) proc.stdin?.write(queuedStdin);
+            if (pendingStdinEnd) proc.stdin?.end();
+          } catch { /* stdin may already be closed */ }
           return;
         }
         finished = true;
@@ -413,7 +422,9 @@ export function startExecution(
         finished = true;
         window.clearTimeout(timer);
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* cleanup is best-effort */ }
-        const message = `Failed to run ${command}: ${err.message}\nMake sure ${command} is installed and in your PATH.`;
+        const message = command === cmd
+          ? `Failed to run ${cmd}: ${err.message}\nMake sure ${cmd} is installed and in your PATH.`
+          : `Failed to run the compiled program: ${err.message}`;
         callbacks?.onStderr?.(message);
         resolve({
           stdout: "",
@@ -434,9 +445,17 @@ export function startExecution(
       killProcessTree();
     },
     writeStdin: (text: string) => {
+      if (pendingStdin !== null) {
+        pendingStdin += text;
+        return;
+      }
       try { proc.stdin?.write(text); } catch { /* stdin may already be closed */ }
     },
     closeStdin: () => {
+      if (pendingStdin !== null) {
+        pendingStdinEnd = true;
+        return;
+      }
       try { proc.stdin?.end(); } catch { /* stdin may already be closed */ }
     },
   };
