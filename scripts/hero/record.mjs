@@ -26,14 +26,14 @@ if (process.platform !== "darwin" || !fs.existsSync(obsidianApp)) {
   throw Error(`Recording needs macOS with ${obsidianApp}`);
 }
 
-execFileSync("npm", ["run", "build"], { cwd: root, stdio: "inherit" });
+// Without VAULT_PLUGIN_DIR, so the build never copies into your own vault.
+const { VAULT_PLUGIN_DIR, ...env } = process.env;
+execFileSync("npm", ["run", "build"], { cwd: root, env, stdio: "inherit" });
 
 // Python for the demo blocks, cached between runs.
 const python = path.join(work, "venv/bin/python");
-if (!fs.existsSync(python)) {
-  execFileSync("python3", ["-m", "venv", path.join(work, "venv")], { stdio: "inherit" });
-  execFileSync(python, ["-m", "pip", "install", "-q", "requests", "matplotlib"], { stdio: "inherit" });
-}
+if (!fs.existsSync(python)) execFileSync("python3", ["-m", "venv", path.join(work, "venv")], { stdio: "inherit" });
+execFileSync(python, ["-m", "pip", "install", "-q", "--disable-pip-version-check", "requests", "matplotlib"], { stdio: "inherit" });
 
 const write = (file, data) => {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -45,7 +45,7 @@ for (const dir of [profile, vault, framesDir]) fs.rmSync(dir, { recursive: true,
 fs.mkdirSync(framesDir, { recursive: true });
 
 // Run the Obsidian version the installed app updated itself to, not the installer's.
-const update = fs.readdirSync(obsidianData)
+const update = (fs.existsSync(obsidianData) ? fs.readdirSync(obsidianData) : [])
   .filter((file) => /^obsidian-[\d.]+\.asar$/.test(file))
   .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   .at(-1);
@@ -91,6 +91,9 @@ write(path.join(pluginDir, "data.json"), {
   ...scene.plugin,
 });
 
+// `open` detaches the instance from this process, so stop it on Ctrl-C too.
+const stopObsidian = () => spawnSync("pkill", ["-f", "--", `--user-data-dir=${profile}`]);
+for (const signal of ["SIGINT", "SIGTERM"]) process.once(signal, () => { stopObsidian(); process.exit(130); });
 spawnSync("open", ["-n", "-g", "-a", obsidianApp, "--args", `--user-data-dir=${profile}`, "--remote-debugging-port=0"]);
 let cdp;
 try {
@@ -107,7 +110,7 @@ try {
   cdp?.evaluate(`require("electron").remote.app.quit()`).catch(() => {});
   await sleep(1000);
   cdp?.close();
-  spawnSync("pkill", ["-f", "--", `--user-data-dir=${profile}`]);
+  stopObsidian();
 }
 
 async function connect() {
