@@ -171,6 +171,8 @@ export interface CodePluginSettings {
    * written into the note. See output-store.ts.
    */
   persistOutputs: boolean;
+  /** Days before a saved output is deleted, counted from its last run. 0 keeps them until cleared. */
+  savedOutputDays: number;
   /** Working directory for code execution */
   executionCwd: ExecutionCwdMode;
   /** Custom working directory path (used when executionCwd is "custom") */
@@ -331,6 +333,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   showClearSessionButton: true,
   executionTimeout: 30000,
   persistOutputs: false,
+  savedOutputDays: 30,
   executionCwd: "vault",
   executionCwdCustom: "",
   pythonPath: "",

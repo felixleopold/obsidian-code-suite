@@ -586,6 +586,21 @@ export class CodeSettingTab extends PluginSettingTab {
             render: this.toggle("persistOutputs"),
           },
           {
+            name: "Delete saved outputs after",
+            desc: "Days since a block last ran before its saved output is deleted. 0 keeps outputs until you clear them.",
+            render: (setting) => {
+              setting.addSlider((slider) => {
+                slider.setLimits(0, 365, 1);
+                slider.setValue(s.savedOutputDays);
+                slider.setDynamicTooltip();
+                slider.onChange(async (days) => {
+                  s.savedOutputDays = days;
+                  await this.plugin.saveSettings();
+                });
+              });
+            },
+          },
+          {
             name: "Saved outputs",
             desc: "Delete every saved output. Blocks show output again after you run them.",
             render: (setting) => {

@@ -566,6 +566,7 @@ export default class CodePlugin extends Plugin {
     const pluginDir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
     this.outputStore = new OutputStore(this.app.vault.adapter, normalizePath(`${pluginDir}/outputs`));
     this.outputStoreReady = this.outputStore.load()
+      .then(() => this.expireSavedOutputs())
       .catch((err) => console.error("CodeSuite: could not read saved outputs", err));
 
     // ─── Code file view (#4 / #11) ──────────────
@@ -4769,6 +4770,12 @@ __ocode_emit_vars
     });
   }
 
+  /** Delete saved outputs older than the configured number of days (0 keeps them). */
+  private expireSavedOutputs(): Promise<void> {
+    const days = this.settings.savedOutputDays;
+    return days > 0 ? this.outputStore.expire(Date.now() - days * 86_400_000) : Promise.resolve();
+  }
+
   /** Delete every saved output (command and settings button). */
   async clearSavedOutputs(): Promise<void> {
     this.invalidateSavedOutputs();
@@ -5345,6 +5352,7 @@ __ocode_emit_vars
             // Cleared (or Clear all) since the run finished: don't save it again.
             if (token !== this.savedOutputToken(sourcePath, code)) return;
             await this.outputStore.put(record);
+            await this.expireSavedOutputs();
           }).catch((err) => console.error("CodeSuite: could not save output", err));
         }
       }

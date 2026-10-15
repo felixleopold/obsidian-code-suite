@@ -175,6 +175,16 @@ export class OutputStore {
     });
   }
 
+  /** Delete entries last written before `cutoff` (a timestamp in ms). */
+  expire(cutoff: number): Promise<void> {
+    return this.enqueue(async () => {
+      const stale = [...this.index].filter(([, entry]) => entry.mtime < cutoff);
+      if (!stale.length) return;
+      const files = await this.files();
+      for (const [key] of stale) await this.deleteEntry(key, files.get(key));
+    });
+  }
+
   /** Delete every entry. */
   clear(): Promise<void> {
     return this.enqueue(async () => {

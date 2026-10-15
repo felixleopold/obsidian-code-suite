@@ -333,3 +333,15 @@ test("equal mtimes evict by write order including replacements", async () => {
   assert.deepEqual(await store.get(KEY_A), record(KEY_A));
   assert.deepEqual(await store.get(KEY_C), record(KEY_C));
 });
+
+test("expire deletes only entries written before the cutoff, with their images", async () => {
+  const adapter = new MemoryAdapter();
+  const { store } = await freshStore(adapter);
+  await store.put(record(KEY_A));
+  const cutoff = ((await adapter.stat(`${DIR}/${KEY_A}.json`))?.mtime ?? 0) + 1;
+  await store.put(record(KEY_B));
+  await store.expire(cutoff);
+  assert.equal(store.has(KEY_A), false);
+  assert.equal([...adapter.files.keys()].some((path) => path.includes(KEY_A)), false);
+  assert.deepEqual(await store.get(KEY_B), record(KEY_B));
+});
