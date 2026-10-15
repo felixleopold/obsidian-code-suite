@@ -330,7 +330,7 @@ export const DEFAULT_SETTINGS: CodePluginSettings = {
   wideCodeBlocks: false,
   showClearSessionButton: true,
   executionTimeout: 30000,
-  persistOutputs: true,
+  persistOutputs: false,
   executionCwd: "vault",
   executionCwdCustom: "",
   pythonPath: "",
