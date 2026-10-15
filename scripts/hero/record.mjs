@@ -242,7 +242,7 @@ async function record() {
     }
   };
 
-  await scene.play({
+  const api = {
     async hold(ms) {
       for (let i = 0; i < steps(ms); i++) await frame();
     },
@@ -270,6 +270,17 @@ async function record() {
       await mouse("mouseReleased");
       await frame();
     },
+    // Drag across the target's text, as a reader selects it.
+    async select(target) {
+      const half = (await rect(target)).width / 2 - 1;
+      await api.moveTo(target, { dx: -half });
+      pressed = true;
+      await mouse("mousePressed");
+      await api.moveTo(target, { dx: half, duration: 400 });
+      pressed = false;
+      await mouse("mouseReleased");
+      await frame();
+    },
     async scrollTo(target, { top = 24, duration = 800 } = {}) {
       const distance = (await rect(target)).y - top;
       let scrolled = 0;
@@ -282,7 +293,8 @@ async function record() {
     },
     waitForRun: (index) => waitFor(`__hero.runFinished(${index})`),
     command: (id) => cdp.evaluate(`app.commands.executeCommandById(${JSON.stringify(id)})`),
-  });
+  };
+  await scene.play(api);
   return frames;
 }
 
