@@ -10,7 +10,8 @@
     "vault-install": "bash scripts/install.sh",
     "lint": "eslint src/",
     "test": "node scripts/test.js",
-    "release": "bash scripts/release.sh"
+    "release": "bash scripts/release.sh",
+    "record-hero": "node scripts/hero/record.mjs"
   },
   "repository": {
     "type": "git",
@@ -33,6 +34,7 @@
     "@codemirror/language": "6.12.3",
     "@codemirror/state": "6.5.0",
     "@codemirror/view": "6.38.6",
+    "@electron/asar": "^4.3.1",
     "@eslint/js": "^9.30.1",
     "@eslint/json": "0.14.0",
     "@lezer/highlight": "^1.2.3",

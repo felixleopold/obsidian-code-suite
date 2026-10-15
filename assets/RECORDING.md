@@ -43,7 +43,11 @@ Shot list for the README + store listing. Record each scene, then drop the file 
 
 > **One feature per clip.** The hero is the only montage — every other clip owns exactly one feature so nothing is shown twice: execution owns bash/deps + streaming, notebook owns shared vars + `$var`, export owns outputs-in-PDF (uses a **table**, not a plot, so it differs from the hero), highlighting owns theme switching, embed owns embedded files.
 
-### 0. `hero.gif` — P0 — the one that sells it (~7s)
+### 0. `hero.gif` — generated, not hand-recorded
+
+`npm run record-hero` (macOS with Obsidian installed) records it from the real plugin in a separate, invisible Obsidian instance with a throwaway vault, so it runs in the background and never touches your own vaults. The numbers are fetched live on every run, and `npm run release` re-records it on macOS (`--no-hero` skips). To change what it shows, edit `scripts/hero/hero.md` (the note) and `scripts/hero/scene.mjs` (cursor moves, clicks, theme switches, timing).
+
+The original shot list, kept for reference:
 The summary montage — the only clip allowed to show several features. No dead time, ~1.5s/beat:
 1. **Theme swap** — press the demo theme-cycle hotkey (see below) so the block recolors live. Sells highlighting + themes instantly without opening settings on camera.
 2. **Run** — cursor hits Run, output/plot renders (matplotlib `plt.show()` pops in below).

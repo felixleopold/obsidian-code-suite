@@ -1,0 +1,6 @@
+/* Recording-only snippet: show just the note, as if cropped to the reading pane. */
+.workspace-ribbon, .workspace-tab-header-container, .view-header, .status-bar, .titlebar,
+.mod-left-split, .mod-right-split, .workspace-leaf-resize-handle { display: none !important; }
+.workspace-tabs .workspace-leaf { border: none !important; }
+.markdown-reading-view .markdown-preview-view { scrollbar-width: none; }
+.markdown-preview-view::-webkit-scrollbar { display: none; }
