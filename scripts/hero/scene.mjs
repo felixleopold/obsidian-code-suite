@@ -19,6 +19,7 @@ export default {
     await moveTo(runButton(0));
     await hold(250);
     await click();
+    await hold(600); // Let "Running…" show before the result.
     await waitForRun(0);
     await moveTo({ text: "Fetched live" }, { dx: -230 });
     await hold(1600);
@@ -27,7 +28,7 @@ export default {
     await moveTo({ text: "Same Shiki engine" }, { dx: 120 });
     for (let i = 0; i < 3; i++) {
       await command("code-suite:demo-cycle-theme");
-      await hold(1100);
+      await hold(2000);
     }
 
     // The Python variable, reused in bash.
@@ -35,6 +36,7 @@ export default {
     await moveTo(runButton(1));
     await hold(250);
     await click();
+    await hold(600);
     await waitForRun(1);
     await hold(1300);
 
@@ -43,9 +45,9 @@ export default {
     await moveTo(runButton(2));
     await hold(250);
     await click();
-    await hold(500);
+    await hold(600);
     await waitForRun(2);
     await moveTo({ selector: ".ocode-output-img" }, { dx: 200 });
-    await hold(3000);
+    await hold(4000);
   },
 };
