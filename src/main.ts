@@ -549,7 +549,7 @@ export default class CodePlugin extends Plugin {
         id: "run-code-block-at-cursor",
         name: "Run code block at cursor",
         editorCallback: (editor, view) => {
-          if (view instanceof MarkdownView) this.runCodeBlockAtCursor(editor, view);
+          if (view instanceof MarkdownView) void this.runCodeBlockAtCursor(editor, view);
         },
       });
 
@@ -4623,7 +4623,7 @@ __ocode_emit_vars
   // ─── Code Execution ──────────────────────────────────────────
 
   /** Run the fenced block being edited without changing the editor layout. */
-  private runCodeBlockAtCursor(editor: Editor, view: MarkdownView): void {
+  private async runCodeBlockAtCursor(editor: Editor, view: MarkdownView): Promise<void> {
     if (!this.settings.enableExecution) {
       new Notice("Enable code execution in CodeSuite settings first.");
       return;
@@ -4670,19 +4670,18 @@ __ocode_emit_vars
     modal.open();
     modal.contentEl.appendChild(wrapper);
     modal.onClose = () => { this.runningProcs.get(wrapper)?.cancel(); };
-    void this.runCode(code, lang, wrapper, runBtn, notePath).then(() => {
-      // The editor may already own a cached Live Preview wrapper for this block.
-      // Refresh its output so moving the cursor away reveals this run's result.
-      for (const cache of this.lpWrapperCache) {
-        if (cache.notePath !== notePath) continue;
-        for (const cached of cache.wrappers.values()) {
-          if (cached.dataset.ocodeSourcePath !== notePath ||
-              cached.dataset.ocodeHash !== codeHash(code.trim())) continue;
-          cached.querySelector(":scope > .ocode-output")?.remove();
-          this.restoreBlockOutput(notePath, code, cached);
-        }
+    await this.runCode(code, lang, wrapper, runBtn, notePath);
+    // The editor may already own a cached Live Preview wrapper for this block.
+    // Refresh its output so moving the cursor away reveals this run's result.
+    for (const cache of this.lpWrapperCache) {
+      if (cache.notePath !== notePath) continue;
+      for (const cached of cache.wrappers.values()) {
+        if (cached.dataset.ocodeSourcePath !== notePath ||
+            cached.dataset.ocodeHash !== codeHash(code.trim())) continue;
+        cached.querySelector(":scope > .ocode-output")?.remove();
+        this.restoreBlockOutput(notePath, code, cached);
       }
-    });
+    }
   }
 
   private async runCode(
