@@ -1,6 +1,7 @@
 import {
   App,
   Component,
+  type Editor,
   Menu,
   Plugin,
   MarkdownPostProcessorContext,
@@ -20,8 +21,8 @@ import {
 } from "obsidian";
 import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
-import { RangeSetBuilder, StateField, StateEffect, Prec, MapMode } from "@codemirror/state";
-import type { Extension, Text, EditorState, Range } from "@codemirror/state";
+import { RangeSetBuilder, StateField, StateEffect, Prec, MapMode, Text } from "@codemirror/state";
+import type { Extension, EditorState, Range } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import {
   parseBlockOptions,
@@ -544,6 +545,14 @@ export default class CodePlugin extends Plugin {
 
     // Command: import an external code file into the vault as a symlink alias
     if (Platform.isDesktop) {
+      this.addCommand({
+        id: "run-code-block-at-cursor",
+        name: "Run code block at cursor",
+        editorCallback: (editor, view) => {
+          if (view instanceof MarkdownView) this.runCodeBlockAtCursor(editor, view);
+        },
+      });
+
       this.addCommand({
         id: "import-code-file-as-alias",
         name: "Import code file as alias\u2026",
@@ -4612,6 +4621,69 @@ __ocode_emit_vars
   }
 
   // ─── Code Execution ──────────────────────────────────────────
+
+  /** Run the fenced block being edited without changing the editor layout. */
+  private runCodeBlockAtCursor(editor: Editor, view: MarkdownView): void {
+    if (!this.settings.enableExecution) {
+      new Notice("Enable code execution in CodeSuite settings first.");
+      return;
+    }
+    const notePath = view.file?.path;
+    if (!notePath) return;
+
+    const doc = Text.of(editor.getValue().split("\n"));
+    const cursor = editor.getCursor();
+    const position = doc.line(cursor.line + 1).from + cursor.ch;
+    const block = scanFencedBlocks(doc).find((candidate) =>
+      candidate.openFrom <= position && position <= candidate.closeTo,
+    );
+    if (!block) {
+      new Notice("Put the cursor inside a fenced code block to run it.");
+      return;
+    }
+    const rawLang = block.lang.toLowerCase();
+    const lang = this.highlighter.resolveLanguage(block.lang);
+    const code = block.indent
+      ? block.innerLines.map((line) => stripFenceIndent(line.text, block.indent)).join("\n")
+      : block.code;
+    const options = parseBlockOptions(block.info);
+    if (this.passthroughLanguages().has(rawLang) || !isExecutable(lang) ||
+        isStaticBlock(options, this.settings.staticBlocksByDefault, code)) {
+      new Notice("This code block is not runnable.");
+      return;
+    }
+
+    const wrapper = this.buildCodeBlockWrapper(
+      code, lang, block.lang, undefined, notePath, options.flags.has("skip"),
+      true, null, false, false, options,
+    );
+    const runBtn = wrapper?.querySelector<HTMLButtonElement>(".ocode-run-pill");
+    if (!wrapper || !runBtn) {
+      new Notice("Could not prepare this code block for execution.");
+      return;
+    }
+
+    const modal = new Modal(this.app);
+    modal.titleEl.setText(`CodeSuite output: ${block.lang}`);
+    modal.modalEl.addClass("ocode-run-current-dialog");
+    modal.contentEl.addClass("ocode-run-current-modal");
+    modal.open();
+    modal.contentEl.appendChild(wrapper);
+    modal.onClose = () => { this.runningProcs.get(wrapper)?.cancel(); };
+    void this.runCode(code, lang, wrapper, runBtn, notePath).then(() => {
+      // The editor may already own a cached Live Preview wrapper for this block.
+      // Refresh its output so moving the cursor away reveals this run's result.
+      for (const cache of this.lpWrapperCache) {
+        if (cache.notePath !== notePath) continue;
+        for (const cached of cache.wrappers.values()) {
+          if (cached.dataset.ocodeSourcePath !== notePath ||
+              cached.dataset.ocodeHash !== codeHash(code.trim())) continue;
+          cached.querySelector(":scope > .ocode-output")?.remove();
+          this.restoreBlockOutput(notePath, code, cached);
+        }
+      }
+    });
+  }
 
   private async runCode(
     code: string,
