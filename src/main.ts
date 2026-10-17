@@ -37,6 +37,7 @@ import { CodeBlockWidget } from "./code-block-widget";
 import { ReadingCodeBlock } from "./reading-code-block";
 import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code";
 import { buildCodeBlockTabExtension } from "./code-block-tab";
+import { closedFenceAtLine } from "./markdown-code-context";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
 import {
@@ -4630,30 +4631,23 @@ __ocode_emit_vars
     const notePath = view.file?.path;
     if (!notePath) return;
 
-    const doc = Text.of(editor.getValue().split("\n"));
-    const cursor = editor.getCursor();
-    const position = doc.line(cursor.line + 1).from + cursor.ch;
-    const block = scanFencedBlocks(doc).find((candidate) =>
-      candidate.openFrom <= position && position <= candidate.closeTo,
-    );
+    const block = closedFenceAtLine(editor.getValue(), editor.getCursor().line + 1);
     if (!block) {
       new Notice("Put the cursor inside a fenced code block to run it.");
       return;
     }
-    const rawLang = block.lang.toLowerCase();
-    const lang = this.highlighter.resolveLanguage(block.lang);
-    const code = block.indent
-      ? block.innerLines.map((line) => stripFenceIndent(line.text, block.indent)).join("\n")
-      : block.code;
+    const rawLang = fenceLanguage(block.info);
+    const lang = this.highlighter.resolveLanguage(rawLang);
+    const code = block.code;
     const options = parseBlockOptions(block.info);
-    if (this.passthroughLanguages().has(rawLang) || !isExecutable(lang) ||
+    if (this.passthroughLanguages().has(rawLang.toLowerCase()) || !isExecutable(lang) ||
         isStaticBlock(options, this.settings.staticBlocksByDefault, code)) {
       new Notice("CodeSuite can't run this block.");
       return;
     }
 
     const wrapper = this.buildCodeBlockWrapper(
-      code, lang, block.lang, undefined, notePath, options.flags.has("skip"),
+      code, lang, rawLang, undefined, notePath, options.flags.has("skip"),
       true, null, false, false, options,
     );
     const runBtn = wrapper?.querySelector<HTMLButtonElement>(".ocode-run-pill");
@@ -4663,7 +4657,7 @@ __ocode_emit_vars
     }
 
     const modal = new Modal(this.app);
-    modal.titleEl.setText(`CodeSuite output: ${block.lang}`);
+    modal.titleEl.setText(`CodeSuite output: ${rawLang}`);
     modal.modalEl.addClass("ocode-run-current-dialog");
     modal.contentEl.addClass("ocode-run-current-modal");
     modal.open();
