@@ -82,10 +82,10 @@ Inspired by [mProjectsCode’s Shiki Highlighter](https://github.com/mProjectsCo
 
 Run code directly from a code block — no terminal, no switching apps.
 
-While editing in Live Preview or Source mode, use **Run code block at cursor**
-from the command palette to execute the fenced block under the caret. Its live
-output opens in a separate dialog so the editor does not resize. Assign a
-shortcut under **Settings → Hotkeys** if you want to run it from the keyboard.
+To run a code block while editing it in Live Preview or Source mode, choose
+**Run code block at cursor** from the command palette. The output opens in a
+dialog so the block stays the same size. You can assign a shortcut under
+**Settings → Hotkeys**.
 
 | Language | Command | Notes |
 |---|---|---|

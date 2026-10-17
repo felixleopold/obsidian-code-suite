@@ -543,7 +543,6 @@ export default class CodePlugin extends Plugin {
       this.registerCodeFileExtensions();
     }
 
-    // Command: import an external code file into the vault as a symlink alias
     if (Platform.isDesktop) {
       this.addCommand({
         id: "run-code-block-at-cursor",
@@ -553,6 +552,7 @@ export default class CodePlugin extends Plugin {
         },
       });
 
+      // Import an external code file into the vault as a symlink alias.
       this.addCommand({
         id: "import-code-file-as-alias",
         name: "Import code file as alias\u2026",
@@ -4622,10 +4622,9 @@ __ocode_emit_vars
 
   // ─── Code Execution ──────────────────────────────────────────
 
-  /** Run the fenced block being edited without changing the editor layout. */
   private async runCodeBlockAtCursor(editor: Editor, view: MarkdownView): Promise<void> {
     if (!this.settings.enableExecution) {
-      new Notice("Enable code execution in CodeSuite settings first.");
+      new Notice("Turn on code execution in CodeSuite settings to run this block.");
       return;
     }
     const notePath = view.file?.path;
@@ -4649,7 +4648,7 @@ __ocode_emit_vars
     const options = parseBlockOptions(block.info);
     if (this.passthroughLanguages().has(rawLang) || !isExecutable(lang) ||
         isStaticBlock(options, this.settings.staticBlocksByDefault, code)) {
-      new Notice("This code block is not runnable.");
+      new Notice("CodeSuite can't run this block.");
       return;
     }
 
@@ -4659,7 +4658,7 @@ __ocode_emit_vars
     );
     const runBtn = wrapper?.querySelector<HTMLButtonElement>(".ocode-run-pill");
     if (!wrapper || !runBtn) {
-      new Notice("Could not prepare this code block for execution.");
+      new Notice("Couldn't prepare this code block to run.");
       return;
     }
 
@@ -4671,8 +4670,7 @@ __ocode_emit_vars
     modal.contentEl.appendChild(wrapper);
     modal.onClose = () => { this.runningProcs.get(wrapper)?.cancel(); };
     await this.runCode(code, lang, wrapper, runBtn, notePath);
-    // The editor may already own a cached Live Preview wrapper for this block.
-    // Refresh its output so moving the cursor away reveals this run's result.
+    // Update cached Live Preview blocks so the output appears when the cursor leaves.
     for (const cache of this.lpWrapperCache) {
       if (cache.notePath !== notePath) continue;
       for (const cached of cache.wrappers.values()) {
