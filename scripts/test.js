@@ -15,6 +15,7 @@ const testBundles = [
   join(testDir, "code-block-widget.test.cjs"),
   join(testDir, "reading-code-block.test.cjs"),
   join(testDir, "code-block-tab.test.cjs"),
+  join(testDir, "markdown-code-context.test.cjs"),
 ];
 let exitCode = 1;
 
@@ -30,6 +31,7 @@ try {
       "tests/code-block-widget.test.ts",
       "tests/reading-code-block.test.ts",
       "tests/code-block-tab.test.ts",
+      "tests/markdown-code-context.test.ts",
     ],
     bundle: true,
     platform: "node",

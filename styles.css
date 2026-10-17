@@ -201,6 +201,15 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
 }
 
 /* ─── Output panel ────────────────────────────── */
+.ocode-run-current-dialog {
+  width: min(900px, 90vw);
+}
+
+.ocode-run-current-modal > .ocode-wrapper {
+  max-height: 70vh;
+  overflow: auto;
+}
+
 .ocode-output {
   border-top: 1px solid var(--ocode-border, #3c3836);
   background-color: var(--ocode-output-bg, #1a1a1a);
