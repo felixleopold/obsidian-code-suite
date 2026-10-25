@@ -1,14 +1,50 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   JAVASCRIPT_VAR_POSTAMBLE,
   buildJavascriptContextCode,
   buildHistoricalReplay,
+  precedingReplayBlocks,
 } from "../src/shared-context";
 import type { VarValue } from "../src/vars";
 
 const marker = "__OCODE_VARS__=";
+
+test("rerunning a shell block writes once without replaying its dependent successors", { skip: process.platform === "win32" }, (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "code-suite-replay-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const output = join(dir, "test.out");
+  const history: string[] = [];
+  const setup = "label=ready";
+  const append = 'append() { echo "$label $EPOCHREALTIME" >> "$CODE_SUITE_TEST_OUT"; }\nappend';
+  const dependent = "append";
+  const run = (code: string) => {
+    const replay = precedingReplayBlocks(history, code);
+    const source = buildHistoricalReplay("bash", replay) + "\n" + code;
+    const result = spawnSync("bash", ["-e", "-c", source], {
+      encoding: "utf8",
+      env: { ...process.env, CODE_SUITE_TEST_OUT: output },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    if (!history.includes(code)) history.push(code);
+  };
+  const lines = () => readFileSync(output, "utf8").trim().split("\n");
+
+  run(setup);
+  run(append);
+  assert.equal(lines().length, 1);
+  run(append);
+  assert.equal(lines().length, 2, "the clicked block must not replay itself");
+  run(dependent);
+  assert.equal(lines().length, 4, "earlier blocks still replay to restore definitions");
+  run(append);
+  assert.equal(lines().length, 5, "later dependent blocks must not replay before their definition");
+  assert.ok(lines().every((line) => line.startsWith("ready ")), "earlier state must remain available");
+});
 
 function runJavascript(
   previousBlocks: string[],

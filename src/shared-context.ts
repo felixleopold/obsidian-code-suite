@@ -2,6 +2,12 @@ import { parse } from "acorn";
 import type { Pattern } from "acorn";
 import { pythonSeedLine, shellSeedLine, toJs, type VarValue } from "./vars";
 
+/** Replay only the history preceding this block, before its definitions are replaced. */
+export function precedingReplayBlocks(blocks: string[], currentBlock: string): string[] {
+  const index = blocks.indexOf(currentBlock);
+  return index < 0 ? blocks : blocks.slice(0, index);
+}
+
 function addPatternNames(pattern: Pattern, names: Set<string>): void {
   switch (pattern.type) {
     case "Identifier":
