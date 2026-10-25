@@ -538,6 +538,14 @@ export default class CodePlugin extends Plugin {
   private _exportRestores: Promise<void>[] | null = null;
   /** Settles when the current export render finishes; see buildNoteHtml. */
   private exportQueue: Promise<void> = Promise.resolve();
+  /** The note's source fences while it is rendered for HTML/PDF export. The
+   *  detached export render has no section info, so processCodeBlocks matches
+   *  blocks against these to keep their fence options (#88). Null otherwise. */
+  private _exportFences: {
+    sourcePath: string;
+    fences: ReturnType<typeof fencedBlockInfos>;
+    matched: Set<number>;
+  } | null = null;
 
   async onload() {
     await this.loadSettings();
@@ -2632,6 +2640,7 @@ __ocode_emit_vars
     // lazily-built, layout-gated) iframes can be materialized for the export (#33).
     this._exportHtmlPanes = [];
     this._exportRestores = [];
+    this._exportFences = { sourcePath: file.path, fences: fencedBlockInfos(markdown), matched: new Set() };
     try {
       await MarkdownRenderer.render(this.app, markdown, full, file.path, comp);
       await Promise.all(this._exportRestores);
@@ -2679,6 +2688,7 @@ __ocode_emit_vars
     } finally {
       this._exportHtmlPanes = null;
       this._exportRestores = null;
+      this._exportFences = null;
       comp.unload();
       full.detach();
     }
@@ -3106,13 +3116,16 @@ __ocode_emit_vars
       // Match source content within this element's section. Native renderers can
       // remove earlier fences from the DOM, so a positional index is unreliable.
       const section = ctx.getSectionInfo(pre) ?? ctx.getSectionInfo(codeEl) ?? ctx.getSectionInfo(el);
+      const exportFences = !section && this._exportFences?.sourcePath === ctx.sourcePath ? this._exportFences : null;
       const renderedCode = (codeEl.textContent ?? "").replace(/\n$/, "");
       const fences = section ? fencedBlockInfos(section.text.split("\n")
-        .slice(section.lineStart, section.lineEnd + 1).join("\n")) : [];
-      const fence = section ? fences.find((candidate) => !matchedFenceLines.has(section.lineStart + candidate.line)
+        .slice(section.lineStart, section.lineEnd + 1).join("\n")) : exportFences?.fences ?? [];
+      const lineStart = section?.lineStart ?? 0;
+      const matched = exportFences?.matched ?? matchedFenceLines;
+      const fence = fences.find((candidate) => !matched.has(lineStart + candidate.line)
           && fenceLanguage(candidate.info).toLowerCase() === rawLang.toLowerCase()
-          && candidate.code === renderedCode) : undefined;
-      if (fence && section) matchedFenceLines.add(section.lineStart + fence.line);
+          && candidate.code === renderedCode);
+      if (fence) matched.add(lineStart + fence.line);
       const infoStr = fence?.info ?? "";
       const options = parseBlockOptions(infoStr);
       const blockAttrs = options.flags;
@@ -3137,7 +3150,7 @@ __ocode_emit_vars
       const wrapper = this.buildCodeBlockWrapper(code, lang, rawLang, undefined, ctx.sourcePath, forceSkip, forceCollapsed, htmlPreview, htmlPdf, htmlTemplate, options);
       if (!wrapper) continue;
       pre.replaceWith(wrapper);
-      if (fence) {
+      if (fence && section) {
         let previousOptions = options;
         ctx.addChild(new ReadingCodeBlock(wrapper, ctx, fences.indexOf(fence), fence, (info, current) => {
           // A running process owns its output and controls until it finishes.

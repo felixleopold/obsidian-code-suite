@@ -3,7 +3,9 @@
 **Execute code inside your notes — a notebook that lives in plain Markdown.**
 VS Code–quality syntax highlighting, live code execution with streaming output, shared variables across blocks, inline graphs, and styled HTML/PDF export — all in a plain-text `.md` file you can version, diff, and edit anywhere. No kernel, no `.ipynb`, no server.
 
-![CodeSuite in action](assets/hero.gif)
+CodeSuite (listed as **Code Suite** in Obsidian's community plugins) is an Obsidian code block plugin for students, data analysts, and developers who keep code in their notes. It adds syntax highlighting and line numbers to supported code blocks, with a copy button, optional titles, and configurable line highlights, and on desktop lets you run Python, JavaScript, TypeScript, R, Bash, C, C++, Go, and more with the interpreters already installed on your computer.
+
+![An Obsidian note where a Python code block fetches a value that appears inline in the text, a Bash block reuses it, the Shiki theme switches, and a Matplotlib chart renders below a block](assets/hero.gif)
 
 <p align="center">
   <strong>Enjoying CodeSuite?</strong><br>
@@ -304,7 +306,7 @@ CodeSuite renders baked blocks as normal output panels (reading view **and** liv
 
 ## Installation
 
-**Community Plugins** *(recommended)* — Settings → Community Plugins → Browse → search **CodeSuite** → Install → Enable.
+**Community Plugins** *(recommended)* — Settings → Community Plugins → Browse → search **Code Suite** → Install → Enable. You can also open the [plugin page](https://community.obsidian.md/plugins/code-suite) in your browser.
 
 <details>
 <summary><b>Manual install</b></summary>
@@ -346,6 +348,8 @@ Per-block formatting and inline highlighting from [#13](https://github.com/felix
 
 **Recent releases**
 
+- **1.24.2**: HTML and PDF exports preserve code-block line highlights, insertion/deletion colors, titles, and line-number options, including blocks inside callouts ([#94](https://github.com/felixleopold/obsidian-code-suite/pull/94), fixes [#88](https://github.com/felixleopold/obsidian-code-suite/issues/88)).
+- **1.24.1**: the README demo is recorded from the real plugin with live download numbers and re-recorded on every release ([#91](https://github.com/felixleopold/obsidian-code-suite/pull/91)).
 - **1.24.0**: redesigned settings with tabs, a CodeSuite logo header, and per-setting search that jumps to the right tab ([#89](https://github.com/felixleopold/obsidian-code-suite/pull/89)).
 - **1.23.0**: run C and C++ blocks with `gcc` / `g++`, including interactive stdin and Stop ([#86](https://github.com/felixleopold/obsidian-code-suite/pull/86)). Run MATLAB fences that define a function before calling it as scripts ([#85](https://github.com/felixleopold/obsidian-code-suite/pull/85), fixes [#84](https://github.com/felixleopold/obsidian-code-suite/issues/84)).
 - **1.22.2**: preserve Obsidian 1.6.6 compatibility for custom-theme removal buttons and keep saved outputs hidden beneath live results in Live Preview using CSS selector specificity.
@@ -387,6 +391,16 @@ Per-block formatting and inline highlighting from [#13](https://github.com/felix
 
 </details>
 
+## FAQ
+
+**Is CodeSuite a Jupyter replacement for Obsidian?** It covers the notebook workflow inside a normal Markdown note: run blocks, keep variables between them, see plots inline, and import or export `.ipynb` files. It does not use a Jupyter kernel; each language runs through its own local interpreter.
+
+**Does it work on mobile?** Syntax highlighting and block styling work on mobile. Running code, Jupyter import/export, and HTML/PDF export are desktop only.
+
+**Do I need to install the languages myself?** Yes. CodeSuite runs the interpreter or compiler on your computer (for example `python3`, `node`, or `gcc`). You can set custom interpreter paths and Python virtual environments in the settings.
+
+**Can I use it only for syntax highlighting?** Yes. Turn off code execution in **Settings → CodeSuite → Execution**, or mark single blocks as `static`.
+
 ## Contributing
 
 Found a bug or have a feature request? [Open an issue on GitHub](https://github.com/felixleopold/obsidian-code-suite/issues). Want to contribute code? See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -398,3 +412,5 @@ Found a bug or have a feature request? [Open an issue on GitHub](https://github.
 - [CodeMirror 6](https://codemirror.net/) — editor framework used by Obsidian
 
 [Apache 2.0](LICENSE) © Felix Leopold
+
+Made by Felix Mrak (https://felixmrak.com/).

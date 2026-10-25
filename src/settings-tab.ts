@@ -53,7 +53,7 @@ export class CodeSettingTab extends PluginSettingTab {
       '<g fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">' +
         '<path d="M50 8 92 50 50 92 8 50z"/><path d="M40 37 27 50l13 13M60 37l13 13-13 13"/></g>',
     );
-    this.icon = "code-suite";
+    if (requireApiVersion("1.11.0")) this.icon = "code-suite";
   }
 
   // Every tab's groups are always defined so Obsidian's settings search
