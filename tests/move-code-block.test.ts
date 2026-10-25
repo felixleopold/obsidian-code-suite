@@ -50,6 +50,11 @@ test("strips only the container's columns from tab-indented code, as CommonMark 
   assert.equal(content("> ```\n>\t\tx\n> ```"), "\t\tx\n");
   assert.equal(content(">  ```\n>\tx\n> ```"), " x\n");
   assert.equal(content(">\t```\n>\tx\n>\t```"), "x\n");
+  // A tab after `>` also counts toward a list item's continuation indent.
+  const listed = codeBlockMoveAt("> - ```py\n>\tx\n>   ```", 2);
+  assert.equal(listed?.closeLine, 3);
+  assert.equal(listed?.content, "x\n");
+  assert.equal(listed?.prefix, "> - ");
 });
 
 test("keeps the body's line count, including empty bodies", () => {

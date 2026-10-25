@@ -47,7 +47,7 @@ export function codeBlockMoveAt(source: string, lineNumber: number): CodeBlockMo
     closeLine: fence.closeLine,
     prefix: opening.slice(0, opening.search(/`{3,}|~{3,}/)),
     content: [...fence.lines]
-      .map(([line, { offset, partialTab }]) => `${partialTab}${lines[line - 1].slice(offset)}\n`)
+      .map(([line, { codeOffset, partialTab }]) => `${partialTab}${lines[line - 1].slice(codeOffset)}\n`)
       .join(""),
     info: fence.info,
     lang,
