@@ -96,6 +96,7 @@ import {
   JAVASCRIPT_VAR_POSTAMBLE,
   buildJavascriptContextCode,
   buildHistoricalReplay,
+  otherReplayBlocks,
 } from "./shared-context";
 import {
   type TemplateContext,
@@ -1922,9 +1923,8 @@ export default class CodePlugin extends Plugin {
    * Layering (this order is what makes the live cross-language namespace work):
    *   1. `preSeeds`  — declared vars (vars block / frontmatter / table), the
    *                    *initial* values, injected before replay.
-   *   2. replay      — the current language's accumulated session blocks
-   *                    (including this block's own earlier run, so later blocks
-   *                    that depend on it still resolve), run with output
+   *   2. replay      — the current language's other accumulated session blocks,
+   *                    including newer runs, run with output
    *                    suppressed so they re-establish functions/imports/vars.
    *                    Each block first receives the cross-language inputs it
    *                    consumed on its successful run.
@@ -1980,7 +1980,7 @@ export default class CodePlugin extends Plugin {
         // original run (recorded in noteStdin) so a replayed input() / sys.stdin
         // read reproduces the value it produced — that's what makes a downstream
         // block see an upstream `name = input(...)`. Any read past the recorded
-        // input hits EOF and raises EOFError (swallowed below) instead of blocking
+        // input hits EOF and raises EOFError (isolated per block) instead of blocking
         // on a bar that never appears. Restored before the current block, which
         // reads the real stdin normally and still gets its input bar.
         // JSON string escaping is a subset of Python's, so this is a valid literal.
@@ -1996,10 +1996,6 @@ export default class CodePlugin extends Plugin {
         "except Exception: pass",
         "try:",
         indented,
-        // A replayed input() hits the EOF stdin above and raises EOFError. That's
-        // expected — interactive input can't be replayed — and must not abort the
-        // current block, so swallow it here. Genuine replay errors still propagate.
-        "except EOFError: pass",
         "finally:",
         "    __sys.stdout = __ocode_prev_out",
         "    __sys.stderr = __ocode_prev_err",
@@ -4718,12 +4714,10 @@ __ocode_emit_vars
     }
     const effectiveSeeds: Record<string, VarValue> = { ...preSeeds, ...postSeeds };
     if (useSharedCtx) {
-      // Replay the full accumulated session, including this block's own earlier
-      // run. Dropping it would break later blocks that depend on its definitions
-      // (e.g. Run All, then re-run block 1: the replay of block 3 would hit a
-      // NameError before block 1 ever executes). Running once in the suppressed
-      // replay and once visibly matches notebook re-run semantics.
-      const prevBlocks = this.noteContexts.get(sourcePath)?.get(lang) ?? [];
+      // Exclude this block's previous run so it executes only once. Keep newer
+      // history so upstream edits remain visible. Python/JavaScript isolate
+      // failures per replayed block if an excluded definition is unavailable.
+      const prevBlocks = otherReplayBlocks(this.noteContexts.get(sourcePath)?.get(lang) ?? [], code);
       const hasSeed    = Object.keys(preSeeds).length > 0 || Object.keys(postSeeds).length > 0;
       if (prevBlocks.length > 0 || hasSeed || lang === "javascript") {
         // Replay each prior block's recorded stdin, in block order, so a replayed
