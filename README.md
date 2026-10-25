@@ -354,6 +354,7 @@ Per-block formatting and inline highlighting from [#13](https://github.com/felix
 
 **Recent releases**
 
+- **1.25.0**: run the code block at the cursor from a hotkey ([#96](https://github.com/felixleopold/obsidian-code-suite/pull/96), closes [#97](https://github.com/felixleopold/obsidian-code-suite/issues/97)), move a code block into its own embedded file ([#100](https://github.com/felixleopold/obsidian-code-suite/pull/100), closes [#28](https://github.com/felixleopold/obsidian-code-suite/issues/28)), and optionally keep block outputs after closing a note ([#93](https://github.com/felixleopold/obsidian-code-suite/pull/93)). Fix blocks running twice with shared context ([#101](https://github.com/felixleopold/obsidian-code-suite/pull/101), fixes [#98](https://github.com/felixleopold/obsidian-code-suite/issues/98)).
 - **1.24.2**: HTML and PDF exports preserve code-block line highlights, insertion/deletion colors, titles, and line-number options, including blocks inside callouts ([#94](https://github.com/felixleopold/obsidian-code-suite/pull/94), fixes [#88](https://github.com/felixleopold/obsidian-code-suite/issues/88)).
 - **1.24.1**: the README demo is recorded from the real plugin with live download numbers and re-recorded on every release ([#91](https://github.com/felixleopold/obsidian-code-suite/pull/91)).
 - **1.24.0**: redesigned settings with tabs, a CodeSuite logo header, and per-setting search that jumps to the right tab ([#89](https://github.com/felixleopold/obsidian-code-suite/pull/89)).
