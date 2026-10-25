@@ -32,7 +32,7 @@ import {
   fencedBlockInfos,
   type BlockOptions,
 } from "./block-options";
-import { CodeBlockWidget } from "./code-block-widget";
+import { CodeBlockWidget, shouldRevealBlockSource } from "./code-block-widget";
 import { ReadingCodeBlock } from "./reading-code-block";
 import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code";
 import { buildCodeBlockTabExtension } from "./code-block-tab";
@@ -1187,7 +1187,8 @@ export default class CodePlugin extends Plugin {
    * line numbers, collapse, live output) and embedded code files in Live
    * Preview, by replacing each block with a {@link CodeBlockWidget}. The block
    * the cursor sits in is left untouched so its raw source stays editable (the
-   * Shiki token extension still colours it). Block-replacing decorations must
+   * Shiki token extension still colours it). In Vim mode, source is also revealed
+   * from adjacent lines so vertical motions can enter the block. Replacements must
    * come from a StateField, not a ViewPlugin, so they can affect line layout.
    */
   private buildBlockWidgetExtension(): Extension {
@@ -1211,9 +1212,12 @@ export default class CodePlugin extends Plugin {
 
       const sig = this.lpRenderSig();
       const doc = state.doc;
-      const sel = state.selection;
+      // Obsidian's Vim preference is not declared in the public Vault typings.
+      const vimMode = (this.app.vault as unknown as {
+        getConfig(key: "vimMode"): boolean;
+      }).getConfig("vimMode");
       const overlapsSelection = (from: number, to: number) =>
-        sel.ranges.some((r) => r.from <= to && r.to >= from);
+        shouldRevealBlockSource(state, from, to, vimMode);
 
       const liveKeys = new Set<string>();
       const livePositions = new Set<number>();

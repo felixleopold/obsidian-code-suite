@@ -1,4 +1,23 @@
+import type { EditorState } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
+
+/** Keep nearby block source visible so Vim can move into it with j/k. */
+export function shouldRevealBlockSource(
+  state: EditorState,
+  from: number,
+  to: number,
+  vimMode: boolean,
+): boolean {
+  const { doc, selection } = state;
+  return selection.ranges.some((range) => {
+    if (range.from <= to && range.to >= from) return true;
+    // Vim's vertical motions skip replacement widgets. Reveal the source one
+    // line early from either direction, before the next motion crosses it.
+    return vimMode
+      && doc.lineAt(range.from).number <= doc.lineAt(to).number + 1
+      && doc.lineAt(range.to).number >= doc.lineAt(from).number - 1;
+  });
+}
 
 // CodeMirror can replace an equal WidgetType without calling toDOM again.
 // Mount cleanup therefore belongs to the DOM, not the transient widget object.
