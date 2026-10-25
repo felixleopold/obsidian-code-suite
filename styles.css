@@ -316,6 +316,14 @@ body.ocode-wrap-code .ocode-wrapper.ocode-has-lnum .line .ocode-line-num {
   font-weight: 600;
 }
 
+/* Age of an output saved by an earlier session (#70) */
+.ocode-saved-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--ocode-muted, #928374);
+  user-select: none;
+}
+
 .ocode-stdin-echo {
   color: #83a598;
   font-style: italic;
