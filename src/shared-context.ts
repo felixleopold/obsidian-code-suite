@@ -2,6 +2,11 @@ import { parse } from "acorn";
 import type { Pattern } from "acorn";
 import { pythonSeedLine, shellSeedLine, toJs, type VarValue } from "./vars";
 
+/** Keep newer history while excluding the block that will run visibly. */
+export function otherReplayBlocks(blocks: string[], currentBlock: string): string[] {
+  return blocks.filter((source) => source !== currentBlock);
+}
+
 function addPatternNames(pattern: Pattern, names: Set<string>): void {
   switch (pattern.type) {
     case "Identifier":
@@ -79,10 +84,14 @@ export function buildHistoricalReplay(
   return blocks.map((source) => {
     const seeds = inputs.get(source) ?? {};
     if (lang === "javascript") {
-      return `Object.assign(__ocode_ctx, ${JSON.stringify(seedObject(seeds))});\n${javascriptBlock(source)}`;
+      return `try {\nObject.assign(__ocode_ctx, ${JSON.stringify(seedObject(seeds))});\n${javascriptBlock(source)}\n} catch {}`;
     }
     const seedLine = lang === "python" ? pythonSeedLine : shellSeedLine;
-    return [...Object.entries(seeds).map(([name, value]) => seedLine(name, value)), source].join("\n");
+    const block = [...Object.entries(seeds).map(([name, value]) => seedLine(name, value)), source].join("\n");
+    if (lang === "python") {
+      return `try:\n${block.split("\n").map((line) => "    " + line).join("\n")}\n    pass\nexcept Exception:\n    pass`;
+    }
+    return block;
   }).join("\n\n");
 }
 
@@ -98,9 +107,7 @@ export function buildJavascriptContextCode(
   postSeeds: Record<string, VarValue> = {},
   replayInputs?: ReadonlyMap<string, Record<string, VarValue>>,
 ): string {
-  const replay = replayInputs
-    ? buildHistoricalReplay("javascript", previousBlocks, replayInputs)
-    : previousBlocks.map(javascriptBlock).join("\n");
+  const replay = buildHistoricalReplay("javascript", previousBlocks, replayInputs);
   // Recorded inputs reconstruct each historical run. Apply current incoming
   // values after replay so earlier assignments cannot overwrite the latest state.
   const pre = JSON.stringify(seedObject(replayInputs ? preSeeds : { ...preSeeds, ...postSeeds }));

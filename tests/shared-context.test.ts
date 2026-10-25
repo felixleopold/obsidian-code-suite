@@ -1,14 +1,77 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   JAVASCRIPT_VAR_POSTAMBLE,
   buildJavascriptContextCode,
   buildHistoricalReplay,
+  otherReplayBlocks,
 } from "../src/shared-context";
 import type { VarValue } from "../src/vars";
 
 const marker = "__OCODE_VARS__=";
+
+test("running a single bash block twice appends exactly two lines", { skip: process.platform === "win32" }, (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "code-suite-replay-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const output = join(dir, "test.out");
+  const code = 'echo line >> "$CODE_SUITE_TEST_OUT"';
+  for (const history of [[], [code]]) {
+    const replay = buildHistoricalReplay("bash", otherReplayBlocks(history, code));
+    const result = spawnSync("bash", ["-c", replay + "\n" + code], {
+      encoding: "utf8",
+      env: { ...process.env, CODE_SUITE_TEST_OUT: output },
+    });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  assert.equal(readFileSync(output, "utf8"), "line\nline\n");
+});
+
+test("rerunning a reader retains newer history from upstream edits", (t) => {
+  const reader = "console.log(t);";
+  const result = runJavascript(otherReplayBlocks(["const t = 5;", reader, "const t = 10;"], reader), reader);
+  assert.deepEqual(result.output, ["10"]);
+
+  const pythonReader = "print(t)";
+  const replay = buildHistoricalReplay("python", otherReplayBlocks(["t = 5", pythonReader, "t = 10"], pythonReader));
+  const python = spawnSync(process.env.CODE_SUITE_PYTHON || (process.platform === "win32" ? "python" : "python3"), ["-c", replay + "\n" + pythonReader], { encoding: "utf8" });
+  if (python.error && !process.env.CODE_SUITE_PYTHON) { t.skip("Default Python interpreter is unavailable"); return; }
+  assert.equal(python.status, 0, python.stderr);
+  assert.equal(python.stdout.trim(), "10");
+});
+
+test("rerunning a definition survives failed dependents and continues replay", (t) => {
+  const first = 'function helper() { return 7; }\nconsole.log("ready");';
+  const second = "const dependent = helper();";
+  const third = "const independent = 42;";
+  runJavascript([], first);
+  runJavascript([first], second);
+  runJavascript([first, second], third);
+  const replayBlocks = otherReplayBlocks([first, second, third], first);
+  const result = runJavascript(replayBlocks, first);
+  assert.deepEqual(result.output, ["ready"]);
+  assert.equal(result.snapshot.independent, 42);
+  assert.throws(() => runJavascript(replayBlocks, 'throw Error("visible error");'), /visible error/);
+
+  const pythonFirst = 'def helper(): return 7\nprint("ready")';
+  const pythonSecond = "dependent = helper()";
+  const pythonThird = "independent = 42";
+  for (const [history, current] of [
+    [[], pythonFirst],
+    [[pythonFirst], pythonSecond],
+    [[pythonFirst, pythonSecond], pythonThird],
+    [otherReplayBlocks([pythonFirst, pythonSecond, pythonThird], pythonFirst), pythonFirst + "\nassert independent == 42"],
+  ] as const) {
+    const replay = buildHistoricalReplay("python", [...history]);
+    const python = spawnSync(process.env.CODE_SUITE_PYTHON || (process.platform === "win32" ? "python" : "python3"), ["-c", replay + "\n" + current], { encoding: "utf8" });
+    if (python.error && !process.env.CODE_SUITE_PYTHON) { t.skip("Default Python interpreter is unavailable"); return; }
+    assert.equal(python.status, 0, python.stderr);
+    assert.equal(python.stdout.trim(), "ready");
+  }
+});
 
 function runJavascript(
   previousBlocks: string[],
