@@ -97,6 +97,9 @@ test("recognizes quote, callout and list fences while preserving container prefi
     assert.equal(applyTab(doc, doc.indexOf("ordinary"), "2-spaces"), null);
     assert.equal(applyTab(doc, from - 1, "2-spaces"), null);
   }
+  // A tab after `>` is part of the quote prefix for indentation purposes.
+  const tabbed = "> ```py\n>\tx\n> ```";
+  assert.equal(applyTab(tabbed, tabbed.indexOf("x"), "2-spaces", tabbed.indexOf("x") + 1), "> ```py\n>\t  x\n> ```");
 });
 
 test("ignores indented pseudo-fences and ends fences at their container boundary", () => {
