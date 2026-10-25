@@ -96,7 +96,6 @@ import {
   JAVASCRIPT_VAR_POSTAMBLE,
   buildJavascriptContextCode,
   buildHistoricalReplay,
-  precedingReplayBlocks,
 } from "./shared-context";
 import {
   type TemplateContext,
@@ -1923,7 +1922,9 @@ export default class CodePlugin extends Plugin {
    * Layering (this order is what makes the live cross-language namespace work):
    *   1. `preSeeds`  — declared vars (vars block / frontmatter / table), the
    *                    *initial* values, injected before replay.
-   *   2. replay      — the current language's preceding session blocks, run with output
+   *   2. replay      — the current language's accumulated session blocks
+   *                    (including this block's own earlier run, so later blocks
+   *                    that depend on it still resolve), run with output
    *                    suppressed so they re-establish functions/imports/vars.
    *                    Each block first receives the cross-language inputs it
    *                    consumed on its successful run.
@@ -4717,10 +4718,12 @@ __ocode_emit_vars
     }
     const effectiveSeeds: Record<string, VarValue> = { ...preSeeds, ...postSeeds };
     if (useSharedCtx) {
-      // Exclude this block's previous run so its side effects happen only once.
-      // Later blocks may depend on its definitions, so stop replay before it
-      // rather than replaying those dependents without their prerequisite.
-      const prevBlocks = precedingReplayBlocks(this.noteContexts.get(sourcePath)?.get(lang) ?? [], code);
+      // Replay the full accumulated session, including this block's own earlier
+      // run. Dropping it would break later blocks that depend on its definitions
+      // (e.g. Run All, then re-run block 1: the replay of block 3 would hit a
+      // NameError before block 1 ever executes). Running once in the suppressed
+      // replay and once visibly matches notebook re-run semantics.
+      const prevBlocks = this.noteContexts.get(sourcePath)?.get(lang) ?? [];
       const hasSeed    = Object.keys(preSeeds).length > 0 || Object.keys(postSeeds).length > 0;
       if (prevBlocks.length > 0 || hasSeed || lang === "javascript") {
         // Replay each prior block's recorded stdin, in block order, so a replayed
