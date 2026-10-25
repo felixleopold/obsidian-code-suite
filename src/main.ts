@@ -4526,6 +4526,16 @@ __ocode_emit_vars
     let byCode = this.noteOutputs.get(notePath);
     if (!byCode) { byCode = new Map(); this.noteOutputs.set(notePath, byCode); }
     byCode.set(code, panel.outerHTML);
+    // Refresh cached Live Preview blocks after every run, including dialog reruns.
+    for (const cache of this.lpWrapperCache) {
+      if (cache.notePath !== notePath) continue;
+      for (const cached of cache.wrappers.values()) {
+        if (this.runningProcs.has(cached) || cached.dataset.ocodeSourcePath !== notePath ||
+            cached.dataset.ocodeHash !== codeHash(code.trim())) continue;
+        cached.querySelector(":scope > .ocode-output")?.remove();
+        this.restoreBlockOutput(notePath, code, cached);
+      }
+    }
     this.refreshBakedOutputVisibility(notePath);
   }
 
@@ -4646,6 +4656,15 @@ __ocode_emit_vars
       return;
     }
 
+    // Use the active block's Run button so invoking the command again cancels it.
+    for (const wrapper of this.runningProcs.keys()) {
+      if (this.runNotePaths.get(wrapper) === notePath && wrapper.dataset.ocodeLang === lang &&
+          wrapper.dataset.ocodeHash === codeHash(code.trim())) {
+        wrapper.querySelector<HTMLButtonElement>(".ocode-run-pill")?.click();
+        return;
+      }
+    }
+
     const wrapper = this.buildCodeBlockWrapper(
       code, lang, rawLang, undefined, notePath, options.flags.has("skip"),
       true, null, false, false, options,
@@ -4664,16 +4683,6 @@ __ocode_emit_vars
     modal.contentEl.appendChild(wrapper);
     modal.onClose = () => { this.runningProcs.get(wrapper)?.cancel(); };
     await this.runCode(code, lang, wrapper, runBtn, notePath);
-    // Update cached Live Preview blocks so the output appears when the cursor leaves.
-    for (const cache of this.lpWrapperCache) {
-      if (cache.notePath !== notePath) continue;
-      for (const cached of cache.wrappers.values()) {
-        if (cached.dataset.ocodeSourcePath !== notePath ||
-            cached.dataset.ocodeHash !== codeHash(code.trim())) continue;
-        cached.querySelector(":scope > .ocode-output")?.remove();
-        this.restoreBlockOutput(notePath, code, cached);
-      }
-    }
   }
 
   private async runCode(
