@@ -172,3 +172,16 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
   }
   return { fences, codeLines };
 }
+
+/** Return a closed Markdown fence and its code when the cursor is on one of its lines. */
+export function closedFenceAtLine(source: string, lineNumber: number): { info: string; code: string } | null {
+  const fence = scanMarkdownCode(source).fences.find((block) =>
+    block.closeLine !== undefined && block.openLine <= lineNumber && lineNumber <= block.closeLine,
+  );
+  if (!fence) return null;
+  const lines = source.split("\n");
+  return {
+    info: fence.info,
+    code: [...fence.lines].map(([line, { offset }]) => lines[line - 1].slice(offset)).join("\n"),
+  };
+}

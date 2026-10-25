@@ -89,15 +89,21 @@ MATLAB is deliberately separate from this replay and variable-sharing model. Its
 For the replay-based languages, there is no persistent kernel. When you run block 2, CodeSuite:
 
 1. Injects any declared variable seeds (from `vars` / `code_vars:` / tables).
-2. Re-runs all of this language's previous blocks **silently** (output suppressed) to reconstruct their state.
+2. Re-runs this language's other previously executed blocks **silently** (output suppressed), including newer history from edits, to reconstruct their state.
 3. Injects any values that another language changed at runtime.
 4. Runs your block, which is the only one producing visible output.
 
 This "replay" model means:
-- **Re-running a block is always safe and idempotent.** A block is excluded from its own replay, so it sees its declared seed value again rather than a stale mutation from a prior run.
+- **The clicked block runs once.** Its own previous run is excluded from replay; the other blocks still reconstruct the state it consumes.
 - **No background daemon.** Nothing persists on disk or in a background process.
 - **Within one language**, all state carries over (functions, objects, DataFrames). Across languages, only scalars and JSON-serializable values cross — see [Cross-language variables](#cross-language-variables).
 - **Replay is non-interactive, but your input is remembered.** No input bar is shown for silently-replayed blocks. Instead, the stdin you typed when a block last ran is recorded and fed back during replay, so an earlier block's `input()` (or `sys.stdin` / shell `read`) reproduces the value it produced — a *later* block sees the variable an interactive upstream block set (e.g. `name = input(...)` upstream, `print(name)` downstream). A read past the recorded input still hits EOF (a replayed `input()` raises `EOFError`, swallowed so it can't abort the block you actually ran), and passwords are never recorded. Stored input is cleared by **Clear Session**.
+
+Each run replays the note's other previously run blocks, repeating side effects such as file writes or network calls; turn shared execution context off for code with side effects.
+
+Python and JavaScript ignore exceptions in each replayed block and continue replay, so a block that depends on the excluded block cannot prevent the clicked block from running. Errors in the clicked block are still reported normally. Shells keep their normal error behaviour: an earlier block containing `set -e` can still abort replay and prevent the clicked block from running.
+
+If a replayed Python block fails before reading its recorded input, that input can be consumed by the next replayed block.
 
 ### Execution order matters
 
@@ -351,7 +357,7 @@ Because each run is a fresh process, cross-language values are passed through th
 | Layer | What happens |
 |---|---|
 | 1. Declared seeds | `vars` / `code_vars:` / table values are injected as the initial values |
-| 2. Replay | this language's own earlier blocks run silently, rebuilding its functions, imports, and variables |
+| 2. Replay | this language's other previously executed blocks run silently, including newer history; Python/JavaScript continue after a replayed block raises |
 | 3. Cross-language values | values *changed by other languages* are injected *after* replay — so they win over this language's own earlier assignments |
 | 4. Your block | runs normally, producing visible output |
 
@@ -363,7 +369,9 @@ Layer 3 is what makes `count = 30` (set by bash) reach Python without Python's o
 |---|---|
 | Var set by language A, read by language B | B gets A's latest value |
 | Var changed by B, C runs next | C gets B's value, re-typed if needed |
-| Re-running block A | A is excluded from its own replay — it sees the seed value again (no double-apply) |
+| Re-running block A | A runs once; its own previous run is excluded, while other history (including newer edits) replays |
+| A Python/JavaScript replayed block raises | replay continues with the next block; the clicked block's errors are still reported |
+| Replayed blocks write files or make network calls | those side effects happen again; disable shared execution context to avoid replay |
 | Var only read, never changed | ownership doesn't transfer; its type is preserved |
 | Functions, class definitions, DataFrames | stay within their language via replay — they are not JSON-serializable |
 

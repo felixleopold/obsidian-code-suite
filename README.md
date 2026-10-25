@@ -82,6 +82,11 @@ Inspired by [mProjectsCode’s Shiki Highlighter](https://github.com/mProjectsCo
 
 Run code directly from a code block — no terminal, no switching apps.
 
+To run a code block while editing it in Live Preview or Source mode, choose
+**Run code block at cursor** from the command palette. The output opens in a
+dialog so the block stays the same size. You can assign a shortcut under
+**Settings → Hotkeys**.
+
 | Language | Command | Notes |
 |---|---|---|
 | Python | `python3` | Matplotlib & Plotly graph capture, venv support |
