@@ -1,20 +1,18 @@
 import type { EditorState } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
 
-/** Keep nearby block source visible so Vim can move into it with j/k. */
+/** Keep nearby block source visible so keyboard navigation can enter it. */
 export function shouldRevealBlockSource(
   state: EditorState,
   from: number,
   to: number,
-  vimMode: boolean,
 ): boolean {
   const { doc, selection } = state;
   return selection.ranges.some((range) => {
     if (range.from <= to && range.to >= from) return true;
-    // Vim's vertical motions skip replacement widgets. Reveal the source one
-    // line early from either direction, before the next motion crosses it.
-    return vimMode
-      && doc.lineAt(range.from).number <= doc.lineAt(to).number + 1
+    // Vertical cursor movement skips replacement widgets, including ordinary
+    // arrow keys and Vim motions. Reveal source before the next move crosses it.
+    return doc.lineAt(range.from).number <= doc.lineAt(to).number + 1
       && doc.lineAt(range.to).number >= doc.lineAt(from).number - 1;
   });
 }
