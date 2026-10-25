@@ -561,7 +561,7 @@ export class CodeSettingTab extends PluginSettingTab {
           },
           {
             name: "Shared execution context",
-            desc: "Blocks in a note share one in-memory session, so later blocks can use earlier variables (Python, Bash, Zsh). Run blocks top to bottom.",
+            desc: "Blocks in a note share one in-memory session, so later blocks can use earlier variables (Python, Bash, Zsh). Run blocks top to bottom. Each run replays the note's other previously run blocks, repeating side effects such as file writes or network calls; turn this off for code with side effects.",
             render: this.toggle("sharedContext"),
           },
           {
