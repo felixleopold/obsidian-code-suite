@@ -2,6 +2,9 @@ import { countColumn } from "@codemirror/state";
 
 export interface MarkdownFence {
   lang: string;
+  info: string;
+  openLine: number;
+  closeLine?: number;
   fromLine: number;
   toLine: number;
   lines: Map<number, { offset: number; missingIndent: string }>;
@@ -57,6 +60,7 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
         if (columns - open.listIndent <= 3 && closing
             && closing[1][0] === open.marker && closing[1].length >= open.length) {
           open.block.toLine = lineNumber - 1;
+          open.block.closeLine = lineNumber;
           open = null;
         } else {
           let consumed = 0;
@@ -120,6 +124,8 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
     if (marker && (marker[1][0] === "~" || !marker[2].includes("`"))) {
       const block: MarkdownFence = {
         lang: marker[2].trim().split(/\s/)[0].toLowerCase(),
+        info: marker[2].trim(),
+        openLine: lineNumber,
         fromLine: lineNumber + 1,
         toLine: lineNumber,
         lines: new Map(),
@@ -142,4 +148,17 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
     paragraph = !blank && !indentedCode && !boundary;
   }
   return { fences, codeLines };
+}
+
+/** Return a closed Markdown fence and its code when the cursor is on one of its lines. */
+export function closedFenceAtLine(source: string, lineNumber: number): { info: string; code: string } | null {
+  const fence = scanMarkdownCode(source).fences.find((block) =>
+    block.closeLine !== undefined && block.openLine <= lineNumber && lineNumber <= block.closeLine,
+  );
+  if (!fence) return null;
+  const lines = source.split("\n");
+  return {
+    info: fence.info,
+    code: [...fence.lines].map(([line, { offset }]) => lines[line - 1].slice(offset)).join("\n"),
+  };
 }

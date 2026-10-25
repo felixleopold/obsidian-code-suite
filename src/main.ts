@@ -1,6 +1,7 @@
 import {
   App,
   Component,
+  type Editor,
   Menu,
   Plugin,
   MarkdownPostProcessorContext,
@@ -20,8 +21,8 @@ import {
 } from "obsidian";
 import { ViewPlugin, Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet, ViewUpdate } from "@codemirror/view";
-import { RangeSetBuilder, StateField, StateEffect, Prec, MapMode } from "@codemirror/state";
-import type { Extension, Text, EditorState, Range } from "@codemirror/state";
+import { RangeSetBuilder, StateField, StateEffect, Prec, MapMode, Text } from "@codemirror/state";
+import type { Extension, EditorState, Range } from "@codemirror/state";
 import { Highlighter, EXT_TO_LANG } from "./highlighter";
 import {
   parseBlockOptions,
@@ -36,6 +37,7 @@ import { CodeBlockWidget } from "./code-block-widget";
 import { ReadingCodeBlock } from "./reading-code-block";
 import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code";
 import { buildCodeBlockTabExtension } from "./code-block-tab";
+import { closedFenceAtLine } from "./markdown-code-context";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
 import {
@@ -543,8 +545,16 @@ export default class CodePlugin extends Plugin {
       this.registerCodeFileExtensions();
     }
 
-    // Command: import an external code file into the vault as a symlink alias
     if (Platform.isDesktop) {
+      this.addCommand({
+        id: "run-code-block-at-cursor",
+        name: "Run code block at cursor",
+        editorCallback: (editor, view) => {
+          if (view instanceof MarkdownView) void this.runCodeBlockAtCursor(editor, view);
+        },
+      });
+
+      // Import an external code file into the vault as a symlink alias.
       this.addCommand({
         id: "import-code-file-as-alias",
         name: "Import code file as alias\u2026",
@@ -4512,6 +4522,16 @@ __ocode_emit_vars
     let byCode = this.noteOutputs.get(notePath);
     if (!byCode) { byCode = new Map(); this.noteOutputs.set(notePath, byCode); }
     byCode.set(code, panel.outerHTML);
+    // Refresh cached Live Preview blocks after every run, including dialog reruns.
+    for (const cache of this.lpWrapperCache) {
+      if (cache.notePath !== notePath) continue;
+      for (const cached of cache.wrappers.values()) {
+        if (this.runningProcs.has(cached) || cached.dataset.ocodeSourcePath !== notePath ||
+            cached.dataset.ocodeHash !== codeHash(code.trim())) continue;
+        cached.querySelector(":scope > .ocode-output")?.remove();
+        this.restoreBlockOutput(notePath, code, cached);
+      }
+    }
     this.refreshBakedOutputVisibility(notePath);
   }
 
@@ -4608,6 +4628,58 @@ __ocode_emit_vars
   }
 
   // ─── Code Execution ──────────────────────────────────────────
+
+  private async runCodeBlockAtCursor(editor: Editor, view: MarkdownView): Promise<void> {
+    if (!this.settings.enableExecution) {
+      new Notice("Turn on code execution in CodeSuite settings to run this block.");
+      return;
+    }
+    const notePath = view.file?.path;
+    if (!notePath) return;
+
+    const block = closedFenceAtLine(editor.getValue(), editor.getCursor().line + 1);
+    if (!block) {
+      new Notice("Put the cursor inside a fenced code block to run it.");
+      return;
+    }
+    const rawLang = fenceLanguage(block.info);
+    const lang = this.highlighter.resolveLanguage(rawLang);
+    const code = block.code;
+    const options = parseBlockOptions(block.info);
+    if (this.passthroughLanguages().has(rawLang.toLowerCase()) || !isExecutable(lang) ||
+        isStaticBlock(options, this.settings.staticBlocksByDefault, code)) {
+      new Notice("CodeSuite can't run this block.");
+      return;
+    }
+
+    // Use the active block's Run button so invoking the command again cancels it.
+    for (const wrapper of this.runningProcs.keys()) {
+      if (this.runNotePaths.get(wrapper) === notePath && wrapper.dataset.ocodeLang === lang &&
+          wrapper.dataset.ocodeHash === codeHash(code.trim())) {
+        wrapper.querySelector<HTMLButtonElement>(".ocode-run-pill")?.click();
+        return;
+      }
+    }
+
+    const wrapper = this.buildCodeBlockWrapper(
+      code, lang, rawLang, undefined, notePath, options.flags.has("skip"),
+      true, null, false, false, options,
+    );
+    const runBtn = wrapper?.querySelector<HTMLButtonElement>(".ocode-run-pill");
+    if (!wrapper || !runBtn) {
+      new Notice("Couldn't prepare this code block to run.");
+      return;
+    }
+
+    const modal = new Modal(this.app);
+    modal.titleEl.setText(`CodeSuite output: ${rawLang}`);
+    modal.modalEl.addClass("ocode-run-current-dialog");
+    modal.contentEl.addClass("ocode-run-current-modal");
+    modal.open();
+    modal.contentEl.appendChild(wrapper);
+    modal.onClose = () => { this.runningProcs.get(wrapper)?.cancel(); };
+    await this.runCode(code, lang, wrapper, runBtn, notePath);
+  }
 
   private async runCode(
     code: string,
