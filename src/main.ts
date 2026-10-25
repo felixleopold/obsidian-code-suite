@@ -1,6 +1,7 @@
 import {
   App,
   Component,
+  type Editor,
   Menu,
   Plugin,
   MarkdownPostProcessorContext,
@@ -36,6 +37,7 @@ import { CodeBlockWidget } from "./code-block-widget";
 import { ReadingCodeBlock } from "./reading-code-block";
 import { processInlineCode, buildInlineCodeEditorExtension } from "./inline-code";
 import { buildCodeBlockTabExtension } from "./code-block-tab";
+import { codeBlockMoveAt, embedLine, type CodeBlockMove } from "./move-code-block";
 import { CodeSettingTab } from "./settings-tab";
 import { startExecution, isExecutable, type RunningProcess, type OutputFigure } from "./executor";
 import {
@@ -783,6 +785,19 @@ export default class CodePlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         if (!this.settings.bakedOutputs || !file || file.extension !== "md") return false;
         if (!checking) void this.clearBakedOutputsFromNote(file);
+        return true;
+      },
+    });
+
+    // Command: move the fenced block under the cursor into a code file and embed it (#28)
+    this.addCommand({
+      id: "move-code-block-to-file",
+      name: "Move code block to file\u2026",
+      editorCheckCallback: (checking, editor, ctx) => {
+        const note = ctx.file;
+        const move = note ? codeBlockMoveAt(editor.getValue(), editor.getCursor().line + 1) : null;
+        if (!note || !move) return false;
+        if (!checking) this.moveCodeBlockToFile(editor, note, move);
         return true;
       },
     });
@@ -2176,6 +2191,53 @@ __ocode_emit_vars
         try { this.registerExtensions([e], CODE_FILE_VIEW_TYPE); } catch { /* skip taken extension */ }
       }
     }
+  }
+
+  /**
+   * Move a fenced block into a new code file and replace the fence with an
+   * embed of it. The file lands where Obsidian puts new files for this note,
+   * named `<note>-<n>.<ext>` unless the user edits the path; the replacement
+   * is one editor change, so a single undo restores the fence.
+   */
+  private moveCodeBlockToFile(editor: Editor, note: TFile, move: CodeBlockMove): void {
+    const ext = move.ext;
+    if (!ext) {
+      new Notice(`No code file type matches ${move.lang ? `"${move.lang}"` : "this"} code block.`);
+      return;
+    }
+    const from = { line: move.openLine - 1, ch: 0 };
+    const to = { line: move.closeLine - 1, ch: editor.getLine(move.closeLine - 1).length };
+    const original = editor.getRange(from, to);
+    const folder = this.app.fileManager.getNewFileParent(note.path, `${note.basename}${ext}`);
+    let suggested = "";
+    for (let n = 1; !suggested || this.app.vault.getAbstractFileByPath(suggested); n++) {
+      suggested = normalizePath(`${folder.path}/${note.basename}-${n}${ext}`);
+    }
+
+    new MoveCodeBlockModal(this.app, suggested, move.dropped, async (input) => {
+      let target = normalizePath(input);
+      if (!target.toLowerCase().endsWith(ext)) target += ext;
+      if (this.app.vault.getAbstractFileByPath(target)) {
+        new Notice(`"${target}" already exists.`);
+        return false;
+      }
+      if (editor.getRange(from, to) !== original) {
+        new Notice("The code block changed. Run the command again.");
+        return true;
+      }
+      try {
+        const parent = target.slice(0, Math.max(0, target.lastIndexOf("/")));
+        if (parent && !this.app.vault.getAbstractFileByPath(parent)) await this.app.vault.createFolder(parent);
+        const file = await this.app.vault.create(target, `${move.code}\n`);
+        const link = this.app.fileManager.generateMarkdownLink(file, note.path, undefined, move.aliasFlags.join(" ") || undefined);
+        // generateMarkdownLink may return a plain link for code files; embedLine adds the `!`.
+        editor.replaceRange(embedLine(move.prefix, link), from, to);
+      } catch (err) {
+        new Notice(`Cannot create "${target}": ${err instanceof Error ? err.message : String(err)}`);
+        return false;
+      }
+      return true;
+    }).open();
   }
 
   /**
@@ -5295,6 +5357,61 @@ class ShellAliasNoticeModal extends Modal {
     const buttonRow = contentEl.createDiv({ cls: "modal-button-container" });
     const okBtn = buttonRow.createEl("button", { text: "Got it", cls: "mod-cta" });
     okBtn.addEventListener("click", () => this.close());
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
+
+/**
+ * Asks where to write a moved code block. `submit` resolves to whether the
+ * dialog should close, so a taken path keeps it open for another try.
+ */
+class MoveCodeBlockModal extends Modal {
+  constructor(
+    app: App,
+    private path: string,
+    private dropped: string[],
+    private submit: (path: string) => Promise<boolean>,
+  ) {
+    super(app);
+  }
+
+  onOpen(): void {
+    const { contentEl, titleEl } = this;
+    titleEl.setText("Move code block to file");
+
+    const input = contentEl.createEl("input", { type: "text", value: this.path, cls: "ocode-move-block-path" });
+    if (this.dropped.length) {
+      contentEl.createEl("p", {
+        text: `The embed can't keep these fence options, so they will be dropped: ${this.dropped.join(" ")}`,
+      });
+    }
+
+    let busy = false;
+    const move = async () => {
+      if (busy) return;
+      busy = true;
+      if (await this.submit(input.value.trim() || this.path)) this.close();
+      busy = false;
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void move();
+      }
+    });
+
+    const buttonRow = contentEl.createDiv({ cls: "modal-button-container" });
+    const cancelBtn = buttonRow.createEl("button", { text: "Cancel" });
+    cancelBtn.addEventListener("click", () => this.close());
+    const moveBtn = buttonRow.createEl("button", { text: "Move", cls: "mod-cta" });
+    moveBtn.addEventListener("click", () => { void move(); });
+
+    // Select the file name (not the folder or extension) for quick renaming.
+    input.focus();
+    input.setSelectionRange(this.path.lastIndexOf("/") + 1, this.path.lastIndexOf("."));
   }
 
   onClose(): void {

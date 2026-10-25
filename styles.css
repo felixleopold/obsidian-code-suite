@@ -1342,3 +1342,8 @@ body {
   visibility: hidden;
   pointer-events: none;
 }
+
+/* Path field in the "Move code block to file" dialog. */
+.ocode-move-block-path {
+  width: 100%;
+}
