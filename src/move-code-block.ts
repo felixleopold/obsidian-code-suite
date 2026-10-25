@@ -19,8 +19,9 @@ export interface CodeBlockMove {
   closeLine: number;
   /** Container prefix of the opening fence (quote markers, list indentation), kept on the embed line. */
   prefix: string;
-  /** Fence body without container prefixes. */
-  code: string;
+  /** File text: the fence body without container prefixes, one line per body line. */
+  content: string;
+  info: string;
   lang: string;
   /** Code file extension whose embed resolves to the same language, if any. */
   ext: string | null;
@@ -45,7 +46,10 @@ export function codeBlockMoveAt(source: string, lineNumber: number): CodeBlockMo
     openLine: fence.openLine,
     closeLine: fence.closeLine,
     prefix: opening.slice(0, opening.search(/`{3,}|~{3,}/)),
-    code: [...fence.lines].map(([line, { offset }]) => lines[line - 1].slice(offset)).join("\n"),
+    content: [...fence.lines]
+      .map(([line, { offset, partialTab }]) => `${partialTab}${lines[line - 1].slice(offset)}\n`)
+      .join(""),
+    info: fence.info,
     lang,
     ext,
     aliasFlags: options.filter(carried),

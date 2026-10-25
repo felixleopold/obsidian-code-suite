@@ -7,7 +7,8 @@ export interface MarkdownFence {
   closeLine?: number;
   fromLine: number;
   toLine: number;
-  lines: Map<number, { offset: number; missingIndent: string }>;
+  /** `partialTab`: columns of a tab split by the fence indent, which belong to the code as spaces. */
+  lines: Map<number, { offset: number; missingIndent: string; partialTab: string }>;
 }
 
 function columnWidth(line: string, from: number, to: number): number {
@@ -37,6 +38,8 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
     const line = lines[index];
     let offset = 0;
     let quotes = 0;
+    // A tab after the last `>` lends one column to the marker; the rest is indentation.
+    let tabSlack = 0;
     const quoteIndents: number[] = [];
     let quote: RegExpExecArray | null;
     while ((!open || quotes < open.quoteDepth)
@@ -45,6 +48,9 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
       const requiredIndent = open?.quoteIndents[quotes] ?? 0;
       if (indent < requiredIndent || indent > requiredIndent + 3) break;
       quoteIndents.push(requiredIndent);
+      tabSlack = quote[0].endsWith("\t")
+        ? columnWidth(line, offset + quote[0].length - 1, offset + quote[0].length) - 1
+        : 0;
       offset += quote[0].length;
       quotes++;
     }
@@ -63,15 +69,18 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
           open.block.closeLine = lineNumber;
           open = null;
         } else {
+          // With no fence indent to strip, a tab after `>` stays in the code whole.
+          const keepTab = tabSlack > 0 && open.indent === 0;
           let consumed = 0;
-          let width = 0;
+          let width = keepTab ? 0 : tabSlack;
           while (consumed < leading.length && width < open.indent) {
             consumed++;
-            width = columnWidth(line, offset, offset + consumed);
+            width = tabSlack + columnWidth(line, offset, offset + consumed);
           }
           open.block.lines.set(lineNumber, {
-            offset: offset + consumed,
+            offset: offset + consumed - (keepTab ? 1 : 0),
             missingIndent: " ".repeat(Math.max(0, open.indent - width)),
+            partialTab: " ".repeat(Math.max(0, width - open.indent)),
           });
           open.block.toLine = lineNumber;
         }
@@ -110,6 +119,7 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
         quoteDepth = quotes;
         listIndent = 0;
         listIndents = [];
+        tabSlack = 0;
         restOffset += nestedQuote[0].length;
       } else {
         break;
@@ -134,7 +144,7 @@ export function scanMarkdownCode(source: string): { fences: MarkdownFence[]; cod
       open = {
         marker: marker[1][0], length: marker[1].length,
         quoteDepth: quotes, quoteIndents, listIndent,
-        indent: listIndent + relativeIndent, block,
+        indent: tabSlack + listIndent + relativeIndent, block,
       };
       codeLines.add(lineNumber);
       paragraph = false;

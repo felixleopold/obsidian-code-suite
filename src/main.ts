@@ -2214,7 +2214,18 @@ __ocode_emit_vars
       suggested = normalizePath(`${folder.path}/${note.basename}-${n}${ext}`);
     }
 
-    new MoveCodeBlockModal(this.app, suggested, move.dropped, async (input) => {
+    // Embedded files are never static, so warn when a static block would gain a Run button.
+    const warnings: string[] = [];
+    if (move.dropped.length) {
+      warnings.push(`The embed can't keep these fence options, so they will be dropped: ${move.dropped.join(" ")}`);
+    }
+    if (isExecutable(EXT_TO_LANG[ext])
+        && isStaticBlock(parseBlockOptions(move.info), this.settings.staticBlocksByDefault, move.content)) {
+      warnings.push("This block is static here, but the embedded file will be runnable.");
+    }
+    const message = (err: unknown) => err instanceof Error ? err.message : String(err);
+
+    new MoveCodeBlockModal(this.app, suggested, warnings, async (input) => {
       let target = normalizePath(input);
       if (!target.toLowerCase().endsWith(ext)) target += ext;
       if (this.app.vault.getAbstractFileByPath(target)) {
@@ -2225,16 +2236,32 @@ __ocode_emit_vars
         new Notice("The code block changed. Run the command again.");
         return true;
       }
+      let file: TFile;
       try {
         const parent = target.slice(0, Math.max(0, target.lastIndexOf("/")));
         if (parent && !this.app.vault.getAbstractFileByPath(parent)) await this.app.vault.createFolder(parent);
-        const file = await this.app.vault.create(target, `${move.code}\n`);
-        const link = this.app.fileManager.generateMarkdownLink(file, note.path, undefined, move.aliasFlags.join(" ") || undefined);
-        // generateMarkdownLink may return a plain link for code files; embedLine adds the `!`.
-        editor.replaceRange(embedLine(move.prefix, link), from, to);
+        file = await this.app.vault.create(target, move.content);
       } catch (err) {
-        new Notice(`Cannot create "${target}": ${err instanceof Error ? err.message : String(err)}`);
+        new Notice(`Cannot create "${target}": ${message(err)}`);
         return false;
+      }
+      // The block may have been edited while the file was written; never replace newer text.
+      let failure = "The code block changed while the file was created, so it was left in place.";
+      if (editor.getRange(from, to) === original) {
+        try {
+          const link = this.app.fileManager.generateMarkdownLink(file, note.path, undefined, move.aliasFlags.join(" ") || undefined);
+          // generateMarkdownLink may return a plain link for code files; embedLine adds the `!`.
+          editor.replaceRange(embedLine(move.prefix, link), from, to);
+          return true;
+        } catch (err) {
+          failure = `Cannot replace the code block: ${message(err)}.`;
+        }
+      }
+      try {
+        await this.app.fileManager.trashFile(file);
+        new Notice(`${failure} "${target}" was removed.`);
+      } catch (err) {
+        new Notice(`${failure} "${target}" could not be removed: ${message(err)}`);
       }
       return true;
     }).open();
@@ -5372,7 +5399,7 @@ class MoveCodeBlockModal extends Modal {
   constructor(
     app: App,
     private path: string,
-    private dropped: string[],
+    private warnings: string[],
     private submit: (path: string) => Promise<boolean>,
   ) {
     super(app);
@@ -5383,11 +5410,7 @@ class MoveCodeBlockModal extends Modal {
     titleEl.setText("Move code block to file");
 
     const input = contentEl.createEl("input", { type: "text", value: this.path, cls: "ocode-move-block-path" });
-    if (this.dropped.length) {
-      contentEl.createEl("p", {
-        text: `The embed can't keep these fence options, so they will be dropped: ${this.dropped.join(" ")}`,
-      });
-    }
+    for (const warning of this.warnings) contentEl.createEl("p", { text: warning });
 
     let busy = false;
     const move = async () => {

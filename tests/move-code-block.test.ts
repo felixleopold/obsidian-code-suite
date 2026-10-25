@@ -8,7 +8,7 @@ test("finds the closed fence around the cursor, including its fence lines", () =
     const move = codeBlockMoveAt(doc, line);
     assert.equal(move?.openLine, 2);
     assert.equal(move?.closeLine, 4);
-    assert.equal(move?.code, "print(1)");
+    assert.equal(move?.content, "print(1)\n");
     assert.equal(move?.ext, ".py");
     assert.equal(move?.prefix, "");
   }
@@ -25,18 +25,37 @@ test("strips container prefixes from the code and keeps them for the embed line"
   const quoted = "> [!note]\n> ```js\n> const a = 1;\n>   nested();\n> ```";
   const callout = codeBlockMoveAt(quoted, 3);
   assert.equal(callout?.prefix, "> ");
-  assert.equal(callout?.code, "const a = 1;\n  nested();");
+  assert.equal(callout?.content, "const a = 1;\n  nested();\n");
 
   const listed = "- item\n  ```bash\n  echo hi\n  ```";
   const item = codeBlockMoveAt(listed, 3);
   assert.equal(item?.prefix, "  ");
-  assert.equal(item?.code, "echo hi");
+  assert.equal(item?.content, "echo hi\n");
   assert.equal(item?.ext, ".sh");
 
   const quotedItem = codeBlockMoveAt("> - ```ts\n>   let x = 1\n>   ```", 2);
   assert.equal(quotedItem?.prefix, "> - ");
-  assert.equal(quotedItem?.code, "let x = 1");
+  assert.equal(quotedItem?.content, "let x = 1\n");
   assert.equal(embedLine(quotedItem!.prefix, "![[a.ts]]"), "> - ![[a.ts]]");
+});
+
+test("strips only the container's columns from tab-indented code, as CommonMark does", () => {
+  const content = (doc: string) => codeBlockMoveAt(doc, 2)?.content;
+  // A tab split by the fence indent keeps its remaining columns as spaces.
+  assert.equal(content("  ```py\n\tx\n  ```"), "  x\n");
+  assert.equal(codeBlockMoveAt("- a\n\n  ```\n\tx\n  ```", 4)?.content, "  x\n");
+  assert.equal(content("  ```\n   \tx\n  ```"), " \tx\n");
+  // A tab after `>` lends one column to the marker and otherwise stays code.
+  assert.equal(content("> ```\n>\tx\n>  y\n> ```"), "\tx\n y\n");
+  assert.equal(content("> ```\n>\t\tx\n> ```"), "\t\tx\n");
+  assert.equal(content(">  ```\n>\tx\n> ```"), " x\n");
+  assert.equal(content(">\t```\n>\tx\n>\t```"), "x\n");
+});
+
+test("keeps the body's line count, including empty bodies", () => {
+  assert.equal(codeBlockMoveAt("```py\n```", 1)?.content, "");
+  assert.equal(codeBlockMoveAt("```py\n\n```", 1)?.content, "\n");
+  assert.equal(codeBlockMoveAt("```py\na\n\n```", 1)?.content, "a\n\n");
 });
 
 test("maps fence languages to an extension that embeds as the same language", () => {
