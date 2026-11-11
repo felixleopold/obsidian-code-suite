@@ -522,6 +522,8 @@ export default class CodePlugin extends Plugin {
   private _readingSyncTimer: number | null = null;
   /** Documents whose CodeSuite font-size override must be cleared on unload. */
   private _codeFontDocuments = new Set<Document>();
+  /** Documents whose CodeSuite theme vars/body classes must be cleared on unload. */
+  private _styledDocuments = new Set<Document>();
   /** True when no persisted data existed at load — i.e. a genuinely fresh install. */
   private _isFreshInstall = false;
   /** Monotonic id for html-preview iframes — used to match their resize messages. */
@@ -653,15 +655,7 @@ export default class CodePlugin extends Plugin {
       });
     }
 
-    if (this.settings.wideCodeBlocks) {
-      activeDocument.body.addClass("ocode-wide-blocks");
-    }
-
-    if (this.settings.wrapCodeInReadingView) {
-      activeDocument.body.addClass("ocode-wrap-code");
-    }
-
-    // Apply theme CSS variables
+    // Apply theme CSS variables and body classes (wide/wrap) across all windows.
     this.applyThemeColors();
     this.applyCodeFontSize();
 
@@ -734,6 +728,14 @@ export default class CodePlugin extends Plugin {
         this.applyCodeFontSize();
         this.forceLpRebuild();
         this.scheduleFrontmatterPanelSync();
+      })
+    );
+    // A popout window is a separate document that doesn't inherit the theme
+    // CSS variables set on the main window, so re-apply them when one opens.
+    this.registerEvent(
+      this.app.workspace.on("window-open", (_win, win) => {
+        this.applyThemeColors(win.document);
+        this.applyCodeFontSize();
       })
     );
     this.registerEvent(
@@ -943,8 +945,18 @@ export default class CodePlugin extends Plugin {
     this.matlabSessions.disposeAll();
     for (const cache of this.lpWrapperCache) this.disposeLpCache(cache);
     this.highlighter.dispose();
-    activeDocument.body.removeClass("ocode-wide-blocks");
-    activeDocument.body.removeClass("ocode-wrap-code");
+    for (const doc of this._styledDocuments) {
+      doc.body.removeClass("ocode-wide-blocks");
+      doc.body.removeClass("ocode-wrap-code");
+      const root = doc.documentElement;
+      for (const name of [
+        "--ocode-bg", "--ocode-header-bg", "--ocode-border", "--ocode-output-bg",
+        "--ocode-fg", "--ocode-muted", "--ocode-line-num",
+      ]) {
+        root.style.removeProperty(name);
+      }
+    }
+    this._styledDocuments.clear();
     for (const doc of this._codeFontDocuments) {
       doc.body.style.removeProperty("--ocode-code-font-size");
     }
@@ -1079,33 +1091,46 @@ export default class CodePlugin extends Plugin {
   }
 
   /** Apply the current theme's bg/fg colors as CSS variables on the body */
-  applyThemeColors() {
+  applyThemeColors(extraDocument?: Document) {
     const bg = this.highlighter.getThemeBg(this.settings.theme);
     const fg = this.highlighter.getThemeFg(this.settings.theme);
-    const root = activeDocument.documentElement;
-    if (bg) {
-      // For light themes, shift toward darker to create contrast;
-      // for dark themes, shift toward lighter. +/- are relative to bg.
-      const light = this.isLightColor(bg);
-      root.style.setProperty("--ocode-bg", bg);
-      root.style.setProperty("--ocode-header-bg", this.adjustBrightness(bg, light ? -10 : 10));
-      root.style.setProperty("--ocode-border",    this.adjustBrightness(bg, light ? -25 : 25));
-      root.style.setProperty("--ocode-output-bg", this.adjustBrightness(bg, light ?  -8 : -5));
+    const documents = this.allWorkspaceDocuments();
+    if (extraDocument) documents.add(extraDocument);
+    for (const doc of documents) {
+      this._styledDocuments.add(doc);
+      const root = doc.documentElement;
+      if (bg) {
+        // For light themes, shift toward darker to create contrast;
+        // for dark themes, shift toward lighter. +/- are relative to bg.
+        const light = this.isLightColor(bg);
+        root.style.setProperty("--ocode-bg", bg);
+        root.style.setProperty("--ocode-header-bg", this.adjustBrightness(bg, light ? -10 : 10));
+        root.style.setProperty("--ocode-border",    this.adjustBrightness(bg, light ? -25 : 25));
+        root.style.setProperty("--ocode-output-bg", this.adjustBrightness(bg, light ?  -8 : -5));
+      }
+      if (fg) {
+        root.style.setProperty("--ocode-fg", fg);
+        root.style.setProperty("--ocode-muted",    this.blendColor(fg, bg || "#000000", 0.6));
+        root.style.setProperty("--ocode-line-num", this.blendColor(fg, bg || "#000000", 0.35));
+      }
+      doc.body.toggleClass("ocode-wide-blocks", this.settings.wideCodeBlocks);
+      doc.body.toggleClass("ocode-wrap-code", this.settings.wrapCodeInReadingView);
     }
-    if (fg) {
-      root.style.setProperty("--ocode-fg", fg);
-      root.style.setProperty("--ocode-muted",    this.blendColor(fg, bg || "#000000", 0.6));
-      root.style.setProperty("--ocode-line-num", this.blendColor(fg, bg || "#000000", 0.35));
-    }
+  }
+
+  /** Every window's document, including popouts, plus the main window. */
+  private allWorkspaceDocuments(): Set<Document> {
+    const documents = new Set<Document>([activeDocument]);
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      documents.add(leaf.view.containerEl.ownerDocument);
+    });
+    return documents;
   }
 
   /** Apply or clear the optional code-size override in every workspace window. */
   applyCodeFontSize(): void {
-    const documents = new Set<Document>(this._codeFontDocuments);
-    documents.add(activeDocument);
-    this.app.workspace.iterateAllLeaves((leaf) => {
-      documents.add(leaf.view.containerEl.ownerDocument);
-    });
+    const documents = this.allWorkspaceDocuments();
+    for (const doc of this._codeFontDocuments) documents.add(doc);
 
     for (const doc of documents) {
       this._codeFontDocuments.add(doc);
