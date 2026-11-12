@@ -738,6 +738,13 @@ export default class CodePlugin extends Plugin {
         this.applyCodeFontSize();
       })
     );
+    // Don't keep closed popout documents alive until the plugin unloads.
+    this.registerEvent(
+      this.app.workspace.on("window-close", (_win, win) => {
+        this._styledDocuments.delete(win.document);
+        this._codeFontDocuments.delete(win.document);
+      })
+    );
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         this.forceLpRebuild();
