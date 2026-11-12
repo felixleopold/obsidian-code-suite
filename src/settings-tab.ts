@@ -429,12 +429,12 @@ export class CodeSettingTab extends PluginSettingTab {
           {
             name: "Wide code blocks",
             desc: "Let code blocks extend beyond the normal content width.",
-            render: this.toggle("wideCodeBlocks", (v) => activeDocument.body.toggleClass("ocode-wide-blocks", v)),
+            render: this.toggle("wideCodeBlocks", () => this.plugin.applyThemeColors()),
           },
           {
             name: "Soft-wrap long lines",
             desc: "Wrap long lines in reading view instead of scrolling horizontally.",
-            render: this.toggle("wrapCodeInReadingView", (v) => activeDocument.body.toggleClass("ocode-wrap-code", v)),
+            render: this.toggle("wrapCodeInReadingView", () => this.plugin.applyThemeColors()),
           },
           {
             name: "Collapse code blocks by default",
