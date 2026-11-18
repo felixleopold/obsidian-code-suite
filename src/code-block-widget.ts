@@ -1,4 +1,21 @@
+import type { EditorState } from "@codemirror/state";
 import { EditorView, WidgetType } from "@codemirror/view";
+
+/** Keep nearby block source visible so keyboard navigation can enter it. */
+export function shouldRevealBlockSource(
+  state: EditorState,
+  from: number,
+  to: number,
+): boolean {
+  const { doc, selection } = state;
+  return selection.ranges.some((range) => {
+    if (range.from <= to && range.to >= from) return true;
+    // Vertical cursor movement skips replacement widgets, including ordinary
+    // arrow keys and Vim motions. Reveal source before the next move crosses it.
+    return doc.lineAt(range.from).number <= doc.lineAt(to).number + 1
+      && doc.lineAt(range.to).number >= doc.lineAt(from).number - 1;
+  });
+}
 
 // CodeMirror can replace an equal WidgetType without calling toDOM again.
 // Mount cleanup therefore belongs to the DOM, not the transient widget object.
